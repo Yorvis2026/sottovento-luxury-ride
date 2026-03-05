@@ -227,7 +227,7 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
             </Button>
 
             <p className="text-sm text-muted-foreground text-center">
-              We&apos;ll confirm your booking by text, call, or email.
+              We&apos;ll confirm your booking by text or email.
             </p>
 
             <p className="text-xs text-muted-foreground text-center">
