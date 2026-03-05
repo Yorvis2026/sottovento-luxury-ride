@@ -52,8 +52,8 @@ export function Footer() {
           <div>
             <h4 className="font-sans text-sm font-light tracking-wider mb-4">Contact</h4>
             <div className="space-y-2 text-sm text-muted-foreground">
-              <div>Phone: 321-588-2020</div>
-              <div className="break-all">alafinluxury87@yahoo.com</div>
+              <div>Phone: +1 (407) 383-0647</div>
+              <div className="break-all">contact@sottoventoluxuryride.com</div>
               <div>Orlando, FL</div>
             </div>
             <div className="flex gap-4 mt-4">

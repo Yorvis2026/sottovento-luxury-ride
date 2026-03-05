@@ -60,9 +60,9 @@ export function Header() {
 
           {/* CTA Buttons */}
           <div className="hidden md:flex items-center gap-4">
-            <a href="tel:321-588-2020" className="flex items-center gap-2 text-sm hover:text-accent transition-colors">
+            <a href="tel:+14073830647" className="flex items-center gap-2 text-sm hover:text-accent transition-colors">
               <Phone className="w-4 h-4" />
-              <span>321-588-2020</span>
+              <span>+1 (407) 383-0647</span>
             </a>
             <Button asChild size="sm" className="tracking-wider">
               <Link href="#booking">BOOK YOUR RIDE</Link>
@@ -94,11 +94,11 @@ export function Header() {
                 </Link>
               ))}
               <a
-                href="tel:321-588-2020"
+                href="tel:+14073830647"
                 className="flex items-center gap-2 text-sm hover:text-accent transition-colors py-2"
               >
                 <Phone className="w-4 h-4" />
-                <span>321-588-2020</span>
+                <span>+1 (407) 383-0647</span>
               </a>
               <Button asChild className="w-full mt-2">
                 <Link href="#booking">BOOK YOUR RIDE</Link>

@@ -50,7 +50,7 @@ ${formData.flightNumber ? `Flight: ${formData.flightNumber}` : ""}
 ${formData.notes ? `Notes: ${formData.notes}` : ""}
     `.trim()
 
-    const whatsappUrl = `https://wa.me/13215882020?text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://wa.me/14073830647?text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, "_blank")
   }
 

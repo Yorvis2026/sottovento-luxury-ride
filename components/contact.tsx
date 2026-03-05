@@ -24,7 +24,7 @@ export function Contact() {
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-2">Phone</div>
-                <div className="font-light tracking-wide">tel:+14073830647</div>
+                <div className="font-light tracking-wide">+1 (407) 383-0647</div>
               </div>
             </a>
 
