@@ -21,6 +21,7 @@ export function BookingSection() {
     passengers: "",
     serviceType: "",
     vehicleType: "",
+    luggage: "",
     flightNumber: "",
     notes: "",
   })
@@ -42,6 +43,7 @@ Drop-off: ${formData.dropoffLocation}
 Date: ${formData.date}
 Time: ${formData.time}
 Passengers: ${formData.passengers}
+Luggage: ${formData.luggage}
 
 Service: ${formData.serviceType}
 Vehicle: ${formData.vehicleType}
@@ -198,6 +200,23 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
                     <SelectItem value="suv">SUV</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground">Luggage *</label>
+                <select
+                  value={formData.luggage}
+                  onChange={(e) => setFormData({ ...formData, luggage: e.target.value })}
+                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
+                  required
+                >
+                  <option value="">Select luggage</option>
+                  <option value="No luggage">No luggage</option>
+                  <option value="1-2 bags">1–2 bags</option>
+                  <option value="3-4 bags">3–4 bags</option>
+                  <option value="5+ bags">5+ bags</option>
+                  <option value="Oversized / stroller / wheelchair">Oversized / stroller / wheelchair</option>
+                </select>
               </div>
 
               <div className="space-y-2">
