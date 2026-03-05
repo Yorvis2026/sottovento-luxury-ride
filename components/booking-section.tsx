@@ -194,9 +194,8 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
                     <SelectValue placeholder="Select vehicle" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="escalade">Cadillac Escalade ESV</SelectItem>
-                    <SelectItem value="suburban">Chevrolet Suburban</SelectItem>
-                    <SelectItem value="mercedes">Mercedes-Benz S-Class</SelectItem>
+                    <SelectItem value="sedan">Sedan</SelectItem>
+                    <SelectItem value="suv">SUV</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -224,8 +223,12 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
             </div>
 
             <Button type="submit" size="lg" className="w-full tracking-wider">
-              SEND BOOKING REQUEST VIA WHATSAPP
+              SEND BOOKING REQUEST
             </Button>
+
+            <p className="text-sm text-muted-foreground text-center">
+              We&apos;ll confirm your booking by text, call, or email.
+            </p>
 
             <p className="text-xs text-muted-foreground text-center">
               By submitting this form, you agree to our terms and conditions. We&apos;ll contact you shortly to confirm
