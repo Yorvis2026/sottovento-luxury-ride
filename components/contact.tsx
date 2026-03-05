@@ -16,7 +16,7 @@ export function Contact() {
 
           <div className="grid md:grid-cols-3 gap-8">
             <a
-              href="tel:321-588-2020"
+              href="tel:+14073830647"
               className="group p-8 bg-card border border-border hover:border-accent transition-all duration-300 text-center space-y-4"
             >
               <div className="w-12 h-12 border border-accent mx-auto flex items-center justify-center group-hover:bg-accent/10 transition-colors">
@@ -24,12 +24,12 @@ export function Contact() {
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-2">Phone</div>
-                <div className="font-light tracking-wide">321-588-2020</div>
+                <div className="font-light tracking-wide">tel:+14073830647</div>
               </div>
             </a>
 
             <a
-              href="mailto:alafinluxury87@yahoo.com"
+              href="mailto:contact@sottoventoluxuryride.com"
               className="group p-8 bg-card border border-border hover:border-accent transition-all duration-300 text-center space-y-4"
             >
               <div className="w-12 h-12 border border-accent mx-auto flex items-center justify-center group-hover:bg-accent/10 transition-colors">
@@ -37,7 +37,7 @@ export function Contact() {
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-2">Email</div>
-                <div className="font-light tracking-wide text-sm break-all">alafinluxury87@yahoo.com</div>
+                <div className="font-light tracking-wide text-sm break-all">contact@sottoventoluxuryride.com</div>
               </div>
             </a>
 
