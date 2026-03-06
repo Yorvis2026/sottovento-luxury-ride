@@ -248,11 +248,6 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
             <p className="text-sm text-muted-foreground text-center">
               We&apos;ll confirm your booking by text or email.
             </p>
-
-            <p className="text-xs text-muted-foreground text-center">
-              By submitting this form, you agree to our terms and conditions. We&apos;ll contact you shortly to confirm
-              your booking.
-            </p>
           </form>
         </div>
       </div>
