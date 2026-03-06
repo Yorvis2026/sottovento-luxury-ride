@@ -39,38 +39,27 @@ export function BookingSection() {
         })
       : null
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-
-    // Create WhatsApp message
-    const message = `
-*New Booking Request*
-
+  const requestText = `SOTTOVENTO BOOKING REQUEST
 Name: ${formData.name}
 Phone: ${formData.phone}
 Email: ${formData.email}
-
 Pickup Zone: ${formData.pickupZone}
 Drop-off Zone: ${formData.dropoffZone}
-Guaranteed Price: $${price ?? "N/A"}
-
-Pickup: ${formData.pickupLocation}
-Drop-off: ${formData.dropoffLocation}
-
-Date: ${formData.date}
-Time: ${formData.time}
+Vehicle: ${formData.vehicleType}
 Passengers: ${formData.passengers}
 Luggage: ${formData.luggage}
+Date/Time: ${formData.date} ${formData.time}
+Pickup: ${formData.pickupLocation}
+Drop-off: ${formData.dropoffLocation}
+Flight #: ${formData.flightNumber || "N/A"}
+Notes: ${formData.notes || "N/A"}
+Guaranteed Price: $${price ?? "N/A"}
+`
 
-Service: ${formData.serviceType}
-Vehicle: ${formData.vehicleType}
-${formData.flightNumber ? `Flight: ${formData.flightNumber}` : ""}
+  const encoded = encodeURIComponent(requestText)
 
-${formData.notes ? `Notes: ${formData.notes}` : ""}
-    `.trim()
-
-    const whatsappUrl = `https://wa.me/14073830647?text=${encodeURIComponent(message)}`
-    window.open(whatsappUrl, "_blank")
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
   }
 
   return (
@@ -310,12 +299,36 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
               </div>
             </div>
 
-            <Button type="submit" size="lg" className="w-full tracking-wider">
-              SEND BOOKING REQUEST
-            </Button>
+            <div className="grid md:grid-cols-3 gap-3">
+              {/* Email */}
+              <a
+                href={`mailto:contact@sottoventoluxuryride.com?subject=${encodeURIComponent("Sottovento Booking Request")}&body=${encoded}`}
+                className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
+              >
+                Send via Email
+              </a>
 
-            <p className="text-sm text-muted-foreground text-center">
-              We&apos;ll confirm your booking by text or email.
+              {/* SMS */}
+              <a
+                href={`sms:+14073830647?&body=${encoded}`}
+                className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
+              >
+                Send via Text (SMS)
+              </a>
+
+              {/* WhatsApp */}
+              <a
+                href={`https://wa.me/14073830647?text=${encoded}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
+              >
+                Send via WhatsApp
+              </a>
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              Choose how you&apos;d like to send your request. No app is required.
             </p>
           </form>
         </div>
