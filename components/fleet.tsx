@@ -2,32 +2,29 @@ import { Check } from "lucide-react"
 
 const vehicles = [
   {
-    name: "Cadillac Escalade ESV",
-    year: "2024",
+    name: "Cadillac Escalade",
     capacity: "Up to 6 passengers",
-    image: "/luxury-black-cadillac-escalade-esv-exterior.jpg",
+    image: "/images/escalade.jpg",
   },
   {
     name: "Chevrolet Suburban",
-    year: "2024",
     capacity: "Up to 6 passengers",
-    image: "/luxury-black-chevrolet-suburban-exterior.jpg",
+    image: "/images/suburban.jpg",
   },
   {
     name: "Mercedes-Benz S-Class",
-    year: "2024",
     capacity: "Up to 3 passengers",
-    image: "/luxury-black-mercedes-s-class-exterior.jpg",
+    image: "/images/sclass.jpg",
   },
 ]
 
 const amenities = [
-  "Premium leather seats",
-  "Tri-zone climate control",
-  "USB charging ports",
-  "Privacy glass",
-  "Premium sound system",
-  "Complimentary water bottles",
+  "Complimentary Bottled Water",
+  "Phone Chargers Available",
+  "Leather Interior Vehicles",
+  "Professional Chauffeurs",
+  "Privacy Glass",
+  "Premium Sound System",
 ]
 
 export function Fleet() {
@@ -58,10 +55,9 @@ export function Fleet() {
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
                 </div>
-                <div className="p-6 space-y-4">
+                  <div className="p-6 space-y-4">
                   <div>
                     <h3 className="font-sans text-xl font-light tracking-wide">{vehicle.name}</h3>
-                    <p className="text-sm text-muted-foreground">{vehicle.year}</p>
                   </div>
                   <div className="text-sm text-accent">{vehicle.capacity}</div>
                 </div>
