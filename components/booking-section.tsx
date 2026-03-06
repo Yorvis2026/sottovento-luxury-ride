@@ -8,23 +8,36 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ZONES, type ZoneId } from "@/lib/zones"
+import { getGuaranteedPrice, type VehicleType } from "@/lib/pricing"
 
 export function BookingSection() {
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
     email: "",
+    pickupZone: "" as ZoneId | "",
+    dropoffZone: "" as ZoneId | "",
     pickupLocation: "",
     dropoffLocation: "",
     date: "",
     time: "",
     passengers: "",
     serviceType: "",
-    vehicleType: "",
+    vehicleType: "SUV" as VehicleType,
     luggage: "",
     flightNumber: "",
     notes: "",
   })
+
+  const price =
+    formData.pickupZone && formData.dropoffZone && formData.vehicleType
+      ? getGuaranteedPrice({
+          pickupZone: formData.pickupZone as ZoneId,
+          dropoffZone: formData.dropoffZone as ZoneId,
+          vehicle: formData.vehicleType as VehicleType,
+        })
+      : null
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,6 +49,10 @@ export function BookingSection() {
 Name: ${formData.name}
 Phone: ${formData.phone}
 Email: ${formData.email}
+
+Pickup Zone: ${formData.pickupZone}
+Drop-off Zone: ${formData.dropoffZone}
+Guaranteed Price: $${price ?? "N/A"}
 
 Pickup: ${formData.pickupLocation}
 Drop-off: ${formData.dropoffLocation}
@@ -104,6 +121,58 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
                 />
               </div>
 
+              {/* Zone selectors */}
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground">Pickup Zone *</label>
+                <select
+                  value={formData.pickupZone}
+                  onChange={(e) => setFormData({ ...formData, pickupZone: e.target.value as ZoneId })}
+                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
+                  required
+                >
+                  <option value="">Select pickup zone</option>
+                  {ZONES.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground">Drop-off Zone *</label>
+                <select
+                  value={formData.dropoffZone}
+                  onChange={(e) => setFormData({ ...formData, dropoffZone: e.target.value as ZoneId })}
+                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
+                  required
+                >
+                  <option value="">Select drop-off zone</option>
+                  {ZONES.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Guaranteed price display */}
+              <div className="md:col-span-2">
+                {price !== null ? (
+                  <div className="border border-border rounded-md p-4 text-center">
+                    <div className="text-sm text-muted-foreground">Guaranteed Price</div>
+                    <div className="text-3xl font-light tracking-wider">${price}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Guaranteed for standard service within selected zones. Extra stops / wait time may add fees.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground text-center">
+                    Select pickup zone, drop-off zone, and vehicle to see your guaranteed price.
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="pickupLocation">Pickup Location *</Label>
                 <Input
@@ -169,6 +238,23 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
               </div>
 
               <div className="space-y-2">
+                <label className="text-sm text-muted-foreground">Luggage *</label>
+                <select
+                  value={formData.luggage}
+                  onChange={(e) => setFormData({ ...formData, luggage: e.target.value })}
+                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
+                  required
+                >
+                  <option value="">Select luggage</option>
+                  <option value="No luggage">No luggage</option>
+                  <option value="1-2 bags">1–2 bags</option>
+                  <option value="3-4 bags">3–4 bags</option>
+                  <option value="5+ bags">5+ bags</option>
+                  <option value="Oversized / stroller / wheelchair">Oversized / stroller / wheelchair</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="serviceType">Type of Service *</Label>
                 <Select
                   value={formData.serviceType}
@@ -190,33 +276,16 @@ ${formData.notes ? `Notes: ${formData.notes}` : ""}
                 <Label htmlFor="vehicleType">Preferred Vehicle</Label>
                 <Select
                   value={formData.vehicleType}
-                  onValueChange={(value) => setFormData({ ...formData, vehicleType: value })}
+                  onValueChange={(value) => setFormData({ ...formData, vehicleType: value as VehicleType })}
                 >
                   <SelectTrigger id="vehicleType">
                     <SelectValue placeholder="Select vehicle" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="sedan">Sedan</SelectItem>
-                    <SelectItem value="suv">SUV</SelectItem>
+                    <SelectItem value="Sedan">Sedan</SelectItem>
+                    <SelectItem value="SUV">SUV</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm text-muted-foreground">Luggage *</label>
-                <select
-                  value={formData.luggage}
-                  onChange={(e) => setFormData({ ...formData, luggage: e.target.value })}
-                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
-                  required
-                >
-                  <option value="">Select luggage</option>
-                  <option value="No luggage">No luggage</option>
-                  <option value="1-2 bags">1–2 bags</option>
-                  <option value="3-4 bags">3–4 bags</option>
-                  <option value="5+ bags">5+ bags</option>
-                  <option value="Oversized / stroller / wheelchair">Oversized / stroller / wheelchair</option>
-                </select>
               </div>
 
               <div className="space-y-2">
