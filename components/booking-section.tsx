@@ -58,8 +58,35 @@ Guaranteed Price: $${price ?? "N/A"}
 
   const encoded = encodeURIComponent(requestText)
 
+  const [paying, setPaying] = useState(false)
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+  }
+
+  const handlePayment = async () => {
+    if (!price) return
+    setPaying(true)
+    try {
+      const response = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          price,
+          vehicle: formData.vehicleType,
+          pickupZone: formData.pickupZone,
+          dropoffZone: formData.dropoffZone,
+        }),
+      })
+      const data = await response.json()
+      if (data.url) {
+        window.location.href = data.url
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setPaying(false)
+    }
   }
 
   return (
@@ -298,6 +325,17 @@ Guaranteed Price: $${price ?? "N/A"}
                 />
               </div>
             </div>
+
+            {price !== null && (
+              <button
+                type="button"
+                onClick={handlePayment}
+                disabled={paying}
+                className="w-full bg-accent text-accent-foreground py-3 rounded-md font-medium tracking-wide hover:opacity-90 transition disabled:opacity-50"
+              >
+                {paying ? "Redirecting..." : `Confirm & Pay Securely — $${price}`}
+              </button>
+            )}
 
             <div className="grid md:grid-cols-3 gap-3">
               {/* Email */}
