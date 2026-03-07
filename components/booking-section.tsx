@@ -155,37 +155,43 @@ Guaranteed Price: $${price ?? "N/A"}
 
               {/* Zone selectors */}
               <div className="space-y-2">
-                <label className="text-sm text-muted-foreground">Pickup Zone *</label>
-                <select
+                <Label>Pickup Zone *</Label>
+                <Select
                   value={formData.pickupZone}
-                  onChange={(e) => setFormData({ ...formData, pickupZone: e.target.value as ZoneId })}
-                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
+                  onValueChange={(value) => setFormData({ ...formData, pickupZone: value as ZoneId })}
                   required
                 >
-                  <option value="">Select pickup zone</option>
-                  {ZONES.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select pickup zone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ZONES.map((z) => (
+                      <SelectItem key={z.id} value={z.id}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-muted-foreground">Drop-off Zone *</label>
-                <select
+                <Label>Drop-off Zone *</Label>
+                <Select
                   value={formData.dropoffZone}
-                  onChange={(e) => setFormData({ ...formData, dropoffZone: e.target.value as ZoneId })}
-                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
+                  onValueChange={(value) => setFormData({ ...formData, dropoffZone: value as ZoneId })}
                   required
                 >
-                  <option value="">Select drop-off zone</option>
-                  {ZONES.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select drop-off zone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ZONES.map((z) => (
+                      <SelectItem key={z.id} value={z.id}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Guaranteed price display */}
