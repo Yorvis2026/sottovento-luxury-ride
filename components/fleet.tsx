@@ -5,16 +5,31 @@ const vehicles = [
     name: "Cadillac Escalade",
     capacity: "Up to 6 passengers",
     image: "/images/escalade.jpg",
+    bullets: [
+      "Seats up to 6 passengers",
+      "Premium leather interior",
+      "Ideal for VIP and airport transfers",
+    ],
   },
   {
     name: "Chevrolet Suburban",
     capacity: "Up to 6 passengers",
     image: "/images/suburban.jpg",
+    bullets: [
+      "Large luggage capacity",
+      "Premium leather interior",
+      "Perfect for families and cruise port rides",
+    ],
   },
   {
     name: "Mercedes-Benz S-Class",
     capacity: "Up to 3 passengers",
     image: "/images/sclass.jpg",
+    bullets: [
+      "Luxury comfort",
+      "Premium leather interior",
+      "Corporate transportation",
+    ],
   },
 ]
 
@@ -53,13 +68,22 @@ export function Fleet() {
                     src={vehicle.image || "/placeholder.svg"}
                     alt={vehicle.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    loading="lazy"
                   />
                 </div>
-                  <div className="p-6 space-y-4">
+                <div className="p-6 space-y-4">
                   <div>
                     <h3 className="font-sans text-xl font-light tracking-wide">{vehicle.name}</h3>
                   </div>
                   <div className="text-sm text-accent">{vehicle.capacity}</div>
+                  <ul className="space-y-1.5">
+                    {vehicle.bullets.map((bullet, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <span className="text-accent mt-0.5">•</span>
+                        {bullet}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             ))}

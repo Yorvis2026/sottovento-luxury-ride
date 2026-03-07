@@ -43,6 +43,27 @@ export function Testimonials() {
               </div>
             ))}
           </div>
+
+          {/* Trust Bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 border-t border-border">
+            <div className="flex gap-1">
+              {[...Array(5)].map((_, i) => (
+                <svg key={i} width="16" height="16" viewBox="0 0 24 24" fill="#C8A96A">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              ))}
+            </div>
+            <span className="text-sm text-muted-foreground tracking-wide">
+              Rated 5 Stars by Our Clients
+            </span>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
+              <span>Google Reviews</span>
+              <span>&bull;</span>
+              <span>TripAdvisor</span>
+              <span>&bull;</span>
+              <span>Yelp</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>

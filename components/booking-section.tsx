@@ -94,10 +94,14 @@ Guaranteed Price: $${price ?? "N/A"}
       <div className="container mx-auto px-4">
         <div className="max-w-3xl mx-auto space-y-12">
           <div className="text-center space-y-4 animate-slide-up">
-            <h2 className="font-sans text-4xl md:text-5xl font-light tracking-wider">
-              Book Your <span className="text-accent">Ride</span>
+            <h2
+              className="font-light tracking-wider text-center"
+              style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
+            >
+              Reserve Your Luxury Ride in{" "}
+              <span className="text-accent">Less Than 30 Seconds</span>
             </h2>
-            <p className="text-muted-foreground">Reserve your luxury transportation experience</p>
+            <p className="text-muted-foreground text-center">Guaranteed price. No surprises.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6 bg-background border border-border p-8 md:p-12">
