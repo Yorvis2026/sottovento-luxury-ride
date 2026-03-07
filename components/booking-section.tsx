@@ -59,13 +59,22 @@ Guaranteed Price: $${price ?? "N/A"}
   const encoded = encodeURIComponent(requestText)
 
   const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState("")
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
   }
 
   const handlePayment = async () => {
-    if (!price) return
+    setPayError("")
+    if (!formData.pickupZone || !formData.dropoffZone) {
+      setPayError("Please select a pickup zone and drop-off zone to see your guaranteed price.")
+      return
+    }
+    if (!price) {
+      setPayError("No price available for this route. Please contact us directly.")
+      return
+    }
     setPaying(true)
     try {
       const response = await fetch("/api/create-checkout-session", {
@@ -81,8 +90,11 @@ Guaranteed Price: $${price ?? "N/A"}
       const data = await response.json()
       if (data.url) {
         window.location.href = data.url
+      } else if (data.error) {
+        setPayError("Payment error: " + data.error)
       }
-    } catch (err) {
+    } catch (err: any) {
+      setPayError("Connection error. Please try again or use Email/WhatsApp below.")
       console.error(err)
     } finally {
       setPaying(false)
@@ -330,15 +342,22 @@ Guaranteed Price: $${price ?? "N/A"}
               </div>
             </div>
 
-            {price !== null && (
-              <button
-                type="button"
-                onClick={handlePayment}
-                disabled={paying}
-                className="w-full bg-accent text-accent-foreground py-3 rounded-md font-medium tracking-wide hover:opacity-90 transition disabled:opacity-50"
-              >
-                {paying ? "Redirecting..." : `Confirm & Pay Securely — $${price}`}
-              </button>
+            <button
+              type="button"
+              onClick={handlePayment}
+              disabled={paying}
+              className="w-full py-3 rounded-md font-medium tracking-wide hover:opacity-90 transition disabled:opacity-50"
+              style={{ backgroundColor: "#C8A96A", color: "#000" }}
+            >
+              {paying
+                ? "Redirecting to payment..."
+                : price
+                ? `Confirm & Pay Securely — $${price}`
+                : "Confirm & Pay Securely"}
+            </button>
+
+            {payError && (
+              <p className="text-sm text-red-500 text-center">{payError}</p>
             )}
 
             <div className="grid md:grid-cols-3 gap-3">
