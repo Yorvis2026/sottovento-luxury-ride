@@ -1,3 +1,4 @@
+"use client"
 import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 
@@ -44,8 +45,7 @@ export function Hero() {
                 display: "inline-block",
                 transition: "opacity 0.2s",
               }}
-              onMouseOver={(e) => (e.currentTarget.style.opacity = "0.85")}
-              onMouseOut={(e) => (e.currentTarget.style.opacity = "1")}
+              className="book-cta-btn"
             >
               BOOK YOUR RIDE
             </a>
