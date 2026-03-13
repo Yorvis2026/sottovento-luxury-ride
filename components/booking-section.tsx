@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -10,7 +9,15 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ZONES, PACKAGE_TO_ZONE, type ZoneId } from "@/lib/zones"
-import { getGuaranteedPrice, type VehicleType } from "@/lib/pricing"
+import {
+  getGuaranteedPrice,
+  WAIT_ADDONS,
+  HOURLY_PACKAGES,
+  HOURLY_RATE,
+  type VehicleType,
+  type ServiceType,
+  type WaitTime,
+} from "@/lib/pricing"
 
 function BookingInner() {
   const searchParams = useSearchParams()
@@ -25,35 +32,36 @@ function BookingInner() {
     dropoffLocation: "",
     date: "",
     time: "",
+    // Round trip fields
+    returnDate: "",
+    returnTime: "",
+    returnPickupLocation: "",
     passengers: "",
-    serviceType: "",
+    serviceType: "oneway" as ServiceType | "hourly" | "event" | "corporate",
+    tripType: "oneway" as "oneway" | "roundtrip",
+    waitTime: "none" as WaitTime,
     vehicleType: "SUV" as VehicleType,
     luggage: "",
     flightNumber: "",
     notes: "",
     // Hourly Chauffeur fields
+    hourlyPackage: "",
     eventDestination: "",
     hoursRequested: "",
     returnLocation: "",
   })
 
-  // Read URL params on mount: ?package=X and ?service=hourly
+  // Read URL params on mount
   useEffect(() => {
     const pkg = searchParams.get("package")
     const service = searchParams.get("service")
-
     const updates: Partial<typeof formData> = {}
 
     if (pkg) {
       const zoneId = PACKAGE_TO_ZONE[pkg.toLowerCase()]
-      if (zoneId) {
-        updates.pickupZone = zoneId
-      }
+      if (zoneId) updates.pickupZone = zoneId
     }
-
-    if (service === "hourly") {
-      updates.serviceType = "hourly"
-    }
+    if (service === "hourly") updates.serviceType = "hourly"
 
     if (Object.keys(updates).length > 0) {
       setFormData((prev) => ({ ...prev, ...updates }))
@@ -61,16 +69,42 @@ function BookingInner() {
   }, [searchParams])
 
   const isHourly = formData.serviceType === "hourly"
+  const isRoundTrip = formData.tripType === "roundtrip" && !isHourly
+  const isLongDistance =
+    formData.dropoffZone === "KENNEDY" ||
+    formData.dropoffZone === "TAMPA" ||
+    formData.dropoffZone === "CLEARWATER" ||
+    formData.dropoffZone === "MIAMI" ||
+    formData.pickupZone === "KENNEDY" ||
+    formData.pickupZone === "TAMPA" ||
+    formData.pickupZone === "CLEARWATER" ||
+    formData.pickupZone === "MIAMI"
 
-  const price =
+  // Hourly price calculation
+  const hourlyPrice = (() => {
+    if (!isHourly) return null
+    const pkg = HOURLY_PACKAGES.find((p) => p.hours === Number(formData.hoursRequested))
+    if (pkg) return pkg.price
+    const hrs = Number(formData.hoursRequested)
+    if (hrs >= 3) return hrs * HOURLY_RATE
+    return null
+  })()
+
+  // Transfer price calculation
+  const transferPrice =
     !isHourly && formData.pickupZone && formData.dropoffZone && formData.vehicleType
       ? getGuaranteedPrice({
           pickupZone: formData.pickupZone as ZoneId,
           dropoffZone: formData.dropoffZone as ZoneId,
           vehicle: formData.vehicleType as VehicleType,
+          serviceType: formData.tripType as ServiceType,
+          waitTime: formData.waitTime,
         })
       : null
 
+  const price = isHourly ? hourlyPrice : transferPrice
+
+  // Build request text
   const requestText = isHourly
     ? `SOTTOVENTO BOOKING REQUEST — HOURLY CHAUFFEUR
 Name: ${formData.name}
@@ -84,10 +118,11 @@ Pickup Location: ${formData.pickupLocation}
 Event / Destination: ${formData.eventDestination}
 Hours Requested: ${formData.hoursRequested}
 Return Location: ${formData.returnLocation || "N/A"}
+Estimated Price: ${price ? `$${price}` : "To be confirmed"}
 Flight #: ${formData.flightNumber || "N/A"}
 Notes: ${formData.notes || "N/A"}
 `
-    : `SOTTOVENTO BOOKING REQUEST
+    : `SOTTOVENTO BOOKING REQUEST — ${formData.tripType === "roundtrip" ? "ROUND TRIP" : "ONE WAY"}
 Name: ${formData.name}
 Phone: ${formData.phone}
 Email: ${formData.email}
@@ -98,7 +133,15 @@ Passengers: ${formData.passengers}
 Luggage: ${formData.luggage}
 Date/Time: ${formData.date} ${formData.time}
 Pickup: ${formData.pickupLocation}
-Drop-off: ${formData.dropoffLocation}
+Drop-off: ${formData.dropoffLocation}${
+      isRoundTrip
+        ? `\nReturn Date/Time: ${formData.returnDate} ${formData.returnTime}\nReturn Pickup: ${formData.returnPickupLocation || "Same as drop-off"}`
+        : ""
+    }${
+      formData.waitTime !== "none"
+        ? `\nWaiting Time: ${formData.waitTime} (+$${WAIT_ADDONS[formData.waitTime]})`
+        : ""
+    }
 Flight #: ${formData.flightNumber || "N/A"}
 Notes: ${formData.notes || "N/A"}
 Guaranteed Price: $${price ?? "N/A"}
@@ -137,6 +180,7 @@ Guaranteed Price: $${price ?? "N/A"}
           vehicle: formData.vehicleType,
           pickupZone: formData.pickupZone,
           dropoffZone: formData.dropoffZone,
+          tripType: formData.tripType,
         }),
       })
       const data = await response.json()
@@ -170,6 +214,8 @@ Guaranteed Price: $${price ?? "N/A"}
 
           <form onSubmit={handleSubmit} className="space-y-6 bg-background border border-border p-8 md:p-12">
             <div className="grid md:grid-cols-2 gap-6">
+
+              {/* Personal Info */}
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name *</Label>
                 <Input
@@ -205,18 +251,21 @@ Guaranteed Price: $${price ?? "N/A"}
                 />
               </div>
 
-              {/* Type of Service — shown first so Hourly fields appear below */}
+              {/* Type of Service */}
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="serviceType">Type of Service *</Label>
                 <Select
                   value={formData.serviceType}
-                  onValueChange={(value) => setFormData({ ...formData, serviceType: value })}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, serviceType: value as typeof formData.serviceType })
+                  }
                 >
                   <SelectTrigger id="serviceType">
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="airport">Airport Transfer</SelectItem>
+                    <SelectItem value="oneway">One Way Transfer</SelectItem>
+                    <SelectItem value="roundtrip">Round Trip Transfer</SelectItem>
                     <SelectItem value="hourly">Hourly Chauffeur</SelectItem>
                     <SelectItem value="event">Event Transportation</SelectItem>
                     <SelectItem value="corporate">Corporate Travel</SelectItem>
@@ -224,14 +273,47 @@ Guaranteed Price: $${price ?? "N/A"}
                 </Select>
               </div>
 
-              {/* Zone selectors — only shown for non-hourly */}
+              {/* Trip type selector for non-hourly */}
+              {!isHourly && (
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Trip Type *</Label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, tripType: "oneway" })}
+                      className={`flex-1 py-2 px-4 rounded-md border text-sm font-medium transition ${
+                        formData.tripType === "oneway"
+                          ? "border-accent text-accent"
+                          : "border-border text-muted-foreground hover:border-accent"
+                      }`}
+                    >
+                      One Way
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, tripType: "roundtrip" })}
+                      className={`flex-1 py-2 px-4 rounded-md border text-sm font-medium transition ${
+                        formData.tripType === "roundtrip"
+                          ? "border-accent text-accent"
+                          : "border-border text-muted-foreground hover:border-accent"
+                      }`}
+                    >
+                      Round Trip
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Zone selectors — only for non-hourly */}
               {!isHourly && (
                 <>
                   <div className="space-y-2">
                     <Label>Pickup Zone *</Label>
                     <Select
                       value={formData.pickupZone}
-                      onValueChange={(value) => setFormData({ ...formData, pickupZone: value as ZoneId })}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, pickupZone: value as ZoneId })
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select pickup zone" />
@@ -250,7 +332,9 @@ Guaranteed Price: $${price ?? "N/A"}
                     <Label>Drop-off Zone *</Label>
                     <Select
                       value={formData.dropoffZone}
-                      onValueChange={(value) => setFormData({ ...formData, dropoffZone: value as ZoneId })}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, dropoffZone: value as ZoneId })
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select drop-off zone" />
@@ -265,14 +349,43 @@ Guaranteed Price: $${price ?? "N/A"}
                     </Select>
                   </div>
 
+                  {/* Waiting Time — shown for long-distance routes */}
+                  {isLongDistance && (
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Waiting Time (Optional)</Label>
+                      <Select
+                        value={formData.waitTime}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, waitTime: value as WaitTime })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="No wait" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Wait</SelectItem>
+                          <SelectItem value="2h">2 Hours Wait (+$80)</SelectItem>
+                          <SelectItem value="4h">4 Hours Wait (+$150)</SelectItem>
+                          <SelectItem value="fullday">Full Day Wait (+$350)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
                   {/* Guaranteed price display */}
                   <div className="md:col-span-2">
                     {price !== null ? (
                       <div className="border border-border rounded-md p-4 text-center">
-                        <div className="text-sm text-muted-foreground">Guaranteed Price</div>
+                        <div className="text-sm text-muted-foreground">
+                          Guaranteed Price
+                          {formData.tripType === "roundtrip" ? " — Round Trip" : " — One Way"}
+                          {formData.waitTime !== "none"
+                            ? ` (incl. ${formData.waitTime} wait)`
+                            : ""}
+                        </div>
                         <div className="text-3xl font-light tracking-wider">${price}</div>
                         <div className="text-xs text-muted-foreground mt-1">
-                          Guaranteed for standard service within selected zones. Extra stops / wait time may add fees.
+                          Guaranteed for standard service within selected zones. Extra stops may add fees.
                         </div>
                       </div>
                     ) : (
@@ -284,6 +397,7 @@ Guaranteed Price: $${price ?? "N/A"}
                 </>
               )}
 
+              {/* Pickup Location */}
               <div className="space-y-2">
                 <Label htmlFor="pickupLocation">Pickup Location *</Label>
                 <Input
@@ -308,30 +422,99 @@ Guaranteed Price: $${price ?? "N/A"}
                 </div>
               )}
 
+              {/* Round Trip return fields */}
+              {isRoundTrip && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="returnDate">Return Date *</Label>
+                    <Input
+                      id="returnDate"
+                      type="date"
+                      required
+                      value={formData.returnDate}
+                      onChange={(e) => setFormData({ ...formData, returnDate: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="returnTime">Return Pickup Time *</Label>
+                    <Input
+                      id="returnTime"
+                      type="time"
+                      required
+                      value={formData.returnTime}
+                      onChange={(e) => setFormData({ ...formData, returnTime: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="returnPickupLocation">Return Pickup Location</Label>
+                    <Input
+                      id="returnPickupLocation"
+                      value={formData.returnPickupLocation}
+                      onChange={(e) =>
+                        setFormData({ ...formData, returnPickupLocation: e.target.value })
+                      }
+                      placeholder="Same as drop-off (or specify address)"
+                    />
+                  </div>
+                </>
+              )}
+
               {/* Hourly Chauffeur extra fields */}
               {isHourly && (
                 <>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="hourlyPackage">Hourly Package</Label>
+                    <Select
+                      value={formData.hourlyPackage}
+                      onValueChange={(value) => {
+                        const pkg = HOURLY_PACKAGES.find((p) => String(p.hours) === value)
+                        setFormData({
+                          ...formData,
+                          hourlyPackage: value,
+                          hoursRequested: value,
+                        })
+                      }}
+                    >
+                      <SelectTrigger id="hourlyPackage">
+                        <SelectValue placeholder="Select package or enter hours below" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOURLY_PACKAGES.map((p) => (
+                          <SelectItem key={p.hours} value={String(p.hours)}>
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="hoursRequested">Hours Requested * (min. 3, $95/hr)</Label>
+                    <Input
+                      id="hoursRequested"
+                      type="number"
+                      min={3}
+                      required
+                      value={formData.hoursRequested}
+                      onChange={(e) =>
+                        setFormData({ ...formData, hoursRequested: e.target.value, hourlyPackage: e.target.value })
+                      }
+                      placeholder="3"
+                    />
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="eventDestination">Event / Destination Location *</Label>
                     <Input
                       id="eventDestination"
                       required
                       value={formData.eventDestination}
-                      onChange={(e) => setFormData({ ...formData, eventDestination: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, eventDestination: e.target.value })
+                      }
                       placeholder="Event venue, destination address, etc."
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="hoursRequested">Hours Requested * (min. 2)</Label>
-                    <Input
-                      id="hoursRequested"
-                      type="number"
-                      min={2}
-                      required
-                      value={formData.hoursRequested}
-                      onChange={(e) => setFormData({ ...formData, hoursRequested: e.target.value })}
-                      placeholder="2"
                     />
                   </div>
 
@@ -340,19 +523,33 @@ Guaranteed Price: $${price ?? "N/A"}
                     <Input
                       id="returnLocation"
                       value={formData.returnLocation}
-                      onChange={(e) => setFormData({ ...formData, returnLocation: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, returnLocation: e.target.value })
+                      }
                       placeholder="Return address or same as pickup"
                     />
                   </div>
 
+                  {/* Hourly price display */}
                   <div className="md:col-span-2">
-                    <div className="border border-border rounded-md p-4 text-center text-sm text-muted-foreground">
-                      Hourly pricing is customized based on your itinerary. We will confirm the rate after reviewing your request.
-                    </div>
+                    {hourlyPrice !== null ? (
+                      <div className="border border-border rounded-md p-4 text-center">
+                        <div className="text-sm text-muted-foreground">Estimated Price — Hourly Chauffeur</div>
+                        <div className="text-3xl font-light tracking-wider">${hourlyPrice}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Rate: $95/hr · Minimum 3 hours · Final price confirmed after review.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground text-center">
+                        Enter hours requested (minimum 3) to see estimated price.
+                      </div>
+                    )}
                   </div>
                 </>
               )}
 
+              {/* Date & Time */}
               <div className="space-y-2">
                 <Label htmlFor="date">Date *</Label>
                 <Input
@@ -375,6 +572,7 @@ Guaranteed Price: $${price ?? "N/A"}
                 />
               </div>
 
+              {/* Passengers */}
               <div className="space-y-2">
                 <Label htmlFor="passengers">Number of Passengers *</Label>
                 <Select
@@ -395,6 +593,7 @@ Guaranteed Price: $${price ?? "N/A"}
                 </Select>
               </div>
 
+              {/* Luggage */}
               <div className="space-y-2">
                 <label className="text-sm text-muted-foreground">Luggage *</label>
                 <select
@@ -412,11 +611,14 @@ Guaranteed Price: $${price ?? "N/A"}
                 </select>
               </div>
 
+              {/* Vehicle */}
               <div className="space-y-2">
                 <Label htmlFor="vehicleType">Preferred Vehicle</Label>
                 <Select
                   value={formData.vehicleType}
-                  onValueChange={(value) => setFormData({ ...formData, vehicleType: value as VehicleType })}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, vehicleType: value as VehicleType })
+                  }
                 >
                   <SelectTrigger id="vehicleType">
                     <SelectValue placeholder="Select vehicle" />
@@ -428,6 +630,7 @@ Guaranteed Price: $${price ?? "N/A"}
                 </Select>
               </div>
 
+              {/* Flight Number */}
               <div className="space-y-2">
                 <Label htmlFor="flightNumber">Flight Number (Optional)</Label>
                 <Input
@@ -438,6 +641,7 @@ Guaranteed Price: $${price ?? "N/A"}
                 />
               </div>
 
+              {/* Notes */}
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="notes">Additional Notes</Label>
                 <Textarea
@@ -450,6 +654,7 @@ Guaranteed Price: $${price ?? "N/A"}
               </div>
             </div>
 
+            {/* Stripe payment button — only for transfer routes */}
             {!isHourly && (
               <button
                 type="button"
@@ -470,24 +675,20 @@ Guaranteed Price: $${price ?? "N/A"}
               <p className="text-sm text-red-500 text-center">{payError}</p>
             )}
 
+            {/* 3 send buttons */}
             <div className="grid md:grid-cols-3 gap-3">
-              {/* Email */}
               <a
                 href={`mailto:contact@sottoventoluxuryride.com?subject=${encodeURIComponent("Sottovento Booking Request")}&body=${encoded}`}
                 className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
               >
                 Send via Email
               </a>
-
-              {/* SMS */}
               <a
                 href={`sms:+14073830647?&body=${encoded}`}
                 className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
               >
                 Send via Text (SMS)
               </a>
-
-              {/* WhatsApp */}
               <a
                 href={`https://wa.me/14073830647?text=${encoded}`}
                 target="_blank"
