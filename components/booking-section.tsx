@@ -2,16 +2,19 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ZONES, type ZoneId } from "@/lib/zones"
+import { ZONES, PACKAGE_TO_ZONE, type ZoneId } from "@/lib/zones"
 import { getGuaranteedPrice, type VehicleType } from "@/lib/pricing"
 
-export function BookingSection() {
+function BookingInner() {
+  const searchParams = useSearchParams()
+
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
@@ -28,10 +31,39 @@ export function BookingSection() {
     luggage: "",
     flightNumber: "",
     notes: "",
+    // Hourly Chauffeur fields
+    eventDestination: "",
+    hoursRequested: "",
+    returnLocation: "",
   })
 
+  // Read URL params on mount: ?package=X and ?service=hourly
+  useEffect(() => {
+    const pkg = searchParams.get("package")
+    const service = searchParams.get("service")
+
+    const updates: Partial<typeof formData> = {}
+
+    if (pkg) {
+      const zoneId = PACKAGE_TO_ZONE[pkg.toLowerCase()]
+      if (zoneId) {
+        updates.pickupZone = zoneId
+      }
+    }
+
+    if (service === "hourly") {
+      updates.serviceType = "hourly"
+    }
+
+    if (Object.keys(updates).length > 0) {
+      setFormData((prev) => ({ ...prev, ...updates }))
+    }
+  }, [searchParams])
+
+  const isHourly = formData.serviceType === "hourly"
+
   const price =
-    formData.pickupZone && formData.dropoffZone && formData.vehicleType
+    !isHourly && formData.pickupZone && formData.dropoffZone && formData.vehicleType
       ? getGuaranteedPrice({
           pickupZone: formData.pickupZone as ZoneId,
           dropoffZone: formData.dropoffZone as ZoneId,
@@ -39,7 +71,23 @@ export function BookingSection() {
         })
       : null
 
-  const requestText = `SOTTOVENTO BOOKING REQUEST
+  const requestText = isHourly
+    ? `SOTTOVENTO BOOKING REQUEST — HOURLY CHAUFFEUR
+Name: ${formData.name}
+Phone: ${formData.phone}
+Email: ${formData.email}
+Vehicle: ${formData.vehicleType}
+Passengers: ${formData.passengers}
+Luggage: ${formData.luggage}
+Date/Time: ${formData.date} ${formData.time}
+Pickup Location: ${formData.pickupLocation}
+Event / Destination: ${formData.eventDestination}
+Hours Requested: ${formData.hoursRequested}
+Return Location: ${formData.returnLocation || "N/A"}
+Flight #: ${formData.flightNumber || "N/A"}
+Notes: ${formData.notes || "N/A"}
+`
+    : `SOTTOVENTO BOOKING REQUEST
 Name: ${formData.name}
 Phone: ${formData.phone}
 Email: ${formData.email}
@@ -67,6 +115,10 @@ Guaranteed Price: $${price ?? "N/A"}
 
   const handlePayment = async () => {
     setPayError("")
+    if (isHourly) {
+      setPayError("For hourly service, please contact us via Email, SMS or WhatsApp below to confirm pricing.")
+      return
+    }
     if (!formData.pickupZone || !formData.dropoffZone) {
       setPayError("Please select a pickup zone and drop-off zone to see your guaranteed price.")
       return
@@ -153,63 +205,84 @@ Guaranteed Price: $${price ?? "N/A"}
                 />
               </div>
 
-              {/* Zone selectors */}
-              <div className="space-y-2">
-                <Label>Pickup Zone *</Label>
+              {/* Type of Service — shown first so Hourly fields appear below */}
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="serviceType">Type of Service *</Label>
                 <Select
-                  value={formData.pickupZone}
-                  onValueChange={(value) => setFormData({ ...formData, pickupZone: value as ZoneId })}
-                  required
+                  value={formData.serviceType}
+                  onValueChange={(value) => setFormData({ ...formData, serviceType: value })}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select pickup zone" />
+                  <SelectTrigger id="serviceType">
+                    <SelectValue placeholder="Select service" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ZONES.map((z) => (
-                      <SelectItem key={z.id} value={z.id}>
-                        {z.label}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="airport">Airport Transfer</SelectItem>
+                    <SelectItem value="hourly">Hourly Chauffeur</SelectItem>
+                    <SelectItem value="event">Event Transportation</SelectItem>
+                    <SelectItem value="corporate">Corporate Travel</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label>Drop-off Zone *</Label>
-                <Select
-                  value={formData.dropoffZone}
-                  onValueChange={(value) => setFormData({ ...formData, dropoffZone: value as ZoneId })}
-                  required
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select drop-off zone" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ZONES.map((z) => (
-                      <SelectItem key={z.id} value={z.id}>
-                        {z.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Zone selectors — only shown for non-hourly */}
+              {!isHourly && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Pickup Zone *</Label>
+                    <Select
+                      value={formData.pickupZone}
+                      onValueChange={(value) => setFormData({ ...formData, pickupZone: value as ZoneId })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select pickup zone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ZONES.map((z) => (
+                          <SelectItem key={z.id} value={z.id}>
+                            {z.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Guaranteed price display */}
-              <div className="md:col-span-2">
-                {price !== null ? (
-                  <div className="border border-border rounded-md p-4 text-center">
-                    <div className="text-sm text-muted-foreground">Guaranteed Price</div>
-                    <div className="text-3xl font-light tracking-wider">${price}</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Guaranteed for standard service within selected zones. Extra stops / wait time may add fees.
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Drop-off Zone *</Label>
+                    <Select
+                      value={formData.dropoffZone}
+                      onValueChange={(value) => setFormData({ ...formData, dropoffZone: value as ZoneId })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select drop-off zone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ZONES.map((z) => (
+                          <SelectItem key={z.id} value={z.id}>
+                            {z.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground text-center">
-                    Select pickup zone, drop-off zone, and vehicle to see your guaranteed price.
+
+                  {/* Guaranteed price display */}
+                  <div className="md:col-span-2">
+                    {price !== null ? (
+                      <div className="border border-border rounded-md p-4 text-center">
+                        <div className="text-sm text-muted-foreground">Guaranteed Price</div>
+                        <div className="text-3xl font-light tracking-wider">${price}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Guaranteed for standard service within selected zones. Extra stops / wait time may add fees.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground text-center">
+                        Select pickup zone, drop-off zone, and vehicle to see your guaranteed price.
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="pickupLocation">Pickup Location *</Label>
@@ -222,16 +295,63 @@ Guaranteed Price: $${price ?? "N/A"}
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="dropoffLocation">Drop-off Location *</Label>
-                <Input
-                  id="dropoffLocation"
-                  required
-                  value={formData.dropoffLocation}
-                  onChange={(e) => setFormData({ ...formData, dropoffLocation: e.target.value })}
-                  placeholder="Hotel / Address / Airport"
-                />
-              </div>
+              {!isHourly && (
+                <div className="space-y-2">
+                  <Label htmlFor="dropoffLocation">Drop-off Location *</Label>
+                  <Input
+                    id="dropoffLocation"
+                    required
+                    value={formData.dropoffLocation}
+                    onChange={(e) => setFormData({ ...formData, dropoffLocation: e.target.value })}
+                    placeholder="Hotel / Address / Airport"
+                  />
+                </div>
+              )}
+
+              {/* Hourly Chauffeur extra fields */}
+              {isHourly && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="eventDestination">Event / Destination Location *</Label>
+                    <Input
+                      id="eventDestination"
+                      required
+                      value={formData.eventDestination}
+                      onChange={(e) => setFormData({ ...formData, eventDestination: e.target.value })}
+                      placeholder="Event venue, destination address, etc."
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="hoursRequested">Hours Requested * (min. 2)</Label>
+                    <Input
+                      id="hoursRequested"
+                      type="number"
+                      min={2}
+                      required
+                      value={formData.hoursRequested}
+                      onChange={(e) => setFormData({ ...formData, hoursRequested: e.target.value })}
+                      placeholder="2"
+                    />
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="returnLocation">Return Location (Optional)</Label>
+                    <Input
+                      id="returnLocation"
+                      value={formData.returnLocation}
+                      onChange={(e) => setFormData({ ...formData, returnLocation: e.target.value })}
+                      placeholder="Return address or same as pickup"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <div className="border border-border rounded-md p-4 text-center text-sm text-muted-foreground">
+                      Hourly pricing is customized based on your itinerary. We will confirm the rate after reviewing your request.
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="date">Date *</Label>
@@ -293,24 +413,6 @@ Guaranteed Price: $${price ?? "N/A"}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="serviceType">Type of Service *</Label>
-                <Select
-                  value={formData.serviceType}
-                  onValueChange={(value) => setFormData({ ...formData, serviceType: value })}
-                >
-                  <SelectTrigger id="serviceType">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="airport">Airport Transfer</SelectItem>
-                    <SelectItem value="hourly">Hourly Charter</SelectItem>
-                    <SelectItem value="event">Event Transportation</SelectItem>
-                    <SelectItem value="corporate">Corporate Travel</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="vehicleType">Preferred Vehicle</Label>
                 <Select
                   value={formData.vehicleType}
@@ -348,19 +450,21 @@ Guaranteed Price: $${price ?? "N/A"}
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handlePayment}
-              disabled={paying}
-              className="w-full py-3 rounded-md font-medium tracking-wide hover:opacity-90 transition disabled:opacity-50"
-              style={{ backgroundColor: "#C8A96A", color: "#000" }}
-            >
-              {paying
-                ? "Redirecting to payment..."
-                : price
-                ? `Confirm & Pay Securely — $${price}`
-                : "Confirm & Pay Securely"}
-            </button>
+            {!isHourly && (
+              <button
+                type="button"
+                onClick={handlePayment}
+                disabled={paying}
+                className="w-full py-3 rounded-md font-medium tracking-wide hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: "#C8A96A", color: "#000" }}
+              >
+                {paying
+                  ? "Redirecting to payment..."
+                  : price
+                  ? `Confirm & Pay Securely — $${price}`
+                  : "Confirm & Pay Securely"}
+              </button>
+            )}
 
             {payError && (
               <p className="text-sm text-red-500 text-center">{payError}</p>
@@ -401,5 +505,13 @@ Guaranteed Price: $${price ?? "N/A"}
         </div>
       </div>
     </section>
+  )
+}
+
+export function BookingSection() {
+  return (
+    <Suspense fallback={null}>
+      <BookingInner />
+    </Suspense>
   )
 }
