@@ -3,6 +3,7 @@ import type { ZoneId } from "./zones";
 export type VehicleType = "Sedan" | "SUV";
 export type ServiceType = "oneway" | "roundtrip";
 export type WaitTime = "none" | "2h" | "4h" | "fullday";
+export type ExtraStop = "none" | "quick" | "short" | "extended";
 
 type PriceByVehicle = { Sedan: number; SUV: number };
 
@@ -33,11 +34,11 @@ const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
   [key("SFB", "PORT_CANAVERAL")]:              { Sedan: 165, SUV: 205 },
 
   // Between Tourist Zones
-  [key("DISNEY", "UNIVERSAL_IDRIVE")]:  { Sedan: 75,  SUV: 100 },
-  [key("DISNEY", "DOWNTOWN")]:          { Sedan: 75,  SUV: 100 },
-  [key("UNIVERSAL_IDRIVE", "DOWNTOWN")]:{ Sedan: 65,  SUV: 90  },
-  [key("DISNEY", "KISSIMMEE")]:         { Sedan: 60,  SUV: 85  },
-  [key("UNIVERSAL_IDRIVE", "KISSIMMEE")]:{ Sedan: 75, SUV: 100 },
+  [key("DISNEY", "UNIVERSAL_IDRIVE")]:   { Sedan: 75,  SUV: 100 },
+  [key("DISNEY", "DOWNTOWN")]:           { Sedan: 75,  SUV: 100 },
+  [key("UNIVERSAL_IDRIVE", "DOWNTOWN")]: { Sedan: 65,  SUV: 90  },
+  [key("DISNEY", "KISSIMMEE")]:          { Sedan: 60,  SUV: 85  },
+  [key("UNIVERSAL_IDRIVE", "KISSIMMEE")]:{ Sedan: 75,  SUV: 100 },
 
   // Kennedy Space Center
   [key("MCO", "KENNEDY")]:              { Sedan: 165, SUV: 210 },
@@ -77,7 +78,7 @@ const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
   [key("TAMPA", "MIAMI")]:             { Sedan: 490, SUV: 625 },
 };
 
-/** Round-trip multiplier map (some routes have explicit RT prices) */
+/** Round-trip explicit prices */
 const ROUNDTRIP_EXPLICIT: Record<string, PriceByVehicle> = {
   [key("MCO", "DISNEY")]:            { Sedan: 175, SUV: 220 },
   [key("MCO", "UNIVERSAL_IDRIVE")]:  { Sedan: 175, SUV: 220 },
@@ -89,6 +90,12 @@ const ROUNDTRIP_EXPLICIT: Record<string, PriceByVehicle> = {
   [key("MCO", "MIAMI")]:             { Sedan: 1140, SUV: 1450 },
 };
 
+/** Minimum fares per vehicle */
+export const MINIMUM_FARE: Record<VehicleType, number> = {
+  Sedan: 95,
+  SUV:   120,
+};
+
 /** Waiting time add-ons */
 export const WAIT_ADDONS: Record<WaitTime, number> = {
   none:    0,
@@ -96,6 +103,24 @@ export const WAIT_ADDONS: Record<WaitTime, number> = {
   "4h":    150,
   fullday: 350,
 };
+
+/** Extra stop add-ons */
+export const EXTRA_STOP_ADDONS: Record<ExtraStop, number> = {
+  none:     0,
+  quick:    15,   // 10 min
+  short:    25,   // 20 min
+  extended: 40,   // 40 min
+};
+
+export const EXTRA_STOP_LABELS: Record<ExtraStop, string> = {
+  none:     "No extra stop",
+  quick:    "Quick stop (10 min) +$15",
+  short:    "Short stop (20 min) +$25",
+  extended: "Extended stop (40 min) +$40",
+};
+
+/** Vehicle upgrade add-on (Sedan → SUV) */
+export const UPGRADE_ADDON = 35;
 
 /** Hourly chauffeur packages */
 export const HOURLY_PACKAGES = [
@@ -134,8 +159,21 @@ export function getGuaranteedPrice(args: {
   vehicle: VehicleType;
   serviceType?: ServiceType;
   waitTime?: WaitTime;
+  extraStop?: ExtraStop;
+  upgrade?: boolean;
 }): number | null {
-  const { pickupZone, dropoffZone, vehicle, serviceType = "oneway", waitTime = "none" } = args;
+  const {
+    pickupZone,
+    dropoffZone,
+    vehicle,
+    serviceType = "oneway",
+    waitTime = "none",
+    extraStop = "none",
+    upgrade = false,
+  } = args;
+
+  // Effective vehicle after upgrade
+  const effectiveVehicle: VehicleType = upgrade && vehicle === "Sedan" ? "SUV" : vehicle;
 
   let pair: PriceByVehicle | null;
   if (serviceType === "roundtrip") {
@@ -146,7 +184,14 @@ export function getGuaranteedPrice(args: {
 
   if (!pair) return null;
 
-  const base = pair[vehicle];
+  const base = pair[effectiveVehicle];
   const waitAddon = WAIT_ADDONS[waitTime] ?? 0;
-  return base + waitAddon;
+  const stopAddon = EXTRA_STOP_ADDONS[extraStop] ?? 0;
+  const upgradeAddon = upgrade && vehicle === "Sedan" ? UPGRADE_ADDON : 0;
+
+  const total = base + waitAddon + stopAddon + upgradeAddon;
+
+  // Apply minimum fare
+  const minFare = MINIMUM_FARE[effectiveVehicle];
+  return Math.max(total, minFare);
 }
