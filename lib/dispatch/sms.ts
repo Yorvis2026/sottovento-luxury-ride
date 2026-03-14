@@ -9,6 +9,8 @@ const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID!;
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN!;
 const MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID!;
 const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER!;
+// Toll-Free number (888) 997-5436 — verified, no A2P required
+const TOLLFREE_NUMBER = process.env.TWILIO_TOLLFREE_NUMBER || '+18889975436';
 
 function getClient() {
   if (!ACCOUNT_SID || !AUTH_TOKEN) {
@@ -66,8 +68,7 @@ export async function sendOfferSMS(payload: OfferSMSPayload): Promise<boolean> {
     const client = getClient();
     const result = await client.messages.create({
       body: message,
-      messagingServiceSid: MESSAGING_SERVICE_SID || undefined,
-      from: MESSAGING_SERVICE_SID ? undefined : FROM_NUMBER,
+      from: TOLLFREE_NUMBER,
       to: driverPhone,
     });
 
@@ -108,8 +109,7 @@ export async function sendAssignmentSMS(
     const client = getClient();
     const result = await client.messages.create({
       body: message,
-      messagingServiceSid: MESSAGING_SERVICE_SID || undefined,
-      from: MESSAGING_SERVICE_SID ? undefined : FROM_NUMBER,
+      from: TOLLFREE_NUMBER,
       to: driverPhone,
     });
 
@@ -144,8 +144,7 @@ export async function sendSourceCommissionSMS(
     const client = getClient();
     const result = await client.messages.create({
       body: message,
-      messagingServiceSid: MESSAGING_SERVICE_SID || undefined,
-      from: MESSAGING_SERVICE_SID ? undefined : FROM_NUMBER,
+      from: TOLLFREE_NUMBER,
       to: driverPhone,
     });
 
@@ -164,9 +163,8 @@ export async function sendTestSMS(toPhone: string): Promise<{ success: boolean; 
   try {
     const client = getClient();
     const result = await client.messages.create({
-      body: "✅ Sottovento Network — SMS integration is working correctly. Driver notifications are active.",
-      messagingServiceSid: MESSAGING_SERVICE_SID || undefined,
-      from: MESSAGING_SERVICE_SID ? undefined : FROM_NUMBER,
+      body: "✅ Sottovento Network — SMS integration is working correctly. Driver notifications are active. Sent from Toll-Free +1 (888) 997-5436.",
+      from: TOLLFREE_NUMBER,
       to: toPhone,
     });
 
