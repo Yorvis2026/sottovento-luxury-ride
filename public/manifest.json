@@ -1,12 +1,14 @@
 {
-  "name": "Sottovento Luxury Ride",
+  "name": "Sottovento",
   "short_name": "Sottovento",
-  "description": "Premium luxury transportation in Orlando",
+  "description": "Luxury Transportation · Orlando",
   "start_url": "/tablet",
-  "display": "standalone",
+  "id": "/tablet",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
   "background_color": "#000000",
   "theme_color": "#000000",
-  "orientation": "landscape",
+  "orientation": "any",
   "scope": "/",
   "icons": [
     {
@@ -24,7 +26,8 @@
     {
       "src": "/apple-touch-icon.png",
       "sizes": "180x180",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
   "categories": ["travel", "lifestyle"],

@@ -118,15 +118,25 @@ export default function TabletPage() {
   const slide = SLIDES[current]
 
   return (
-    // ── Root: fullscreen, no scroll, no overflow ──────────────
+    // ── Root: fullscreen kiosk, no scroll, no overflow, edge-to-edge ──
     <div
       className={`fixed inset-0 ${slide.bg} overflow-hidden select-none`}
       style={{
-        // Respect safe areas for notched iPads
+        // Edge-to-edge: extend behind status bar on notched iPads
+        // Safe areas ensure content stays within visible region
         paddingTop: "env(safe-area-inset-top)",
         paddingBottom: "env(safe-area-inset-bottom)",
         paddingLeft: "env(safe-area-inset-left)",
         paddingRight: "env(safe-area-inset-right)",
+        // Prevent rubber-band / elastic scroll on iPad
+        overscrollBehavior: "none",
+        // Ensure true fullscreen coverage
+        width: "100dvw",
+        height: "100dvh",
+        // Prevent any tap highlight flash
+        WebkitTapHighlightColor: "transparent",
+        // Prevent callout on long press
+        WebkitTouchCallout: "none",
       }}
     >
       {/* ── Slide content ──────────────────────────────────────── */}
