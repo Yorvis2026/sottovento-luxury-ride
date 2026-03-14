@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { neon } from "@neondatabase/serverless";
 import type { SourceDriverSummary, DriverEarnings } from "@/lib/dispatch/types";
+
+const sql = neon(process.env.DATABASE_URL!);
 
 // ============================================================
 // GET /api/dispatch/source-summary?driver_id=xxx
-// Returns aggregated source driver metrics
-// Mirrors the source_driver_summary DB view
+// Returns aggregated source driver metrics from the DB view
 // ============================================================
 export async function GET(req: NextRequest) {
   try {
@@ -15,13 +17,28 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "driver_id required" }, { status: 400 });
     }
 
-    // In production: run the source_driver_summary view query
-    // SELECT * FROM source_driver_summary WHERE driver_id = $1
-    const summary = await db.getSourceDriverSummary(driverId);
+    const rows = await sql`
+      SELECT * FROM source_driver_summary
+      WHERE driver_id = ${driverId}::uuid
+      LIMIT 1
+    `;
 
-    if (!summary) {
+    if (!rows[0]) {
       return NextResponse.json({ error: "Driver not found" }, { status: 404 });
     }
+
+    const summary: SourceDriverSummary = {
+      driver_id: rows[0].driver_id,
+      driver_name: rows[0].driver_name,
+      driver_code: rows[0].driver_code,
+      driver_status: rows[0].driver_status,
+      total_clients_captured: Number(rows[0].total_clients_captured),
+      active_clients_captured: Number(rows[0].active_clients_captured),
+      repeat_bookings_count: Number(rows[0].repeat_bookings_count),
+      lifetime_source_earnings: Number(rows[0].lifetime_source_earnings),
+      monthly_source_earnings: Number(rows[0].monthly_source_earnings),
+      pending_offers_count: Number(rows[0].pending_offers_count),
+    };
 
     return NextResponse.json(summary);
   } catch (err: any) {
@@ -31,8 +48,8 @@ export async function GET(req: NextRequest) {
 }
 
 // ============================================================
-// GET /api/dispatch/earnings?driver_id=xxx&month=2026-03
-// Returns split earnings: executor vs source
+// POST /api/dispatch/source-summary
+// Returns split earnings: executor vs source for a given month
 // ============================================================
 export async function POST(req: NextRequest) {
   try {
@@ -42,7 +59,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "driver_id required" }, { status: 400 });
     }
 
-    const earnings = await db.getDriverEarnings(driver_id, month);
+    const periodStart = month
+      ? `${month}-01`
+      : new Date().toISOString().slice(0, 7) + "-01";
+
+    const periodEnd = new Date(periodStart);
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+    const periodEndStr = periodEnd.toISOString().slice(0, 10);
+
+    const rows = await sql`
+      SELECT
+        COALESCE(SUM(CASE WHEN executor_driver_id = ${driver_id}::uuid
+                         THEN executor_amount ELSE 0 END), 0) AS executor_earnings,
+        COUNT(CASE WHEN executor_driver_id = ${driver_id}::uuid THEN 1 END) AS executor_rides,
+        COALESCE(SUM(CASE WHEN source_driver_id = ${driver_id}::uuid
+                         THEN source_amount ELSE 0 END), 0) AS source_earnings,
+        COUNT(CASE WHEN source_driver_id = ${driver_id}::uuid THEN 1 END) AS source_rides
+      FROM commissions
+      WHERE status IN ('confirmed', 'paid')
+        AND created_at >= ${periodStart}::date
+        AND created_at < ${periodEndStr}::date
+    `;
+
+    const r = rows[0];
+    const executorEarnings = Number(r?.executor_earnings ?? 0);
+    const sourceEarnings = Number(r?.source_earnings ?? 0);
+
+    const earnings: DriverEarnings = {
+      driver_id,
+      period_start: periodStart,
+      period_end: periodEndStr,
+      executor_earnings: executorEarnings,
+      executor_rides: Number(r?.executor_rides ?? 0),
+      source_earnings: sourceEarnings,
+      source_rides: Number(r?.source_rides ?? 0),
+      total_earnings: executorEarnings + sourceEarnings,
+    };
 
     return NextResponse.json(earnings);
   } catch (err: any) {
@@ -50,54 +102,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err?.message }, { status: 500 });
   }
 }
-
-// ============================================================
-// DB adapter stub — replace with Supabase / Prisma / Drizzle
-// ============================================================
-const db = {
-  getSourceDriverSummary: async (driverId: string): Promise<SourceDriverSummary | null> => {
-    // SQL equivalent:
-    // SELECT * FROM source_driver_summary WHERE driver_id = $1
-    return {
-      driver_id: driverId,
-      driver_name: "Demo Driver",
-      driver_code: "DRV001",
-      driver_status: "active",
-      total_clients_captured: 0,
-      active_clients_captured: 0,
-      repeat_bookings_count: 0,
-      lifetime_source_earnings: 0,
-      monthly_source_earnings: 0,
-      pending_offers_count: 0,
-    };
-  },
-
-  getDriverEarnings: async (
-    driverId: string,
-    month?: string
-  ): Promise<DriverEarnings> => {
-    // SQL equivalent:
-    // SELECT
-    //   SUM(CASE WHEN executor_driver_id = $1 THEN executor_amount ELSE 0 END) AS executor_earnings,
-    //   COUNT(CASE WHEN executor_driver_id = $1 THEN 1 END) AS executor_rides,
-    //   SUM(CASE WHEN source_driver_id = $1 THEN source_amount ELSE 0 END) AS source_earnings,
-    //   COUNT(CASE WHEN source_driver_id = $1 THEN 1 END) AS source_rides
-    // FROM commissions
-    // WHERE status IN ('confirmed','paid')
-    //   AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', $2::date)
-    const periodStart = month ? `${month}-01` : new Date().toISOString().slice(0, 7) + "-01";
-    const periodEnd = new Date(periodStart);
-    periodEnd.setMonth(periodEnd.getMonth() + 1);
-
-    return {
-      driver_id: driverId,
-      period_start: periodStart,
-      period_end: periodEnd.toISOString().slice(0, 10),
-      executor_earnings: 0,
-      executor_rides: 0,
-      source_earnings: 0,
-      source_rides: 0,
-      total_earnings: 0,
-    };
-  },
-};
