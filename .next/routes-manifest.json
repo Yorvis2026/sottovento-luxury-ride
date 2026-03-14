@@ -53,6 +53,12 @@
       "namedRegex": "^/api/dispatch/create\\-booking(?:/)?$"
     },
     {
+      "page": "/api/dispatch/leads",
+      "regex": "^/api/dispatch/leads(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/dispatch/leads(?:/)?$"
+    },
+    {
       "page": "/api/dispatch/respond-offer",
       "regex": "^/api/dispatch/respond\\-offer(?:/)?$",
       "routeKeys": {},
@@ -87,6 +93,12 @@
       "regex": "^/driver/source\\-clients(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/driver/source\\-clients(?:/)?$"
+    },
+    {
+      "page": "/tablet",
+      "regex": "^/tablet(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/tablet(?:/)?$"
     }
   ],
   "dataRoutes": [],

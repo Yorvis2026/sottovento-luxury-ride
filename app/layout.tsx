@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Playfair_Display, Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
@@ -16,12 +16,39 @@ const inter = Inter({
   display: "swap",
 })
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#000000",
+}
+
 export const metadata: Metadata = {
   title: "Sottovento Luxury Ride | Premium Black Car Service in Orlando",
   description:
     "Luxury transportation in Orlando. Airport transfers, private chauffeur service, corporate travel. Premium black car service from MCO & Sanford airports.",
   keywords:
     "Orlando luxury transportation, Sottovento Luxury Ride, Orlando black car service, MCO private chauffeur, Orlando executive transportation, airport luxury rides Orlando",
+  applicationName: "Sottovento",
+  appleWebApp: {
+    capable: true,
+    title: "Sottovento",
+    statusBarStyle: "black-translucent",
+  },
+  manifest: "/manifest.json",
+  icons: {
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      { url: "/apple-touch-icon-167x167.png", sizes: "167x167", type: "image/png" },
+      { url: "/apple-touch-icon-152x152.png", sizes: "152x152", type: "image/png" },
+    ],
+    icon: [
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+  },
   openGraph: {
     title: "Sottovento Luxury Ride | Premium Transportation Orlando",
     description: "Experience luxury transportation with professional chauffeur service in Orlando, FL",
@@ -37,6 +64,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
+      <head>
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Sottovento" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="format-detection" content="telephone=no" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167x167.png" />
+        <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152x152.png" />
+        <link rel="manifest" href="/manifest.json" />
+      </head>
       <body className="font-mono antialiased">
         {children}
         <Analytics />

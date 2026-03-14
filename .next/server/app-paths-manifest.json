@@ -3,11 +3,13 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/api/create-checkout-session/route": "app/api/create-checkout-session/route.js",
   "/api/dispatch/create-booking/route": "app/api/dispatch/create-booking/route.js",
+  "/api/dispatch/leads/route": "app/api/dispatch/leads/route.js",
   "/api/dispatch/respond-offer/route": "app/api/dispatch/respond-offer/route.js",
   "/api/dispatch/source-summary/route": "app/api/dispatch/source-summary/route.js",
   "/confirmation/page": "app/confirmation/page.js",
   "/driver/earnings/page": "app/driver/earnings/page.js",
   "/driver/page": "app/driver/page.js",
   "/driver/source-clients/page": "app/driver/source-clients/page.js",
-  "/page": "app/page.js"
+  "/page": "app/page.js",
+  "/tablet/page": "app/tablet/page.js"
 }
