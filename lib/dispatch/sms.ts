@@ -9,8 +9,12 @@ const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID!;
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN!;
 const MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID!;
 const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER!;
-// Toll-Free number (888) 997-5436 — verified, no A2P required
+// A2P 10DLC registered number (689) 264-6565 — Campaign pending vetting (24-48h)
+// Toll-Free fallback (888) 997-5436 — pending verification
+const LOCAL_NUMBER = process.env.TWILIO_PHONE_NUMBER || '+16892646565';
 const TOLLFREE_NUMBER = process.env.TWILIO_TOLLFREE_NUMBER || '+18889975436';
+// Use local number (A2P registered); fallback to toll-free if needed
+const SMS_FROM = LOCAL_NUMBER;
 
 function getClient() {
   if (!ACCOUNT_SID || !AUTH_TOKEN) {
@@ -68,7 +72,7 @@ export async function sendOfferSMS(payload: OfferSMSPayload): Promise<boolean> {
     const client = getClient();
     const result = await client.messages.create({
       body: message,
-      from: TOLLFREE_NUMBER,
+      from: SMS_FROM,
       to: driverPhone,
     });
 
@@ -109,7 +113,7 @@ export async function sendAssignmentSMS(
     const client = getClient();
     const result = await client.messages.create({
       body: message,
-      from: TOLLFREE_NUMBER,
+      from: SMS_FROM,
       to: driverPhone,
     });
 
@@ -144,7 +148,7 @@ export async function sendSourceCommissionSMS(
     const client = getClient();
     const result = await client.messages.create({
       body: message,
-      from: TOLLFREE_NUMBER,
+      from: SMS_FROM,
       to: driverPhone,
     });
 
@@ -163,8 +167,8 @@ export async function sendTestSMS(toPhone: string): Promise<{ success: boolean; 
   try {
     const client = getClient();
     const result = await client.messages.create({
-      body: "✅ Sottovento Network — SMS integration is working correctly. Driver notifications are active. Sent from Toll-Free +1 (888) 997-5436.",
-      from: TOLLFREE_NUMBER,
+      body: "✅ Sottovento Network — SMS integration active. A2P 10DLC registered. Sent from +1 (689) 264-6565.",
+      from: SMS_FROM,
       to: toPhone,
     });
 
