@@ -6,6 +6,7 @@
   "/api/dispatch/leads/route": "app/api/dispatch/leads/route.js",
   "/api/dispatch/respond-offer/route": "app/api/dispatch/respond-offer/route.js",
   "/api/dispatch/source-summary/route": "app/api/dispatch/source-summary/route.js",
+  "/api/dispatch/test-sms/route": "app/api/dispatch/test-sms/route.js",
   "/confirmation/page": "app/confirmation/page.js",
   "/driver/earnings/page": "app/driver/earnings/page.js",
   "/driver/page": "app/driver/page.js",

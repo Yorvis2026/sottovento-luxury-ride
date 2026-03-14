@@ -224,6 +224,15 @@ export const dispatchOffers = {
     return rows[0];
   },
 
+  findByBooking: async (bookingId: string) => {
+    const rows = await sql`
+      SELECT * FROM dispatch_offers
+      WHERE booking_id = ${bookingId}
+      ORDER BY offer_round ASC
+    `;
+    return rows;
+  },
+
   findPendingForBooking: async (bookingId: string) => {
     const rows = await sql`
       SELECT * FROM dispatch_offers

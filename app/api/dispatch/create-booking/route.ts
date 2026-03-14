@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sendOfferSMS } from "@/lib/dispatch/sms";
 import {
   getDispatchStrategy,
   calculateCommissions,
@@ -226,10 +227,41 @@ async function notifyDriver(
   bookingId: string,
   timeoutSecs: number
 ): Promise<void> {
-  // TODO: Implement push notification (Firebase FCM, Expo Push, Twilio SMS)
-  console.log(
-    `[notify] Driver ${driverId} — Booking ${bookingId} — Timeout ${timeoutSecs}s`
-  );
+  try {
+    const driver = await db.drivers.findById(driverId);
+    if (!driver?.phone) {
+      console.warn(`[notify] Driver ${driverId} has no phone number`);
+      return;
+    }
+
+    const booking = await db.bookings.findById(bookingId);
+    if (!booking) return;
+
+    // Find the dispatch offer for this booking
+    const offers = await db.dispatchOffers.findByBooking(bookingId);
+    const offer = offers.find((o) => o.driver_id === driverId);
+
+    await sendOfferSMS({
+      driverPhone: driver.phone,
+      driverName: driver.full_name ?? `Driver ${driverId.slice(0, 8)}`,
+      offerId: offer?.id ?? bookingId,
+      bookingId,
+      pickupLocation: booking.pickup_location,
+      dropoffLocation: booking.dropoff_location ?? "TBD",
+      pickupTime: new Date(booking.pickup_at).toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      estimatedAmount: booking.total_price,
+      isSourceDriver: true,
+      timeoutMinutes: Math.round(timeoutSecs / 60),
+    });
+  } catch (err) {
+    console.error(`[notify] SMS failed for driver ${driverId}:`, err);
+  }
 }
 
 async function dispatchToNetwork(

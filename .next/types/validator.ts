@@ -146,6 +146,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/dispatch/test-sms/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/dispatch/test-sms">> = Specific
+  const handler = {} as typeof import("../../app/api/dispatch/test-sms/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 
 
 

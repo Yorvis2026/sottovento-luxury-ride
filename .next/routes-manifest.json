@@ -71,6 +71,12 @@
       "namedRegex": "^/api/dispatch/source\\-summary(?:/)?$"
     },
     {
+      "page": "/api/dispatch/test-sms",
+      "regex": "^/api/dispatch/test\\-sms(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/dispatch/test\\-sms(?:/)?$"
+    },
+    {
       "page": "/confirmation",
       "regex": "^/confirmation(?:/)?$",
       "routeKeys": {},

@@ -6,6 +6,7 @@
   "/api/dispatch/leads/route": "/api/dispatch/leads",
   "/api/dispatch/respond-offer/route": "/api/dispatch/respond-offer",
   "/api/dispatch/source-summary/route": "/api/dispatch/source-summary",
+  "/api/dispatch/test-sms/route": "/api/dispatch/test-sms",
   "/confirmation/page": "/confirmation",
   "/driver/earnings/page": "/driver/earnings",
   "/driver/page": "/driver",
