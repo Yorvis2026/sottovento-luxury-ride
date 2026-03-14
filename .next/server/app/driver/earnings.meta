@@ -1,0 +1,16 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/driver/layout,_N_T_/driver/earnings/layout,_N_T_/driver/earnings/page,_N_T_/driver/earnings"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/driver/earnings/__PAGE__",
+    "/driver/earnings",
+    "/driver",
+    "/_index",
+    "/_head"
+  ]
+}
