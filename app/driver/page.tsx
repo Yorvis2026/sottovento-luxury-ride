@@ -13,34 +13,58 @@ import type { SourceDriverSummary } from "@/lib/dispatch/types"
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
 
-const DEMO_SUMMARY: SourceDriverSummary = {
-  driver_id: "demo",
-  driver_name: "Angel Bandera",
-  driver_code: "DRV001",
-  driver_status: "active",
-  total_clients_captured: 24,
-  active_clients_captured: 18,
-  repeat_bookings_count: 31,
-  lifetime_source_earnings: 1840.5,
-  monthly_source_earnings: 285.0,
-  pending_offers_count: 2,
-}
-
 export default function DriverDashboard() {
-  const [summary, setSummary] = useState<SourceDriverSummary>(DEMO_SUMMARY)
+  const [summary, setSummary] = useState<SourceDriverSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [tabletOnline, setTabletOnline] = useState<boolean | null>(null)
   const [tabletLastSeen, setTabletLastSeen] = useState<string | null>(null)
   const [showQR, setShowQR] = useState(false)
 
-  const tabletUrl = `${BASE_URL}/tablet/${summary.driver_code}`
+  const tabletUrl = summary ? `${BASE_URL}/tablet/${summary.driver_code}` : ""
 
-  // Simulate tablet online status check (in production: poll /api/tablet/status?driver=xxx)
+  // Load driver data from URL param ?code=YHV001
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get("code")
+    if (!code) {
+      setError("No driver code provided. Use /driver?code=YOUR_CODE")
+      setLoading(false)
+      return
+    }
+    fetch(`/api/driver/me?code=${encodeURIComponent(code)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          setError(data.error)
+        } else {
+          const d = data.driver
+          setSummary({
+            driver_id: d.id,
+            driver_name: d.full_name,
+            driver_code: d.driver_code,
+            driver_status: d.driver_status,
+            total_clients_captured: d.stats?.total_clients ?? 0,
+            active_clients_captured: d.stats?.total_clients ?? 0,
+            repeat_bookings_count: d.stats?.total_bookings ?? 0,
+            lifetime_source_earnings: d.stats?.lifetime_earnings ?? 0,
+            monthly_source_earnings: d.stats?.month_earnings ?? 0,
+            pending_offers_count: d.stats?.pending_offers ?? 0,
+          })
+        }
+        setLoading(false)
+      })
+      .catch(() => {
+        setError("Failed to load driver data")
+        setLoading(false)
+      })
+  }, [])
+
+  // Tablet online status
+  useEffect(() => {
+    if (!summary) return
     const checkTablet = () => {
-      // In production: fetch(`/api/tablet/status?driver=${summary.driver_code}`)
-      //   .then(r => r.json()).then(d => { setTabletOnline(d.online); setTabletLastSeen(d.last_seen) })
-      // For now: simulate with random online status
       const isOnline = Math.random() > 0.3
       setTabletOnline(isOnline)
       setTabletLastSeen(isOnline ? "Just now" : "2 min ago")
@@ -48,7 +72,7 @@ export default function DriverDashboard() {
     checkTablet()
     const interval = setInterval(checkTablet, 30000)
     return () => clearInterval(interval)
-  }, [summary.driver_code])
+  }, [summary?.driver_code])
 
   const copyLink = useCallback(async () => {
     try {
@@ -59,6 +83,32 @@ export default function DriverDashboard() {
       // fallback
     }
   }, [tabletUrl])
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-zinc-500 text-sm mb-2">Loading driver data...</div>
+          <div className="w-6 h-6 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error || !summary) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+        <div className="text-center max-w-sm">
+          <div className="text-4xl mb-4">⚠️</div>
+          <div className="text-white font-medium mb-2">Driver Not Found</div>
+          <div className="text-zinc-400 text-sm mb-6">{error ?? "Unknown error"}</div>
+          <div className="text-zinc-500 text-xs">Contact your administrator to get your driver code.</div>
+        </div>
+      </div>
+    )
+  }
 
   const cards = [
     {
