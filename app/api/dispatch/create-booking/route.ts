@@ -248,8 +248,8 @@ async function notifyDriver(
       driverName: driver.full_name ?? `Driver ${driverId.slice(0, 8)}`,
       offerId: offer?.id ?? bookingId,
       bookingId,
-      pickupLocation: booking.pickup_location,
-      dropoffLocation: booking.dropoff_location ?? "TBD",
+      pickupLocation: booking.pickup_address ?? booking.pickup_zone ?? "TBD",
+      dropoffLocation: booking.dropoff_address ?? booking.dropoff_zone ?? "TBD",
       pickupTime: new Date(booking.pickup_at).toLocaleString("en-US", {
         timeZone: "America/New_York",
         month: "short",
