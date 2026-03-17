@@ -122,6 +122,9 @@ export const bookings = {
     service_type: string;
     pickup_location: string;
     dropoff_location?: string | null;
+    pickup_zone?: string | null;
+    dropoff_zone?: string | null;
+    vehicle_type?: string | null;
     pickup_at: string;
     passengers?: number | null;
     luggage?: number | null;
@@ -138,7 +141,10 @@ export const bookings = {
     const rows = await sql`
       INSERT INTO bookings (
         client_id, source_driver_id, service_type,
-        pickup_location, dropoff_location, pickup_at,
+        pickup_address, dropoff_address,
+        pickup_zone, dropoff_zone,
+        vehicle_type,
+        pickup_at,
         passengers, luggage, flight_number, notes,
         base_price, extras_price, total_price,
         stripe_session_id, payment_status, status,
@@ -147,8 +153,11 @@ export const bookings = {
         ${data.client_id},
         ${data.source_driver_id ?? null},
         ${data.service_type},
-        ${data.pickup_location},
+        ${data.pickup_location ?? null},
         ${data.dropoff_location ?? null},
+        ${data.pickup_zone ?? null},
+        ${data.dropoff_zone ?? null},
+        ${data.vehicle_type ?? 'sedan'},
         ${data.pickup_at}::timestamptz,
         ${data.passengers ?? null},
         ${data.luggage ?? null},
