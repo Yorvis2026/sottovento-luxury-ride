@@ -1,13 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
+import { QRCodeSVG } from "qrcode.react"
 import type { SourceDriverSummary } from "@/lib/dispatch/types"
 
 // ============================================================
 // /driver — Driver Dashboard
-// Shows source client ownership metrics and quick navigation
+// Shows source client ownership metrics, quick navigation,
+// and Tablet section with QR, link, online/offline status
 // ============================================================
+
+const BASE_URL = "https://www.sottoventoluxuryride.com"
 
 const DEMO_SUMMARY: SourceDriverSummary = {
   driver_id: "demo",
@@ -24,10 +28,37 @@ const DEMO_SUMMARY: SourceDriverSummary = {
 
 export default function DriverDashboard() {
   const [summary, setSummary] = useState<SourceDriverSummary>(DEMO_SUMMARY)
-  const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [tabletOnline, setTabletOnline] = useState<boolean | null>(null)
+  const [tabletLastSeen, setTabletLastSeen] = useState<string | null>(null)
+  const [showQR, setShowQR] = useState(false)
 
-  // In production: fetch from /api/dispatch/source-summary?driver_id=xxx
-  // useEffect(() => { fetch(...).then(r => r.json()).then(setSummary) }, [])
+  const tabletUrl = `${BASE_URL}/tablet/${summary.driver_code}`
+
+  // Simulate tablet online status check (in production: poll /api/tablet/status?driver=xxx)
+  useEffect(() => {
+    const checkTablet = () => {
+      // In production: fetch(`/api/tablet/status?driver=${summary.driver_code}`)
+      //   .then(r => r.json()).then(d => { setTabletOnline(d.online); setTabletLastSeen(d.last_seen) })
+      // For now: simulate with random online status
+      const isOnline = Math.random() > 0.3
+      setTabletOnline(isOnline)
+      setTabletLastSeen(isOnline ? "Just now" : "2 min ago")
+    }
+    checkTablet()
+    const interval = setInterval(checkTablet, 30000)
+    return () => clearInterval(interval)
+  }, [summary.driver_code])
+
+  const copyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(tabletUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback
+    }
+  }, [tabletUrl])
 
   const cards = [
     {
@@ -82,9 +113,7 @@ export default function DriverDashboard() {
           <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">
             Sottovento Network
           </div>
-          <h1 className="text-lg font-light tracking-wide">
-            Driver Dashboard
-          </h1>
+          <h1 className="text-lg font-light tracking-wide">Driver Dashboard</h1>
         </div>
         <div className="text-right">
           <div className="text-sm font-medium" style={{ color: "#C8A96A" }}>
@@ -93,8 +122,7 @@ export default function DriverDashboard() {
           <div
             className="text-xs px-2 py-0.5 rounded-full inline-block mt-1"
             style={{
-              backgroundColor:
-                summary.driver_status === "active" ? "#14532d" : "#7f1d1d",
+              backgroundColor: summary.driver_status === "active" ? "#14532d" : "#7f1d1d",
               color: summary.driver_status === "active" ? "#4ade80" : "#f87171",
             }}
           >
@@ -111,16 +139,118 @@ export default function DriverDashboard() {
             className="rounded-xl border border-zinc-800 bg-zinc-900 p-4"
           >
             <div className="text-2xl mb-1">{card.icon}</div>
-            <div
-              className="text-2xl font-light tracking-wide"
-              style={{ color: card.color }}
-            >
+            <div className="text-2xl font-light tracking-wide" style={{ color: card.color }}>
               {card.value}
             </div>
             <div className="text-xs font-medium text-white mt-1">{card.label}</div>
             <div className="text-xs text-zinc-500 mt-0.5">{card.sub}</div>
           </div>
         ))}
+      </div>
+
+      {/* ── TABLET SECTION ─────────────────────────────────────── */}
+      <div className="px-4 pb-4">
+        <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-3">
+          My Passenger Tablet
+        </div>
+
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+          {/* Status bar */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{
+                  backgroundColor:
+                    tabletOnline === null ? "#6b7280"
+                    : tabletOnline ? "#4ade80"
+                    : "#f87171",
+                  boxShadow: tabletOnline ? "0 0 6px #4ade80" : undefined,
+                }}
+              />
+              <span className="text-sm text-white">
+                {tabletOnline === null ? "Checking..." : tabletOnline ? "Tablet Online" : "Tablet Offline"}
+              </span>
+            </div>
+            {tabletLastSeen && (
+              <span className="text-xs text-zinc-500">Last seen: {tabletLastSeen}</span>
+            )}
+          </div>
+
+          {/* Tablet URL */}
+          <div className="px-5 py-3 border-b border-zinc-800">
+            <div className="text-xs text-zinc-500 mb-1 uppercase tracking-widest">Tablet Link</div>
+            <div className="flex items-center gap-2">
+              <span
+                className="text-sm font-mono flex-1 truncate"
+                style={{ color: "#C8A96A" }}
+              >
+                /tablet/{summary.driver_code}
+              </span>
+              <button
+                onClick={copyLink}
+                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 hover:border-yellow-600 transition shrink-0"
+              >
+                {copied ? "✓ Copied" : "Copy"}
+              </button>
+              <a
+                href={tabletUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 hover:border-yellow-600 transition shrink-0"
+              >
+                Open ↗
+              </a>
+            </div>
+          </div>
+
+          {/* QR toggle */}
+          <div className="px-5 py-3">
+            <button
+              onClick={() => setShowQR(!showQR)}
+              className="flex items-center justify-between w-full"
+            >
+              <span className="text-sm text-white">QR Code Preview</span>
+              <span className="text-zinc-500 text-sm">{showQR ? "▲ Hide" : "▼ Show"}</span>
+            </button>
+
+            {showQR && (
+              <div className="flex flex-col items-center gap-3 mt-4 pb-2">
+                <div className="p-3 rounded-xl bg-white">
+                  <QRCodeSVG
+                    value={tabletUrl}
+                    size={160}
+                    bgColor="#ffffff"
+                    fgColor="#000000"
+                    level="M"
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 text-center max-w-xs">
+                  Scan to open your tablet carousel on any device. All bookings will be attributed to you.
+                </p>
+                <div
+                  className="text-xs tracking-widest uppercase text-center"
+                  style={{ color: "#C8A96A" }}
+                >
+                  {summary.driver_code}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Setup instructions */}
+          <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">
+              Tablet Setup
+            </div>
+            <ol className="space-y-1 text-xs text-zinc-400 list-decimal list-inside">
+              <li>Open your tablet link in Safari on the iPad</li>
+              <li>Tap Share → "Add to Home Screen"</li>
+              <li>Name it <span className="text-white">Sottovento Ride</span></li>
+              <li>Always launch from the Home Screen icon</li>
+            </ol>
+          </div>
+        </div>
       </div>
 
       {/* Quick actions */}
@@ -135,9 +265,7 @@ export default function DriverDashboard() {
         >
           <div>
             <div className="text-sm font-medium">My Captured Clients</div>
-            <div className="text-xs text-zinc-500 mt-0.5">
-              View your full client ownership list
-            </div>
+            <div className="text-xs text-zinc-500 mt-0.5">View your full client ownership list</div>
           </div>
           <span className="text-zinc-400">→</span>
         </Link>
@@ -148,9 +276,7 @@ export default function DriverDashboard() {
         >
           <div>
             <div className="text-sm font-medium">My Earnings</div>
-            <div className="text-xs text-zinc-500 mt-0.5">
-              Executor + Source earnings breakdown
-            </div>
+            <div className="text-xs text-zinc-500 mt-0.5">Executor + Source earnings breakdown</div>
           </div>
           <span className="text-zinc-400">→</span>
         </Link>
@@ -162,9 +288,7 @@ export default function DriverDashboard() {
         >
           <div>
             <div className="text-sm font-medium">My Referral Link</div>
-            <div className="text-xs text-zinc-500 mt-0.5">
-              Share to capture new clients
-            </div>
+            <div className="text-xs text-zinc-500 mt-0.5">Share to capture new clients</div>
           </div>
           <span style={{ color: "#C8A96A" }}>↗</span>
         </Link>

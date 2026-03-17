@@ -1,12 +1,19 @@
 "use client"
 
+import { useEffect } from "react"
+import { useParams } from "next/navigation"
 import TabletKiosk from "@/components/tablet-kiosk"
 
 // ─────────────────────────────────────────────────────────────
-// /tablet — Default tablet kiosk (no driver attribution)
-// For driver-attributed tablet use /tablet/[driver_code]
+// /tablet/[driver_code] — Driver-personalized tablet kiosk
+// e.g. /tablet/DRV001 → carousel attributed to driver DRV001
 // ─────────────────────────────────────────────────────────────
 
-export default function TabletPage() {
-  return <TabletKiosk />
+export default function TabletDriverPage() {
+  const params = useParams()
+  const driverCode = typeof params.driver_code === "string"
+    ? params.driver_code.toUpperCase()
+    : null
+
+  return <TabletKiosk driverCode={driverCode} />
 }
