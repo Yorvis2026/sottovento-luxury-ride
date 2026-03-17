@@ -1,13 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, Suspense } from "react"
+import { useState, useEffect, useRef, Suspense, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ZONES, PACKAGE_TO_ZONE, type ZoneId } from "@/lib/zones"
 import {
   getGuaranteedPrice,
@@ -17,15 +12,85 @@ import {
   UPGRADE_ADDON,
   HOURLY_PACKAGES,
   HOURLY_RATE,
-  MINIMUM_FARE,
   type VehicleType,
   type ServiceType,
   type WaitTime,
   type ExtraStop,
 } from "@/lib/pricing"
 
+// ─── Types ────────────────────────────────────────────────────
+type Step = 1 | 2 | 3 | 4 | 5
+
+// ─── Quick Routes ─────────────────────────────────────────────
+const QUICK_ROUTES: { label: string; icon: string; zone: ZoneId }[] = [
+  { label: "MCO Airport",        icon: "✈",  zone: "MCO" },
+  { label: "Universal / I-Drive",icon: "🎡", zone: "UNIVERSAL_IDRIVE" },
+  { label: "Disney",             icon: "🏰", zone: "DISNEY" },
+  { label: "Port Canaveral",     icon: "🚢", zone: "PORT_CANAVERAL" },
+  { label: "Downtown / Dr. Phillips", icon: "🏙", zone: "DOWNTOWN" },
+]
+
+// ─── Vehicle data ─────────────────────────────────────────────
+const VEHICLES: { type: VehicleType; label: string; cap: string; note: string }[] = [
+  { type: "Sedan", label: "Mercedes S-Class",     cap: "Up to 3 passengers", note: "Executive Sedan" },
+  { type: "SUV",   label: "Cadillac Escalade ESV", cap: "Up to 6 passengers", note: "Luxury SUV" },
+]
+
+// ─── Accent color ─────────────────────────────────────────────
+const GOLD = "#C9A84C"
+
+// ─── Step indicator ───────────────────────────────────────────
+const STEP_LABELS = ["Route", "Vehicle", "Date & Time", "Your Info", "Confirm"]
+
+function StepBar({ current }: { current: Step }) {
+  return (
+    <div className="flex items-center justify-between mb-8 px-1">
+      {STEP_LABELS.map((label, i) => {
+        const n = (i + 1) as Step
+        const done = n < current
+        const active = n === current
+        return (
+          <div key={label} className="flex flex-col items-center gap-1 flex-1">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all"
+              style={{
+                backgroundColor: done ? GOLD : active ? GOLD : "transparent",
+                border: `2px solid ${done || active ? GOLD : "rgba(255,255,255,0.2)"}`,
+                color: done || active ? "#000" : "rgba(255,255,255,0.4)",
+              }}
+            >
+              {done ? "✓" : n}
+            </div>
+            <span
+              className="text-xs tracking-wide hidden sm:block"
+              style={{ color: active ? GOLD : done ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.3)" }}
+            >
+              {label}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Shared input style ───────────────────────────────────────
+const inputClass =
+  "w-full bg-white/5 border border-white/15 rounded-lg px-4 text-white placeholder-white/30 focus:outline-none focus:border-yellow-600/60 transition"
+const inputStyle = { fontSize: 18, height: 54 }
+const labelStyle = { fontSize: 16, color: "rgba(255,255,255,0.7)", marginBottom: 6, display: "block" as const }
+
+// ─── Main component ───────────────────────────────────────────
 function BookingInner() {
   const searchParams = useSearchParams()
+
+  const [step, setStep] = useState<Step>(1)
+  const [submitted, setSubmitted] = useState(false)
+  const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState("")
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [supportOpen, setSupportOpen] = useState(false)
 
   const [formData, setFormData] = useState({
     name: "",
@@ -37,58 +102,45 @@ function BookingInner() {
     dropoffLocation: "",
     date: "",
     time: "",
-    // Round trip fields
     returnDate: "",
     returnTime: "",
     returnPickupLocation: "",
-    passengers: "",
+    passengers: "1",
     serviceType: "oneway" as ServiceType | "hourly" | "event" | "corporate",
     tripType: "oneway" as "oneway" | "roundtrip",
     waitTime: "none" as WaitTime,
     extraStop: "none" as ExtraStop,
     vehicleType: "SUV" as VehicleType,
     upgradeVehicle: false,
-    luggage: "",
+    luggage: "1-2 bags",
     flightNumber: "",
     notes: "",
-    // Hourly Chauffeur fields
     hoursRequested: "",
     eventDestination: "",
     returnLocation: "",
   })
 
-  // Read URL params on mount
+  // ── URL params ────────────────────────────────────────────────
   useEffect(() => {
     const pkg = searchParams.get("package")
     const service = searchParams.get("service")
     const updates: Partial<typeof formData> = {}
-
     if (pkg) {
       const zoneId = PACKAGE_TO_ZONE[pkg.toLowerCase()]
       if (zoneId) updates.pickupZone = zoneId
     }
     if (service === "hourly") updates.serviceType = "hourly"
-
-    if (Object.keys(updates).length > 0) {
-      setFormData((prev) => ({ ...prev, ...updates }))
-    }
+    if (Object.keys(updates).length > 0) setFormData((prev) => ({ ...prev, ...updates }))
   }, [searchParams])
 
+  // ── Derived values ────────────────────────────────────────────
   const isHourly = formData.serviceType === "hourly"
   const isRoundTrip = formData.tripType === "roundtrip" && !isHourly
   const isLongDistance =
-    formData.dropoffZone === "KENNEDY" ||
-    formData.dropoffZone === "TAMPA" ||
-    formData.dropoffZone === "CLEARWATER" ||
-    formData.dropoffZone === "MIAMI" ||
-    formData.pickupZone === "KENNEDY" ||
-    formData.pickupZone === "TAMPA" ||
-    formData.pickupZone === "CLEARWATER" ||
-    formData.pickupZone === "MIAMI"
-
+    ["KENNEDY","TAMPA","CLEARWATER","MIAMI"].includes(formData.dropoffZone as string) ||
+    ["KENNEDY","TAMPA","CLEARWATER","MIAMI"].includes(formData.pickupZone as string)
   const showUpgrade = formData.vehicleType === "Sedan" && !isHourly
 
-  // Hourly price calculation
   const hourlyPrice = (() => {
     if (!isHourly) return null
     const pkg = HOURLY_PACKAGES.find((p) => p.hours === Number(formData.hoursRequested))
@@ -98,7 +150,6 @@ function BookingInner() {
     return null
   })()
 
-  // Transfer price calculation
   const transferPrice =
     !isHourly && formData.pickupZone && formData.dropoffZone && formData.vehicleType
       ? getGuaranteedPrice({
@@ -113,11 +164,8 @@ function BookingInner() {
       : null
 
   const price = isHourly ? hourlyPrice : transferPrice
-
-  // Effective vehicle for display
   const effectiveVehicle = formData.upgradeVehicle && formData.vehicleType === "Sedan" ? "SUV" : formData.vehicleType
 
-  // Price breakdown for display
   const priceBreakdown = (() => {
     if (isHourly || !transferPrice) return null
     const lines: string[] = []
@@ -127,70 +175,44 @@ function BookingInner() {
     return lines
   })()
 
-  // Build request text
+  // ── Request text for send buttons ─────────────────────────────
   const requestText = isHourly
-    ? `SOTTOVENTO BOOKING REQUEST — HOURLY CHAUFFEUR
-Name: ${formData.name}
-Phone: ${formData.phone}
-Email: ${formData.email}
-Vehicle: ${effectiveVehicle}
-Passengers: ${formData.passengers}
-Luggage: ${formData.luggage}
-Date/Time: ${formData.date} ${formData.time}
-Pickup Location: ${formData.pickupLocation}
-Event / Destination: ${formData.eventDestination}
-Hours Requested: ${formData.hoursRequested}
-Return Location: ${formData.returnLocation || "N/A"}
-Estimated Price: ${price ? `$${price}` : "To be confirmed"}
-Flight #: ${formData.flightNumber || "N/A"}
-Notes: ${formData.notes || "N/A"}
-`
-    : `SOTTOVENTO BOOKING REQUEST — ${formData.tripType === "roundtrip" ? "ROUND TRIP" : "ONE WAY"}
-Name: ${formData.name}
-Phone: ${formData.phone}
-Email: ${formData.email}
-Pickup Zone: ${formData.pickupZone}
-Drop-off Zone: ${formData.dropoffZone}
-Vehicle: ${effectiveVehicle}${formData.upgradeVehicle && formData.vehicleType === "Sedan" ? " (Upgraded from Sedan)" : ""}
-Passengers: ${formData.passengers}
-Luggage: ${formData.luggage}
-Date/Time: ${formData.date} ${formData.time}
-Pickup: ${formData.pickupLocation}
-Drop-off: ${formData.dropoffLocation}${
-      isRoundTrip
-        ? `\nReturn Date/Time: ${formData.returnDate} ${formData.returnTime}\nReturn Pickup: ${formData.returnPickupLocation || "Same as drop-off"}`
-        : ""
-    }${
-      formData.waitTime !== "none"
-        ? `\nWaiting Time: ${formData.waitTime} (+$${WAIT_ADDONS[formData.waitTime]})`
-        : ""
-    }${
-      formData.extraStop !== "none"
-        ? `\nExtra Stop: ${EXTRA_STOP_LABELS[formData.extraStop]}`
-        : ""
-    }
-Flight #: ${formData.flightNumber || "N/A"}
-Notes: ${formData.notes || "N/A"}
-Guaranteed Price: $${price ?? "N/A"}
-`
+    ? `SOTTOVENTO BOOKING REQUEST — HOURLY CHAUFFEUR\nName: ${formData.name}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nVehicle: ${effectiveVehicle}\nPassengers: ${formData.passengers}\nLuggage: ${formData.luggage}\nDate/Time: ${formData.date} ${formData.time}\nPickup Location: ${formData.pickupLocation}\nEvent / Destination: ${formData.eventDestination}\nHours Requested: ${formData.hoursRequested}\nReturn Location: ${formData.returnLocation || "N/A"}\nEstimated Price: ${price ? `$${price}` : "To be confirmed"}\nFlight #: ${formData.flightNumber || "N/A"}\nNotes: ${formData.notes || "N/A"}`
+    : `SOTTOVENTO BOOKING REQUEST — ${formData.tripType === "roundtrip" ? "ROUND TRIP" : "ONE WAY"}\nName: ${formData.name}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nPickup Zone: ${formData.pickupZone}\nDrop-off Zone: ${formData.dropoffZone}\nVehicle: ${effectiveVehicle}${formData.upgradeVehicle && formData.vehicleType === "Sedan" ? " (Upgraded from Sedan)" : ""}\nPassengers: ${formData.passengers}\nLuggage: ${formData.luggage}\nDate/Time: ${formData.date} ${formData.time}\nPickup: ${formData.pickupLocation}\nDrop-off: ${formData.dropoffLocation}${isRoundTrip ? `\nReturn Date/Time: ${formData.returnDate} ${formData.returnTime}\nReturn Pickup: ${formData.returnPickupLocation || "Same as drop-off"}` : ""}${formData.waitTime !== "none" ? `\nWaiting Time: ${formData.waitTime} (+$${WAIT_ADDONS[formData.waitTime]})` : ""}${formData.extraStop !== "none" ? `\nExtra Stop: ${EXTRA_STOP_LABELS[formData.extraStop]}` : ""}\nFlight #: ${formData.flightNumber || "N/A"}\nNotes: ${formData.notes || "N/A"}\nGuaranteed Price: $${price ?? "N/A"}`
 
   const encoded = encodeURIComponent(requestText)
 
-  const [paying, setPaying] = useState(false)
-  const [payError, setPayError] = useState("")
+  // ── Auto-return countdown (tablet mode) ───────────────────────
+  const startCountdown = useCallback(() => {
+    const fromTablet = searchParams.get("tablet") || searchParams.get("ref")
+    if (!fromTablet) return
+    setCountdown(30)
+    countdownRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c === null || c <= 1) {
+          clearInterval(countdownRef.current!)
+          window.location.href = "/tablet"
+          return null
+        }
+        return c - 1
+      })
+    }, 1000)
+  }, [searchParams])
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-  }
+  useEffect(() => {
+    if (submitted) startCountdown()
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current) }
+  }, [submitted, startCountdown])
 
+  // ── Payment ───────────────────────────────────────────────────
   const handlePayment = async () => {
     setPayError("")
     if (isHourly) {
-      setPayError("For hourly service, please contact us via Email, SMS or WhatsApp below to confirm pricing.")
+      setPayError("For hourly service, please send your request via Email, SMS or WhatsApp below.")
       return
     }
     if (!formData.pickupZone || !formData.dropoffZone) {
-      setPayError("Please select a pickup zone and drop-off zone to see your guaranteed price.")
+      setPayError("Please select a pickup zone and drop-off zone.")
       return
     }
     if (!price) {
@@ -202,561 +224,652 @@ Guaranteed Price: $${price ?? "N/A"}
       const response = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          price,
-          vehicle: effectiveVehicle,
-          pickupZone: formData.pickupZone,
-          dropoffZone: formData.dropoffZone,
-          tripType: formData.tripType,
-        }),
+        body: JSON.stringify({ price, vehicle: effectiveVehicle, pickupZone: formData.pickupZone, dropoffZone: formData.dropoffZone, tripType: formData.tripType }),
       })
       const data = await response.json()
-      if (data.url) {
-        window.location.href = data.url
-      } else if (data.error) {
-        setPayError("Payment error: " + data.error)
-      }
-    } catch (err: any) {
+      if (data.url) window.location.href = data.url
+      else if (data.error) setPayError("Payment error: " + data.error)
+    } catch {
       setPayError("Connection error. Please try again or use Email/WhatsApp below.")
-      console.error(err)
     } finally {
       setPaying(false)
     }
   }
 
-  return (
-    <section id="booking" className="py-24 md:py-32 bg-card/50">
-      <div className="container mx-auto px-4">
-        <div className="max-w-3xl mx-auto space-y-12">
-          <div className="text-center space-y-4 animate-slide-up">
-            <h2
-              className="font-light tracking-wider text-center"
-              style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
+  // ─────────────────────────────────────────────────────────────
+  // SUCCESS SCREEN
+  // ─────────────────────────────────────────────────────────────
+  if (submitted) {
+    return (
+      <section className="min-h-dvh flex items-center justify-center bg-black px-4 py-16">
+        <div className="max-w-md w-full text-center space-y-8">
+          <div className="text-6xl" style={{ color: GOLD }}>✔</div>
+          <h2 className="text-white font-light" style={{ fontSize: 32, fontFamily: "serif" }}>
+            Request Sent
+          </h2>
+          <p className="text-white/50" style={{ fontSize: 18 }}>
+            Your driver will contact you shortly to confirm the details.
+          </p>
+          {countdown !== null && (
+            <p className="text-white/30 text-sm">
+              Returning to carousel in {countdown} seconds...
+            </p>
+          )}
+          <div className="flex flex-col gap-3 mt-6">
+            <button
+              onClick={() => { setSubmitted(false); setStep(1); setFormData((prev) => ({ ...prev, name: "", phone: "", email: "", pickupLocation: "", dropoffLocation: "", date: "", time: "", notes: "" })) }}
+              className="w-full py-4 rounded-lg border text-white font-medium tracking-widest uppercase text-sm transition hover:border-yellow-600/60"
+              style={{ borderColor: "rgba(255,255,255,0.15)", fontSize: 16 }}
             >
-              Reserve Your Luxury Ride in{" "}
-              <span className="text-accent">Less Than 30 Seconds</span>
+              New Quote
+            </button>
+            <a
+              href="/tablet"
+              className="w-full py-4 rounded-lg text-center font-medium tracking-widest uppercase text-sm transition"
+              style={{ backgroundColor: GOLD, color: "#000", fontSize: 16, display: "block" }}
+            >
+              Back to Carousel
+            </a>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // BOOKING FLOW
+  // ─────────────────────────────────────────────────────────────
+  return (
+    <section
+      id="booking"
+      className="py-16 md:py-24 bg-black"
+      style={{ minHeight: "100dvh", overflowY: "auto", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+    >
+      <div className="container mx-auto px-4">
+        <div className="max-w-2xl mx-auto">
+
+          {/* Header */}
+          <div className="text-center mb-10">
+            <h2
+              className="font-light tracking-wider text-white"
+              style={{ fontSize: "clamp(26px, 5vw, 32px)", fontFamily: "serif" }}
+            >
+              Reserve Your Luxury Ride
             </h2>
-            <p className="text-muted-foreground text-center">Guaranteed price. No surprises.</p>
+            <p className="text-white/40 mt-2" style={{ fontSize: 16 }}>
+              Guaranteed price. No surprises.
+            </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6 bg-background border border-border p-8 md:p-12">
-            <div className="grid md:grid-cols-2 gap-6">
+          {/* Step bar */}
+          <StepBar current={step} />
 
-              {/* Personal Info */}
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name *</Label>
-                <Input
-                  id="name"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="John Doe"
-                />
+          {/* ── STEP 1: ROUTE ─────────────────────────────────────── */}
+          {step === 1 && (
+            <div className="space-y-6">
+              <h3 className="text-white font-light" style={{ fontSize: 24, fontFamily: "serif" }}>
+                Where are you going?
+              </h3>
+
+              {/* Service type */}
+              <div>
+                <label style={labelStyle}>Type of Service</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { value: "oneway", label: "One Way" },
+                    { value: "roundtrip", label: "Round Trip" },
+                    { value: "hourly", label: "Hourly Chauffeur" },
+                    { value: "corporate", label: "Corporate" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, serviceType: opt.value as typeof formData.serviceType, tripType: opt.value === "roundtrip" ? "roundtrip" : "oneway" })}
+                      className="py-4 rounded-lg border font-medium transition text-center"
+                      style={{
+                        fontSize: 16,
+                        borderColor: formData.serviceType === opt.value ? GOLD : "rgba(255,255,255,0.15)",
+                        color: formData.serviceType === opt.value ? GOLD : "rgba(255,255,255,0.6)",
+                        backgroundColor: formData.serviceType === opt.value ? `${GOLD}15` : "transparent",
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number *</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  required
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="+1 (555) 000-0000"
-                />
-              </div>
-
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="john@example.com"
-                />
-              </div>
-
-              {/* Type of Service */}
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="serviceType">Type of Service *</Label>
-                <Select
-                  value={formData.serviceType}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, serviceType: value as typeof formData.serviceType })
-                  }
-                >
-                  <SelectTrigger id="serviceType">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="oneway">One Way Transfer</SelectItem>
-                    <SelectItem value="roundtrip">Round Trip Transfer</SelectItem>
-                    <SelectItem value="hourly">Hourly Chauffeur</SelectItem>
-                    <SelectItem value="event">Event Transportation</SelectItem>
-                    <SelectItem value="corporate">Corporate Travel</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Trip type toggle for non-hourly */}
+              {/* Quick Routes */}
               {!isHourly && (
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Trip Type *</Label>
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, tripType: "oneway" })}
-                      className={`flex-1 py-2 px-4 rounded-md border text-sm font-medium transition ${
-                        formData.tripType === "oneway"
-                          ? "border-accent text-accent"
-                          : "border-border text-muted-foreground hover:border-accent/50"
-                      }`}
-                    >
-                      One Way
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, tripType: "roundtrip" })}
-                      className={`flex-1 py-2 px-4 rounded-md border text-sm font-medium transition ${
-                        formData.tripType === "roundtrip"
-                          ? "border-accent text-accent"
-                          : "border-border text-muted-foreground hover:border-accent/50"
-                      }`}
-                    >
-                      Round Trip
-                    </button>
+                <div>
+                  <label style={labelStyle}>Quick Select — Pickup Zone</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {QUICK_ROUTES.map((r) => (
+                      <button
+                        key={r.zone}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, pickupZone: r.zone })}
+                        className="py-4 px-3 rounded-lg border flex flex-col items-center gap-1 transition"
+                        style={{
+                          borderColor: formData.pickupZone === r.zone ? GOLD : "rgba(255,255,255,0.12)",
+                          backgroundColor: formData.pickupZone === r.zone ? `${GOLD}15` : "rgba(255,255,255,0.03)",
+                          color: formData.pickupZone === r.zone ? GOLD : "rgba(255,255,255,0.6)",
+                        }}
+                      >
+                        <span style={{ fontSize: 24 }}>{r.icon}</span>
+                        <span style={{ fontSize: 13 }}>{r.label}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Transfer fields */}
+              {/* Zone selects */}
               {!isHourly && (
-                <>
-                  {/* Pickup Zone */}
-                  <div className="space-y-2">
-                    <Label htmlFor="pickupZone">Pickup Zone *</Label>
-                    <Select
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label style={labelStyle}>Pickup Zone *</label>
+                    <select
                       value={formData.pickupZone}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, pickupZone: value as ZoneId })
-                      }
+                      onChange={(e) => setFormData({ ...formData, pickupZone: e.target.value as ZoneId })}
+                      className={inputClass}
+                      style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}
                     >
-                      <SelectTrigger id="pickupZone">
-                        <SelectValue placeholder="Select pickup zone" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ZONES.map((z) => (
-                          <SelectItem key={z.id} value={z.id}>
-                            {z.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="">Select zone...</option>
+                      {ZONES.map((z) => <option key={z.id} value={z.id}>{z.label}</option>)}
+                    </select>
                   </div>
-
-                  {/* Drop-off Zone */}
-                  <div className="space-y-2">
-                    <Label htmlFor="dropoffZone">Drop-off Zone *</Label>
-                    <Select
+                  <div>
+                    <label style={labelStyle}>Drop-off Zone *</label>
+                    <select
                       value={formData.dropoffZone}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, dropoffZone: value as ZoneId })
-                      }
+                      onChange={(e) => setFormData({ ...formData, dropoffZone: e.target.value as ZoneId })}
+                      className={inputClass}
+                      style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}
                     >
-                      <SelectTrigger id="dropoffZone">
-                        <SelectValue placeholder="Select drop-off zone" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ZONES.map((z) => (
-                          <SelectItem key={z.id} value={z.id}>
-                            {z.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="">Select zone...</option>
+                      {ZONES.map((z) => <option key={z.id} value={z.id}>{z.label}</option>)}
+                    </select>
                   </div>
-
-                  {/* Pickup Address */}
-                  <div className="space-y-2">
-                    <Label htmlFor="pickupLocation">Pickup Address *</Label>
-                    <Input
-                      id="pickupLocation"
-                      required
+                  <div>
+                    <label style={labelStyle}>Pickup Address *</label>
+                    <input
+                      type="text"
                       value={formData.pickupLocation}
                       onChange={(e) => setFormData({ ...formData, pickupLocation: e.target.value })}
-                      placeholder="Hotel name, terminal, address..."
+                      placeholder="Hotel, terminal, address..."
+                      className={inputClass}
+                      style={inputStyle}
                     />
                   </div>
-
-                  {/* Drop-off Address */}
-                  <div className="space-y-2">
-                    <Label htmlFor="dropoffLocation">Drop-off Address *</Label>
-                    <Input
-                      id="dropoffLocation"
-                      required
+                  <div>
+                    <label style={labelStyle}>Drop-off Address *</label>
+                    <input
+                      type="text"
                       value={formData.dropoffLocation}
                       onChange={(e) => setFormData({ ...formData, dropoffLocation: e.target.value })}
-                      placeholder="Hotel name, terminal, address..."
+                      placeholder="Hotel, terminal, address..."
+                      className={inputClass}
+                      style={inputStyle}
                     />
                   </div>
-
-                  {/* Round Trip return fields */}
-                  {isRoundTrip && (
-                    <>
-                      <div className="space-y-2">
-                        <Label htmlFor="returnDate">Return Date *</Label>
-                        <Input
-                          id="returnDate"
-                          type="date"
-                          required
-                          value={formData.returnDate}
-                          onChange={(e) => setFormData({ ...formData, returnDate: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="returnTime">Return Pickup Time *</Label>
-                        <Input
-                          id="returnTime"
-                          type="time"
-                          required
-                          value={formData.returnTime}
-                          onChange={(e) => setFormData({ ...formData, returnTime: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="returnPickupLocation">Return Pickup Location</Label>
-                        <Input
-                          id="returnPickupLocation"
-                          value={formData.returnPickupLocation}
-                          onChange={(e) => setFormData({ ...formData, returnPickupLocation: e.target.value })}
-                          placeholder="Same as drop-off if blank"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Waiting Package — only for long-distance routes */}
-                  {isLongDistance && (
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="waitTime">Waiting Package (Optional)</Label>
-                      <Select
-                        value={formData.waitTime}
-                        onValueChange={(value) =>
-                          setFormData({ ...formData, waitTime: value as WaitTime })
-                        }
-                      >
-                        <SelectTrigger id="waitTime">
-                          <SelectValue placeholder="Select waiting option" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No Wait</SelectItem>
-                          <SelectItem value="2h">2 Hours Wait (+$80)</SelectItem>
-                          <SelectItem value="4h">4 Hours Wait (+$150)</SelectItem>
-                          <SelectItem value="fullday">Full Day Wait (+$350)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {/* Extra Stop */}
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="extraStop">Add Stop (Optional)</Label>
-                    <Select
-                      value={formData.extraStop}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, extraStop: value as ExtraStop })
-                      }
-                    >
-                      <SelectTrigger id="extraStop">
-                        <SelectValue placeholder="No extra stop" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No extra stop</SelectItem>
-                        <SelectItem value="quick">Quick stop (10 min) +$15</SelectItem>
-                        <SelectItem value="short">Short stop (20 min) +$25</SelectItem>
-                        <SelectItem value="extended">Extended stop (40 min) +$40</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
+                </div>
               )}
 
-              {/* Hourly Chauffeur fields */}
+              {/* Hourly fields */}
               {isHourly && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="pickupLocation">Pickup Location *</Label>
-                    <Input
-                      id="pickupLocation"
-                      required
+                <div className="space-y-4">
+                  <div>
+                    <label style={labelStyle}>Pickup Location *</label>
+                    <input
+                      type="text"
                       value={formData.pickupLocation}
                       onChange={(e) => setFormData({ ...formData, pickupLocation: e.target.value })}
                       placeholder="Hotel name, address..."
+                      className={inputClass}
+                      style={inputStyle}
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="hoursRequested">Number of Hours * (min. 3)</Label>
-                    <Input
-                      id="hoursRequested"
+                  <div>
+                    <label style={labelStyle}>Event / Main Destination *</label>
+                    <input
+                      type="text"
+                      value={formData.eventDestination}
+                      onChange={(e) => setFormData({ ...formData, eventDestination: e.target.value })}
+                      placeholder="Event venue, destination..."
+                      className={inputClass}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Number of Hours * (min. 3)</label>
+                    <input
                       type="number"
                       min="3"
-                      required
                       value={formData.hoursRequested}
-                      onChange={(e) =>
-                        setFormData({ ...formData, hoursRequested: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, hoursRequested: e.target.value })}
                       placeholder="3"
+                      className={inputClass}
+                      style={inputStyle}
                     />
                   </div>
-
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="eventDestination">Event / Main Destination *</Label>
-                    <Input
-                      id="eventDestination"
-                      required
-                      value={formData.eventDestination}
-                      onChange={(e) =>
-                        setFormData({ ...formData, eventDestination: e.target.value })
-                      }
-                      placeholder="Event venue, destination address, etc."
-                    />
-                  </div>
-
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="returnLocation">Return Location (Optional)</Label>
-                    <Input
-                      id="returnLocation"
-                      value={formData.returnLocation}
-                      onChange={(e) =>
-                        setFormData({ ...formData, returnLocation: e.target.value })
-                      }
-                      placeholder="Return address or same as pickup"
-                    />
-                  </div>
-
-                  {/* Hourly price display */}
-                  <div className="md:col-span-2">
-                    {hourlyPrice !== null ? (
-                      <div className="border border-border rounded-md p-4 text-center">
-                        <div className="text-sm text-muted-foreground">Estimated Price — Hourly Chauffeur</div>
-                        <div className="text-3xl font-light tracking-wider">${hourlyPrice}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          Rate: $95/hr · Minimum 3 hours · Final price confirmed after review.
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground text-center">
-                        Enter hours requested (minimum 3) to see estimated price.
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* Date & Time */}
-              <div className="space-y-2">
-                <Label htmlFor="date">Date *</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  required
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="time">Pickup Time *</Label>
-                <Input
-                  id="time"
-                  type="time"
-                  required
-                  value={formData.time}
-                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                />
-              </div>
-
-              {/* Passengers */}
-              <div className="space-y-2">
-                <Label htmlFor="passengers">Number of Passengers *</Label>
-                <Select
-                  value={formData.passengers}
-                  onValueChange={(value) => setFormData({ ...formData, passengers: value })}
-                >
-                  <SelectTrigger id="passengers">
-                    <SelectValue placeholder="Select passengers" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1 Passenger</SelectItem>
-                    <SelectItem value="2">2 Passengers</SelectItem>
-                    <SelectItem value="3">3 Passengers</SelectItem>
-                    <SelectItem value="4">4 Passengers</SelectItem>
-                    <SelectItem value="5">5 Passengers</SelectItem>
-                    <SelectItem value="6">6+ Passengers</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Luggage */}
-              <div className="space-y-2">
-                <label className="text-sm text-muted-foreground">Luggage *</label>
-                <select
-                  value={formData.luggage}
-                  onChange={(e) => setFormData({ ...formData, luggage: e.target.value })}
-                  className="w-full bg-transparent border border-border rounded-md px-3 py-2"
-                  required
-                >
-                  <option value="">Select luggage</option>
-                  <option value="No luggage">No luggage</option>
-                  <option value="1-2 bags">1–2 bags</option>
-                  <option value="3-4 bags">3–4 bags</option>
-                  <option value="5+ bags">5+ bags</option>
-                  <option value="Oversized / stroller / wheelchair">Oversized / stroller / wheelchair</option>
-                </select>
-              </div>
-
-              {/* Vehicle */}
-              <div className="space-y-2">
-                <Label htmlFor="vehicleType">Preferred Vehicle</Label>
-                <Select
-                  value={formData.vehicleType}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, vehicleType: value as VehicleType, upgradeVehicle: false })
-                  }
-                >
-                  <SelectTrigger id="vehicleType">
-                    <SelectValue placeholder="Select vehicle" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Sedan">Sedan</SelectItem>
-                    <SelectItem value="SUV">SUV</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Vehicle Upgrade — only shown when Sedan is selected */}
-              {showUpgrade && (
-                <div className="space-y-2">
-                  <Label>Vehicle Upgrade (Optional)</Label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFormData({ ...formData, upgradeVehicle: !formData.upgradeVehicle })
-                    }
-                    className={`w-full py-2 px-4 rounded-md border text-sm font-medium transition ${
-                      formData.upgradeVehicle
-                        ? "border-accent text-accent"
-                        : "border-border text-muted-foreground hover:border-accent/50"
-                    }`}
-                  >
-                    {formData.upgradeVehicle
-                      ? "✓ Upgraded to Luxury SUV (+$35)"
-                      : "Upgrade to Luxury SUV (+$35)"}
-                  </button>
                 </div>
               )}
 
-              {/* Flight Number */}
-              <div className="space-y-2">
-                <Label htmlFor="flightNumber">Flight Number (Optional)</Label>
-                <Input
-                  id="flightNumber"
+              {/* Add-ons */}
+              {!isHourly && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {isLongDistance && (
+                    <div>
+                      <label style={labelStyle}>Waiting Package</label>
+                      <select value={formData.waitTime} onChange={(e) => setFormData({ ...formData, waitTime: e.target.value as WaitTime })} className={inputClass} style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}>
+                        <option value="none">No Wait</option>
+                        <option value="2h">2 Hours (+$80)</option>
+                        <option value="4h">4 Hours (+$150)</option>
+                        <option value="fullday">Full Day (+$350)</option>
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label style={labelStyle}>Extra Stop</label>
+                    <select value={formData.extraStop} onChange={(e) => setFormData({ ...formData, extraStop: e.target.value as ExtraStop })} className={inputClass} style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}>
+                      <option value="none">No extra stop</option>
+                      <option value="quick">Quick (10 min) +$15</option>
+                      <option value="short">Short (20 min) +$25</option>
+                      <option value="extended">Extended (40 min) +$40</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="w-full py-4 rounded-lg font-medium tracking-widest uppercase transition"
+                style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}
+              >
+                Continue →
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 2: VEHICLE ───────────────────────────────────── */}
+          {step === 2 && (
+            <div className="space-y-6">
+              <h3 className="text-white font-light" style={{ fontSize: 24, fontFamily: "serif" }}>
+                Choose your vehicle
+              </h3>
+              <div className="space-y-4">
+                {VEHICLES.map((v) => {
+                  const vPrice = !isHourly && formData.pickupZone && formData.dropoffZone
+                    ? getGuaranteedPrice({ pickupZone: formData.pickupZone as ZoneId, dropoffZone: formData.dropoffZone as ZoneId, vehicle: v.type, serviceType: formData.tripType as ServiceType, waitTime: formData.waitTime, extraStop: formData.extraStop, upgrade: false })
+                    : null
+                  const selected = formData.vehicleType === v.type
+                  return (
+                    <button
+                      key={v.type}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, vehicleType: v.type, upgradeVehicle: false })}
+                      className="w-full rounded-xl border p-5 text-left transition"
+                      style={{
+                        borderColor: selected ? GOLD : "rgba(255,255,255,0.12)",
+                        backgroundColor: selected ? `${GOLD}12` : "rgba(255,255,255,0.03)",
+                      }}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-white font-medium" style={{ fontSize: 20 }}>{v.label}</p>
+                          <p style={{ color: GOLD, fontSize: 14 }}>{v.note}</p>
+                          <p className="text-white/50 mt-1" style={{ fontSize: 15 }}>👥 {v.cap}</p>
+                        </div>
+                        <div className="text-right">
+                          {vPrice !== null && (
+                            <p className="text-white font-light" style={{ fontSize: 26 }}>${vPrice}</p>
+                          )}
+                          {selected && (
+                            <div className="mt-2 w-6 h-6 rounded-full flex items-center justify-center ml-auto" style={{ backgroundColor: GOLD }}>
+                              <span style={{ color: "#000", fontSize: 14 }}>✓</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+
+                {/* Upgrade option */}
+                {showUpgrade && (
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, upgradeVehicle: !formData.upgradeVehicle })}
+                    className="w-full rounded-xl border p-4 text-left transition"
+                    style={{
+                      borderColor: formData.upgradeVehicle ? GOLD : "rgba(255,255,255,0.12)",
+                      backgroundColor: formData.upgradeVehicle ? `${GOLD}12` : "transparent",
+                      color: formData.upgradeVehicle ? GOLD : "rgba(255,255,255,0.5)",
+                      fontSize: 16,
+                    }}
+                  >
+                    {formData.upgradeVehicle ? "✓ Upgraded to Luxury SUV (+$35)" : "⬆ Upgrade to Luxury SUV (+$35)"}
+                  </button>
+                )}
+
+                {/* Passengers & Luggage */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label style={labelStyle}>Passengers</label>
+                    <select value={formData.passengers} onChange={(e) => setFormData({ ...formData, passengers: e.target.value })} className={inputClass} style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}>
+                      {["1","2","3","4","5","6"].map((n) => <option key={n} value={n}>{n} {n === "6" ? "+" : ""} passenger{n !== "1" ? "s" : ""}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Luggage</label>
+                    <select value={formData.luggage} onChange={(e) => setFormData({ ...formData, luggage: e.target.value })} className={inputClass} style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}>
+                      <option value="No luggage">No luggage</option>
+                      <option value="1-2 bags">1–2 bags</option>
+                      <option value="3-4 bags">3–4 bags</option>
+                      <option value="5+ bags">5+ bags</option>
+                      <option value="Oversized / stroller / wheelchair">Oversized / stroller</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setStep(1)} className="flex-1 py-4 rounded-lg border text-white/60 font-medium transition hover:border-white/30" style={{ borderColor: "rgba(255,255,255,0.15)", fontSize: 16 }}>← Back</button>
+                <button type="button" onClick={() => setStep(3)} className="flex-[2] py-4 rounded-lg font-medium tracking-widest uppercase transition" style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}>Continue →</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 3: DATE & TIME ───────────────────────────────── */}
+          {step === 3 && (
+            <div className="space-y-6">
+              <h3 className="text-white font-light" style={{ fontSize: 24, fontFamily: "serif" }}>
+                When is your ride?
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label style={labelStyle}>📅 Date *</label>
+                  <input
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>🕐 Pickup Time *</label>
+                  <input
+                    type="time"
+                    value={formData.time}
+                    onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              {/* Date/time summary */}
+              {formData.date && formData.time && (
+                <div className="rounded-xl p-4 text-center" style={{ backgroundColor: `${GOLD}15`, border: `1px solid ${GOLD}40` }}>
+                  <p style={{ color: GOLD, fontSize: 22, fontFamily: "serif" }}>
+                    {new Date(formData.date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                    {" — "}
+                    {(() => {
+                      const [h, m] = formData.time.split(":")
+                      const hour = parseInt(h)
+                      const ampm = hour >= 12 ? "PM" : "AM"
+                      return `${hour % 12 || 12}:${m} ${ampm}`
+                    })()}
+                  </p>
+                </div>
+              )}
+
+              {/* Round trip return */}
+              {isRoundTrip && (
+                <div className="space-y-4">
+                  <p className="text-white/50" style={{ fontSize: 15 }}>Return trip details:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label style={labelStyle}>Return Date *</label>
+                      <input type="date" value={formData.returnDate} onChange={(e) => setFormData({ ...formData, returnDate: e.target.value })} className={inputClass} style={inputStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Return Pickup Time *</label>
+                      <input type="time" value={formData.returnTime} onChange={(e) => setFormData({ ...formData, returnTime: e.target.value })} className={inputClass} style={inputStyle} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label style={labelStyle}>Return Pickup Location</label>
+                      <input type="text" value={formData.returnPickupLocation} onChange={(e) => setFormData({ ...formData, returnPickupLocation: e.target.value })} placeholder="Same as drop-off if blank" className={inputClass} style={inputStyle} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Flight number */}
+              <div>
+                <label style={labelStyle}>✈ Flight Number (Optional)</label>
+                <input
+                  type="text"
                   value={formData.flightNumber}
                   onChange={(e) => setFormData({ ...formData, flightNumber: e.target.value })}
                   placeholder="AA1234"
+                  className={inputClass}
+                  style={inputStyle}
                 />
               </div>
 
-              {/* Notes */}
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="notes">Additional Notes</Label>
-                <Textarea
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Special requests, luggage details, etc."
-                  rows={4}
-                />
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setStep(2)} className="flex-1 py-4 rounded-lg border text-white/60 font-medium transition hover:border-white/30" style={{ borderColor: "rgba(255,255,255,0.15)", fontSize: 16 }}>← Back</button>
+                <button type="button" onClick={() => setStep(4)} disabled={!formData.date || !formData.time} className="flex-[2] py-4 rounded-lg font-medium tracking-widest uppercase transition disabled:opacity-40" style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}>Continue →</button>
               </div>
             </div>
+          )}
 
-            {/* Price display for transfer routes */}
-            {!isHourly && (
-              <div className="border border-border rounded-md p-4 text-center">
-                {transferPrice !== null ? (
-                  <>
-                    <div className="text-sm text-muted-foreground">
-                      {formData.tripType === "roundtrip" ? "Round Trip" : "One Way"} · {effectiveVehicle}
-                    </div>
-                    <div className="text-3xl font-light tracking-wider">${transferPrice}</div>
-                    {priceBreakdown && priceBreakdown.length > 0 && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {priceBreakdown.join(" · ")}
-                      </div>
-                    )}
-                    <div className="text-xs text-muted-foreground mt-1">Guaranteed price. No surprises.</div>
-                  </>
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    Select pickup zone, drop-off zone, and vehicle to see your guaranteed price.
+          {/* ── STEP 4: PASSENGER INFO ────────────────────────────── */}
+          {step === 4 && (
+            <div className="space-y-6">
+              <h3 className="text-white font-light" style={{ fontSize: 24, fontFamily: "serif" }}>
+                Your information
+              </h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label style={labelStyle}>👤 Full Name *</label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="John Doe"
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>📱 Phone Number *</label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    placeholder="+1 (555) 000-0000"
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>✉ Email *</label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    placeholder="john@example.com"
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>📝 Notes (Optional)</label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Special requests, child seat, etc."
+                    rows={3}
+                    className={inputClass}
+                    style={{ fontSize: 18, paddingTop: 14, paddingBottom: 14, resize: "none" as const }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setStep(3)} className="flex-1 py-4 rounded-lg border text-white/60 font-medium transition hover:border-white/30" style={{ borderColor: "rgba(255,255,255,0.15)", fontSize: 16 }}>← Back</button>
+                <button type="button" onClick={() => setStep(5)} disabled={!formData.name || !formData.phone || !formData.email} className="flex-[2] py-4 rounded-lg font-medium tracking-widest uppercase transition disabled:opacity-40" style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}>Review →</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 5: CONFIRM ───────────────────────────────────── */}
+          {step === 5 && (
+            <div className="space-y-6">
+              <h3 className="text-white font-light" style={{ fontSize: 24, fontFamily: "serif" }}>
+                Trip Summary
+              </h3>
+
+              {/* Summary card */}
+              <div className="rounded-xl border p-6 space-y-3" style={{ borderColor: `${GOLD}40`, backgroundColor: `${GOLD}08` }}>
+                {!isHourly && formData.pickupZone && formData.dropoffZone && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/50" style={{ fontSize: 15 }}>Route</span>
+                    <span className="text-white text-right" style={{ fontSize: 16 }}>
+                      {ZONES.find(z => z.id === formData.pickupZone)?.label?.split(" /")[0]} → {ZONES.find(z => z.id === formData.dropoffZone)?.label?.split(" /")[0]}
+                    </span>
                   </div>
                 )}
+                <div className="flex justify-between items-center">
+                  <span className="text-white/50" style={{ fontSize: 15 }}>Vehicle</span>
+                  <span className="text-white" style={{ fontSize: 16 }}>{effectiveVehicle}</span>
+                </div>
+                {formData.date && formData.time && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/50" style={{ fontSize: 15 }}>Date & Time</span>
+                    <span className="text-white" style={{ fontSize: 16 }}>
+                      {new Date(formData.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} — {(() => { const [h, m] = formData.time.split(":"); const hour = parseInt(h); return `${hour % 12 || 12}:${m} ${hour >= 12 ? "PM" : "AM"}` })()}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-white/50" style={{ fontSize: 15 }}>Passenger</span>
+                  <span className="text-white" style={{ fontSize: 16 }}>{formData.name}</span>
+                </div>
+                {price !== null && (
+                  <>
+                    <div className="border-t my-2" style={{ borderColor: `${GOLD}30` }} />
+                    <div className="flex justify-between items-center">
+                      <span style={{ color: GOLD, fontSize: 16 }}>Estimated Price</span>
+                      <span className="text-white font-light" style={{ fontSize: 28 }}>${price}</span>
+                    </div>
+                    {priceBreakdown && priceBreakdown.length > 0 && (
+                      <p className="text-white/30 text-xs text-right">{priceBreakdown.join(" · ")}</p>
+                    )}
+                    <p className="text-white/30 text-xs text-right">Guaranteed price. No surprises.</p>
+                  </>
+                )}
               </div>
-            )}
 
-            {/* Stripe payment button — only for transfer routes */}
-            {!isHourly && (
-              <button
-                type="button"
-                onClick={handlePayment}
-                disabled={paying}
-                className="w-full py-3 rounded-md font-medium tracking-wide hover:opacity-90 transition disabled:opacity-50"
-                style={{ backgroundColor: "#C8A96A", color: "#000" }}
-              >
-                {paying
-                  ? "Redirecting to payment..."
-                  : transferPrice
-                  ? `Confirm & Pay Securely — $${transferPrice}`
-                  : "Confirm & Pay Securely"}
+              {/* Payment button */}
+              {!isHourly && (
+                <button
+                  type="button"
+                  onClick={handlePayment}
+                  disabled={paying}
+                  className="w-full py-5 rounded-xl font-medium tracking-widest uppercase transition disabled:opacity-50"
+                  style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}
+                >
+                  {paying ? "Redirecting..." : price ? `Confirm & Pay — $${price}` : "Confirm & Pay Securely"}
+                </button>
+              )}
+
+              {payError && <p className="text-red-400 text-sm text-center">{payError}</p>}
+
+              {/* Send buttons */}
+              <div className="grid grid-cols-3 gap-3">
+                <a
+                  href={`mailto:contact@sottoventoluxuryride.com?subject=${encodeURIComponent("Sottovento Booking Request")}&body=${encoded}`}
+                  onClick={() => setSubmitted(true)}
+                  className="py-4 rounded-xl border text-center transition"
+                  style={{ borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.6)", fontSize: 14 }}
+                >
+                  ✉ Email
+                </a>
+                <a
+                  href={`sms:+14073830647?&body=${encoded}`}
+                  onClick={() => setSubmitted(true)}
+                  className="py-4 rounded-xl border text-center transition"
+                  style={{ borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.6)", fontSize: 14 }}
+                >
+                  💬 SMS
+                </a>
+                <a
+                  href={`https://wa.me/14073830647?text=${encoded}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setSubmitted(true)}
+                  className="py-4 rounded-xl border text-center transition"
+                  style={{ borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.6)", fontSize: 14 }}
+                >
+                  📱 WhatsApp
+                </a>
+              </div>
+
+              <p className="text-white/25 text-xs text-center">
+                Choose how to send your request. No app required.
+              </p>
+
+              <button type="button" onClick={() => setStep(4)} className="w-full py-3 text-white/40 text-sm transition hover:text-white/60">
+                ← Edit Information
               </button>
-            )}
-
-            {payError && (
-              <p className="text-sm text-red-500 text-center">{payError}</p>
-            )}
-
-            {/* 3 send buttons */}
-            <div className="grid md:grid-cols-3 gap-3">
-              <a
-                href={`mailto:contact@sottoventoluxuryride.com?subject=${encodeURIComponent("Sottovento Booking Request")}&body=${encoded}`}
-                className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
-              >
-                Send via Email
-              </a>
-              <a
-                href={`sms:+14073830647?&body=${encoded}`}
-                className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
-              >
-                Send via Text (SMS)
-              </a>
-              <a
-                href={`https://wa.me/14073830647?text=${encoded}`}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full text-center px-4 py-3 border border-border rounded-md hover:border-accent transition"
-              >
-                Send via WhatsApp
-              </a>
             </div>
+          )}
 
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              Choose how you&apos;d like to send your request. No app is required.
-            </p>
-          </form>
         </div>
+      </div>
+
+      {/* ── Floating Support Button ───────────────────────────── */}
+      <div className="fixed bottom-6 right-4 z-50">
+        {supportOpen && (
+          <div
+            className="absolute bottom-16 right-0 w-64 rounded-2xl border p-4 space-y-2 shadow-2xl"
+            style={{ backgroundColor: "#111", borderColor: "rgba(255,255,255,0.12)" }}
+          >
+            <p className="text-white/40 text-xs text-center mb-3">Your ride is monitored for your safety.</p>
+            {[
+              { label: "📞 Contact Driver", href: `tel:+14073830647` },
+              { label: "📍 Share Trip", href: `https://wa.me/14073830647?text=I'm sharing my trip location` },
+              { label: "💬 Contact Support", href: `https://wa.me/14073830647` },
+              { label: "🚨 Call 911", href: `tel:911` },
+            ].map((item) => (
+              <a
+                key={item.label}
+                href={item.href}
+                target={item.href.startsWith("http") ? "_blank" : undefined}
+                rel="noreferrer"
+                className="block w-full py-3 px-4 rounded-lg border text-center text-white/70 transition hover:border-white/30"
+                style={{ borderColor: "rgba(255,255,255,0.1)", fontSize: 15 }}
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => setSupportOpen(!supportOpen)}
+          className="rounded-full px-4 py-3 shadow-lg transition"
+          style={{ backgroundColor: "#1a1a1a", border: `1px solid ${GOLD}50`, color: GOLD, fontSize: 13 }}
+        >
+          {supportOpen ? "✕" : "🛡 Ride Support"}
+        </button>
       </div>
     </section>
   )
