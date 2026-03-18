@@ -1,9 +1,19 @@
 import { Resend } from "resend"
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy initialization — avoids build-time crash when RESEND_API_KEY is not set
+function getResend() {
+  const key = process.env.RESEND_API_KEY
+  if (!key) {
+    console.warn("[email] RESEND_API_KEY not set — emails will be skipped")
+    return null
+  }
+  return new Resend(key)
+}
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? "noreply@send.sottoventoluxuryride.com"
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "contact@sottoventoluxuryride.com"
+const FROM =
+  process.env.RESEND_FROM_EMAIL ?? "noreply@send.sottoventoluxuryride.com"
+const ADMIN_EMAIL =
+  process.env.ADMIN_EMAIL ?? "contact@sottoventoluxuryride.com"
 
 // ─────────────────────────────────────────────────────────────
 // LEAD / GET QUOTE — notifies admin when a lead is captured
@@ -16,6 +26,9 @@ export async function sendLeadNotification(opts: {
   tabletCode?: string
   package?: string
 }) {
+  const resend = getResend()
+  if (!resend) return
+
   const subject = `New Lead — Sottovento Luxury Ride`
   const html = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;padding:32px;border-radius:12px;">
@@ -67,6 +80,9 @@ export async function sendBookingConfirmation(opts: {
   bookingId?: string
   driverCode?: string
 }) {
+  const resend = getResend()
+  if (!resend) return
+
   const subject = `Booking Confirmed — Sottovento Luxury Ride`
   const pickupFormatted = opts.pickupAt
     ? new Date(opts.pickupAt).toLocaleString("en-US", {
@@ -125,6 +141,9 @@ export async function sendCrownMomentPhoto(opts: {
   photoBase64: string
   frameName: string
 }) {
+  const resend = getResend()
+  if (!resend) return { success: false, error: "Email service not configured" }
+
   const subject = `Your Crown Moment — Sottovento Luxury Ride`
   const html = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;padding:32px;border-radius:12px;">
