@@ -4,81 +4,215 @@ import { QRCodeSVG } from "qrcode.react"
 import Image from "next/image"
 
 // ─────────────────────────────────────────────────────────────
-// TabletKiosk — MASTER BLOCK FINAL
-// Structure:
-//   1. HERO (full screen — luxury image + brand + Reserve Now)
-//   2. SERVICE CAROUSEL (Airport / Corporate / Hourly / Fleet / Port Canaveral)
-//   3. CROWN MOMENT (photo frame experience)
-//   4. FLEET SECTION (Suburban · Escalade · Executive SUV)
-//   5. DESTINATIONS (secondary — Popular Routes)
-//   6. QR BOOKING (Scan + phone input + Send + Get Quote)
-//   7. SAFETY BUTTON (floating, always visible)
+// TabletKiosk — FINAL MASTER FINISHING BLOCK
+//
+// Architecture:
+//   1. HERO         — full-screen luxury image + brand + Reserve Now
+//   2. GRID         — 12 cards (3×4) in conversion priority order
+//                     Service cards → booking flow (preselected destination)
+//                     Experience cards → Crown Moment camera flow
+//   3. QR BOOKING   — secondary: QR + phone + send link + get quote
 //
 // Brand: Black · Gold · White · Elegant typography
 // Identity: Private Chauffeur · Uber Black · Executive Transport
+//
+// RULE: Tap = Action. No dead-end states.
 // ─────────────────────────────────────────────────────────────
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
 const GOLD = "#C9A84C"
 
 // ─── SECTION IDs ───────────────────────────────────────────
-type SectionId = "hero" | "carousel" | "crown" | "fleet" | "destinations" | "qr" | "safety"
+type SectionId = "hero" | "grid" | "booking" | "crown" | "qr"
 
-// ─── SERVICE CAROUSEL SLIDES ───────────────────────────────
-const SERVICE_SLIDES = [
-  {
-    id: "airport",
-    title: "Airport Transfers",
-    subtitle: "Premium airport pickup and drop-off service",
-    photo: "/images/tablet/airport-bg.jpg",
-  },
-  {
-    id: "corporate",
-    title: "Corporate Travel",
-    subtitle: "Executive transportation for business clients",
-    photo: "/images/tablet/corporate-bg.jpg",
-  },
-  {
-    id: "hourly",
-    title: "Hourly Chauffeur",
-    subtitle: "Flexible private service at your convenience",
-    photo: "/images/tablet/hourly-bg.jpg",
-  },
-  {
-    id: "fleet-slide",
-    title: "Premium Vehicles",
-    subtitle: "Suburban · Escalade · Luxury fleet",
-    photo: "/images/tablet/fleet-bg.jpg",
-  },
-  {
-    id: "port",
-    title: "Port Canaveral Transfers",
-    subtitle: "Cruise transportation with comfort and reliability",
-    photo: "/images/tablet/qr-bg.jpg",
-  },
-]
-
-// ─── MAIN SECTIONS (scroll-based) ──────────────────────────
-// The kiosk renders as a full-screen paginated experience.
-// Each section is a full-screen "page" that auto-advances.
-const SECTIONS: SectionId[] = [
-  "hero",
-  "carousel",
-  "crown",
-  "fleet",
-  "destinations",
-  "qr",
-]
+const SECTIONS: SectionId[] = ["hero", "grid", "qr"]
 
 const SECTION_DURATION: Record<SectionId, number> = {
   hero: 10000,
-  carousel: 40000, // carousel handles its own timing internally
-  crown: 12000,
-  fleet: 10000,
-  destinations: 10000,
+  grid: 60000,
+  booking: 120000,
+  crown: 120000,
   qr: 30000,
-  safety: 0,
 }
+
+// ─── CARD DEFINITIONS ──────────────────────────────────────
+type CardType = "service" | "experience"
+
+interface GridCard {
+  id: string
+  type: CardType
+  label: string
+  sublabel: string
+  photo: string
+  accentHex: string
+  destination?: string   // for service cards — preselects booking destination
+  frameId?: CrownFrame   // for experience cards — opens Crown Moment with this frame
+}
+
+// 12 cards in conversion priority order (Section 15 of master block)
+const GRID_CARDS: GridCard[] = [
+  // ── TOP PRIORITY ROW ──────────────────────────────────────
+  {
+    id: "port-canaveral",
+    type: "service",
+    label: "Port Canaveral",
+    sublabel: "Cruise Transfers",
+    photo: "/images/tablet/port-canaveral-bg.jpg",
+    accentHex: "#7ec8e3",
+    destination: "Port Canaveral",
+  },
+  {
+    id: "disney",
+    type: "service",
+    label: "Disney",
+    sublabel: "Walt Disney World",
+    photo: "/images/tablet/orlando-bg.jpg",
+    accentHex: "#f0c040",
+    destination: "Walt Disney World",
+  },
+  {
+    id: "universal",
+    type: "service",
+    label: "Universal",
+    sublabel: "Universal Orlando",
+    photo: "/images/tablet/kennedy-bg.jpg",
+    accentHex: "#60a0ff",
+    destination: "Universal Orlando",
+  },
+  {
+    id: "airport",
+    type: "service",
+    label: "Airport",
+    sublabel: "MCO · Sanford",
+    photo: "/images/tablet/airport-bg.jpg",
+    accentHex: GOLD,
+    destination: "Orlando Airport (MCO)",
+  },
+  // ── SECONDARY HIGH-VALUE ROW ──────────────────────────────
+  {
+    id: "capture-moment",
+    type: "experience",
+    label: "Capture Your Moment",
+    sublabel: "Orlando Memory Photo",
+    photo: "/images/tablet/family-car-bg.jpg",
+    accentHex: GOLD,
+    frameId: "sottovento",
+  },
+  {
+    id: "miami",
+    type: "service",
+    label: "Miami",
+    sublabel: "South Beach · Brickell",
+    photo: "/images/tablet/corporate-bg.jpg",
+    accentHex: GOLD,
+    destination: "Miami",
+  },
+  {
+    id: "clearwater",
+    type: "service",
+    label: "Clearwater Beach",
+    sublabel: "Tampa Bay Area",
+    photo: "/images/tablet/clearwater-bg.jpg",
+    accentHex: "#7ec8e3",
+    destination: "Clearwater Beach",
+  },
+  {
+    id: "kennedy",
+    type: "service",
+    label: "Kennedy Space Center",
+    sublabel: "Cape Canaveral",
+    photo: "/images/tablet/kennedy-bg.jpg",
+    accentHex: GOLD,
+    destination: "Kennedy Space Center",
+  },
+  // ── THIRD ROW / SUPPORTING EXPERIENCE ─────────────────────
+  {
+    id: "everglades",
+    type: "service",
+    label: "Everglades",
+    sublabel: "Wildlife Adventure",
+    photo: "/images/tablet/everglades-bg.jpg",
+    accentHex: "#7ec8e3",
+    destination: "Everglades",
+  },
+  {
+    id: "corporate",
+    type: "service",
+    label: "Corporate · Hourly",
+    sublabel: "Executive Transport",
+    photo: "/images/tablet/hourly-bg.jpg",
+    accentHex: GOLD,
+    destination: "Corporate / Hourly",
+  },
+  {
+    id: "shopping",
+    type: "service",
+    label: "Shopping · Lifestyle",
+    sublabel: "Premium Outings",
+    photo: "/images/tablet/fleet-bg.jpg",
+    accentHex: GOLD,
+    destination: "Shopping / Lifestyle",
+  },
+  {
+    id: "family-memory",
+    type: "experience",
+    label: "Family Memory Photo",
+    sublabel: "Crown Moment",
+    photo: "/images/tablet/crown-bg.jpg",
+    accentHex: GOLD,
+    frameId: "disney",
+  },
+]
+
+// ─── CROWN MOMENT FRAMES ───────────────────────────────────
+type CrownFrame = "sottovento" | "disney" | "universal" | "cruise"
+
+const CROWN_FRAMES = [
+  {
+    id: "sottovento" as CrownFrame,
+    label: "Classic Sottovento",
+    sublabel: "Elegance & Prestige",
+    bgColor: "#0a0a0a",
+    accentHex: GOLD,
+    headerText: "SOTTOVENTO LUXURY RIDE",
+    footerText: "Orlando · Florida",
+    bgImage: "/images/tablet/crown-bg.jpg",
+  },
+  {
+    id: "disney" as CrownFrame,
+    label: "Disney Family Trip",
+    sublabel: "Walt Disney World Area",
+    bgColor: "#3b0764",
+    accentHex: "#f0c040",
+    headerText: "Orlando Family Trip · Walt Disney World Area",
+    footerText: "Sottovento Luxury Ride",
+    bgImage: "/images/tablet/orlando-bg.jpg",
+  },
+  {
+    id: "universal" as CrownFrame,
+    label: "Universal Adventure",
+    sublabel: "Universal Orlando",
+    bgColor: "#0f2040",
+    accentHex: "#60a0ff",
+    headerText: "Universal Orlando Adventure",
+    footerText: "Sottovento Luxury Ride",
+    bgImage: "/images/tablet/kennedy-bg.jpg",
+  },
+  {
+    id: "cruise" as CrownFrame,
+    label: "Cruise Memories",
+    sublabel: "Port Canaveral",
+    bgColor: "#0a1a30",
+    accentHex: "#7ec8e3",
+    headerText: "Port Canaveral Cruise Memories",
+    footerText: "Sottovento Luxury Ride",
+    bgImage: "/images/tablet/port-canaveral-bg.jpg",
+  },
+]
+
+// ─────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────
 
 interface TabletKioskProps {
   driverCode?: string | null
@@ -90,11 +224,20 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
   const [urlDriverCode, setUrlDriverCode] = useState<string | null>(null)
   const [tabletCode, setTabletCode] = useState<string | null>(null)
   const [urlOperatorName, setUrlOperatorName] = useState<string | null>(null)
+
+  // Booking flow state
+  const [bookingDestination, setBookingDestination] = useState<string | null>(null)
+
+  // Crown Moment state
+  const [crownFrameId, setCrownFrameId] = useState<CrownFrame | null>(null)
+
+  // Lead form state
   const [leadName, setLeadName] = useState("")
   const [leadPhone, setLeadPhone] = useState("")
   const [leadEmail, setLeadEmail] = useState("")
   const [leadSubmitted, setLeadSubmitted] = useState(false)
   const [leadSubmitting, setLeadSubmitting] = useState(false)
+
   const [showSafety, setShowSafety] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -105,12 +248,8 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
     setUrlOperatorName(params.get("operator") ?? null)
   }, [])
 
-  // Brand Hierarchy:
-  // - If operator is Sottovento itself (no operatorName), show "Sottovento Luxury Ride"
-  // - If another operator is onboarded, show "[Operator Name] by Sottovento Network"
   const effectiveOperatorName = propOperatorName ?? urlOperatorName
   const isSottovento = !effectiveOperatorName || effectiveOperatorName.toLowerCase().includes("sottovento")
-
   const effectiveDriverCode = driverCode ?? urlDriverCode
 
   const bookingUrl = (() => {
@@ -127,6 +266,8 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
   }, [])
 
   useEffect(() => {
+    // Don't auto-advance during active booking or crown moment flows
+    if (currentSection === "booking" || currentSection === "crown") return
     const duration = SECTION_DURATION[currentSection] ?? 10000
     timerRef.current = setTimeout(advanceSection, duration)
     return () => {
@@ -137,6 +278,23 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
   const goToSection = (index: number) => {
     if (timerRef.current) clearTimeout(timerRef.current)
     setSectionIndex(index)
+  }
+
+  const goToGrid = () => {
+    setBookingDestination(null)
+    setCrownFrameId(null)
+    goToSection(SECTIONS.indexOf("grid"))
+  }
+
+  // Card tap handler
+  const handleCardTap = (card: GridCard) => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    if (card.type === "service") {
+      setBookingDestination(card.destination ?? null)
+      setSectionIndex(SECTIONS.indexOf("grid")) // stay on grid section but show booking overlay
+    } else {
+      setCrownFrameId(card.frameId ?? "sottovento")
+    }
   }
 
   const submitLead = async () => {
@@ -153,6 +311,7 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
           driver_code: effectiveDriverCode,
           tablet_code: tabletCode,
           lead_source: "tablet",
+          destination: bookingDestination,
         }),
       })
       setLeadSubmitted(true)
@@ -161,8 +320,9 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
         setLeadName("")
         setLeadPhone("")
         setLeadEmail("")
-        advanceSection()
-      }, 4000)
+        setBookingDestination(null)
+        goToGrid()
+      }, 5000)
     } catch {
       setLeadSubmitted(true)
     } finally {
@@ -195,34 +355,48 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             driverCode={effectiveDriverCode}
             operatorName={effectiveOperatorName}
             isSottovento={isSottovento}
-            onReserve={() => goToSection(SECTIONS.indexOf("qr"))}
+            onReserve={() => goToSection(SECTIONS.indexOf("grid"))}
           />
         )}
 
-        {/* 2. SERVICE CAROUSEL */}
-        {currentSection === "carousel" && (
-          <ServiceCarousel
+        {/* 2. GRID — with booking/crown overlays */}
+        {currentSection === "grid" && !bookingDestination && !crownFrameId && (
+          <GridSection
             accentColor={GOLD}
-            onDone={() => goToSection(SECTIONS.indexOf("crown"))}
+            onCardTap={handleCardTap}
+            onQR={() => goToSection(SECTIONS.indexOf("qr"))}
           />
         )}
 
-        {/* 3. CROWN MOMENT */}
-        {currentSection === "crown" && (
-          <CrownMomentSection accentColor={GOLD} />
+        {/* BOOKING FLOW (overlay on grid section) */}
+        {currentSection === "grid" && bookingDestination && (
+          <BookingFlowSection
+            accentColor={GOLD}
+            destination={bookingDestination}
+            bookingUrl={bookingUrl}
+            name={leadName}
+            phone={leadPhone}
+            email={leadEmail}
+            onName={setLeadName}
+            onPhone={setLeadPhone}
+            onEmail={setLeadEmail}
+            onSubmit={submitLead}
+            submitting={leadSubmitting}
+            submitted={leadSubmitted}
+            onBack={goToGrid}
+          />
         )}
 
-        {/* 4. FLEET */}
-        {currentSection === "fleet" && (
-          <FleetSection accentColor={GOLD} />
+        {/* CROWN MOMENT FLOW (overlay on grid section) */}
+        {currentSection === "grid" && crownFrameId && !bookingDestination && (
+          <CrownMomentFlow
+            accentColor={GOLD}
+            initialFrameId={crownFrameId}
+            onBack={goToGrid}
+          />
         )}
 
-        {/* 5. DESTINATIONS */}
-        {currentSection === "destinations" && (
-          <DestinationsSection accentColor={GOLD} />
-        )}
-
-        {/* 6. QR BOOKING */}
+        {/* 3. QR BOOKING */}
         {currentSection === "qr" && (
           <QRBookingSection
             accentColor={GOLD}
@@ -236,38 +410,43 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             onSubmit={submitLead}
             submitting={leadSubmitting}
             submitted={leadSubmitted}
+            onBack={goToGrid}
           />
         )}
       </div>
 
       {/* ── SECTION DOTS ── */}
-      <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2 z-50">
-        {SECTIONS.map((s, i) => (
-          <button
-            key={s}
-            onClick={() => goToSection(i)}
-            className="rounded-full transition-all duration-300"
-            style={{
-              width: i === sectionIndex ? 24 : 8,
-              height: 8,
-              backgroundColor:
-                i === sectionIndex ? GOLD : "rgba(255,255,255,0.3)",
-            }}
-          />
-        ))}
-      </div>
+      {!bookingDestination && !crownFrameId && (
+        <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2 z-50">
+          {SECTIONS.map((s, i) => (
+            <button
+              key={s}
+              onClick={() => goToSection(i)}
+              className="rounded-full transition-all duration-300"
+              style={{
+                width: i === sectionIndex ? 24 : 8,
+                height: 8,
+                backgroundColor:
+                  i === sectionIndex ? GOLD : "rgba(255,255,255,0.3)",
+              }}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* ── TAP ZONES ── */}
-      <button
-        className="absolute left-0 top-0 bottom-16 w-16 z-40 opacity-0"
-        onClick={() =>
-          goToSection((sectionIndex - 1 + SECTIONS.length) % SECTIONS.length)
-        }
-      />
-      <button
-        className="absolute right-0 top-0 bottom-16 w-16 z-40 opacity-0"
-        onClick={() => goToSection((sectionIndex + 1) % SECTIONS.length)}
-      />
+      {/* ── TAP ZONES (only on non-interactive sections) ── */}
+      {currentSection === "hero" && (
+        <>
+          <button
+            className="absolute left-0 top-0 bottom-16 w-16 z-40 opacity-0"
+            onClick={() => goToSection((sectionIndex - 1 + SECTIONS.length) % SECTIONS.length)}
+          />
+          <button
+            className="absolute right-0 top-0 bottom-16 w-16 z-40 opacity-0"
+            onClick={() => goToSection((sectionIndex + 1) % SECTIONS.length)}
+          />
+        </>
+      )}
 
       {/* ── BRANDING WATERMARK ── */}
       <div
@@ -287,7 +466,7 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
         </div>
       )}
 
-      {/* ── 7. SAFETY BUTTON (floating, always visible) ── */}
+      {/* ── SAFETY BUTTON (floating, always visible) ── */}
       <button
         onClick={() => setShowSafety(!showSafety)}
         className="absolute top-5 right-6 z-50 px-4 py-2 rounded-full text-xs tracking-widest uppercase font-medium transition-all"
@@ -313,22 +492,21 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             className="text-white text-lg font-light mb-3"
             style={{ fontFamily: "serif" }}
           >
-            Safety
+            Trip Assistance
           </h3>
           <p className="text-white/50 text-sm leading-relaxed mb-4">
-            Your safety is our priority. If you feel uncomfortable at any
-            point during your ride, please contact us immediately.
+            Your safety is our priority. Contact us at any point during your ride.
           </p>
           <a
             href="tel:+14074001111"
-            className="block w-full py-3 rounded-lg text-center text-sm font-medium tracking-widest uppercase"
+            className="block w-full py-3 rounded-lg text-center text-sm font-medium tracking-widest uppercase mb-2"
             style={{ backgroundColor: GOLD, color: "#000" }}
           >
             Call Support
           </a>
           <button
             onClick={() => setShowSafety(false)}
-            className="block w-full mt-2 py-2 text-white/30 text-xs tracking-widest uppercase"
+            className="block w-full py-2 text-white/30 text-xs tracking-widest uppercase"
           >
             Close
           </button>
@@ -352,13 +530,7 @@ function GoldDivider({ color }: { color: string }) {
   )
 }
 
-function FullScreenPhoto({
-  src,
-  overlay = 0.55,
-}: {
-  src: string
-  overlay?: number
-}) {
+function FullScreenPhoto({ src, overlay = 0.55 }: { src: string; overlay?: number }) {
   return (
     <div className="absolute inset-0 z-0">
       <Image
@@ -419,7 +591,6 @@ function HeroSection({
         </svg>
 
         {isSottovento ? (
-          // OWNER CASE: Sottovento itself
           <>
             <h1
               className="text-6xl md:text-7xl font-light text-white"
@@ -435,7 +606,6 @@ function HeroSection({
             </p>
           </>
         ) : (
-          // NETWORK CASE: another operator
           <>
             <h1
               className="text-6xl md:text-7xl font-light text-white"
@@ -480,100 +650,49 @@ function HeroSection({
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. SERVICE CAROUSEL
+// 2. GRID SECTION — 12 cards, 3×4, conversion priority order
 // ─────────────────────────────────────────────────────────────
 
-function ServiceCarousel({
+function GridSection({
   accentColor,
-  onDone,
+  onCardTap,
+  onQR,
 }: {
   accentColor: string
-  onDone: () => void
+  onCardTap: (card: GridCard) => void
+  onQR: () => void
 }) {
-  const [current, setCurrent] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const advance = useCallback(() => {
-    setCurrent((prev) => {
-      if (prev + 1 >= SERVICE_SLIDES.length) {
-        onDone()
-        return prev
-      }
-      return prev + 1
-    })
-  }, [onDone])
-
-  useEffect(() => {
-    timerRef.current = setTimeout(advance, 8000)
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [current, advance])
-
-  const goTo = (i: number) => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    setCurrent(i)
-  }
-
-  const slide = SERVICE_SLIDES[current]
-
   return (
-    <div className="relative w-full h-full">
-      {/* Background photos with crossfade */}
-      {SERVICE_SLIDES.map((s, i) => (
-        <div
-          key={s.id}
-          className="absolute inset-0 transition-opacity duration-1000"
-          style={{ opacity: i === current ? 1 : 0 }}
-        >
-          <Image
-            src={s.photo}
-            alt=""
-            fill
-            priority={i === 0}
-            className="object-cover object-center"
-            sizes="100vw"
-          />
-          <div
-            className="absolute inset-0"
-            style={{ background: "rgba(0,0,0,0.60)" }}
-          />
+    <div className="relative w-full h-full flex flex-col" style={{ backgroundColor: "#000" }}>
+      {/* Header */}
+      <div className="flex-shrink-0 flex items-center justify-between px-6 pt-5 pb-3 z-10">
+        <div>
+          <p className="text-xs tracking-[0.4em] uppercase" style={{ color: accentColor }}>
+            Sottovento
+          </p>
+          <h2
+            className="text-2xl font-light text-white"
+            style={{ fontFamily: "serif", letterSpacing: "0.04em" }}
+          >
+            Where are you headed?
+          </h2>
         </div>
-      ))}
-
-      {/* Slide content */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-16 gap-5 z-10">
-        <p
-          className="text-xs tracking-[0.4em] uppercase"
-          style={{ color: accentColor }}
+        <button
+          onClick={onQR}
+          className="px-4 py-2 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
+          style={{ borderColor: `${accentColor}50`, color: accentColor }}
         >
-          Our Services
-        </p>
-        <h2
-          className="text-5xl font-light text-white"
-          style={{ fontFamily: "serif" }}
-        >
-          {slide.title}
-        </h2>
-        <GoldDivider color={accentColor} />
-        <p className="text-white/60 text-xl font-light max-w-md">
-          {slide.subtitle}
-        </p>
+          Quick Book
+        </button>
       </div>
 
-      {/* Carousel dots */}
-      <div className="absolute bottom-20 left-0 right-0 flex justify-center gap-2 z-20">
-        {SERVICE_SLIDES.map((s, i) => (
-          <button
-            key={s.id}
-            onClick={() => goTo(i)}
-            className="rounded-full transition-all duration-300"
-            style={{
-              width: i === current ? 20 : 7,
-              height: 7,
-              backgroundColor:
-                i === current ? accentColor : "rgba(255,255,255,0.25)",
-            }}
+      {/* 3×4 Grid */}
+      <div className="flex-1 grid grid-cols-4 grid-rows-3 gap-2 px-3 pb-14 overflow-hidden">
+        {GRID_CARDS.map((card) => (
+          <GridCard
+            key={card.id}
+            card={card}
+            onTap={() => onCardTap(card)}
           />
         ))}
       </div>
@@ -581,99 +700,310 @@ function ServiceCarousel({
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// 3. CROWN MOMENT SECTION — with real camera + themed frames
-// ─────────────────────────────────────────────────────────────
-
-type CrownFrame = "sottovento" | "disney" | "universal" | "cruise"
-
-const CROWN_FRAMES: {
-  id: CrownFrame
-  label: string
-  sublabel: string
-  bgColor: string
-  accentHex: string
-  borderStyle: string
-  headerText: string
-  footerText: string
-  bgImage: string
-}[] = [
-  {
-    id: "sottovento",
-    label: "Classic Sottovento",
-    sublabel: "Elegance & Prestige",
-    bgColor: "#0a0a0a",
-    accentHex: "#C9A84C",
-    borderStyle: "double",
-    headerText: "SOTTOVENTO LUXURY RIDE",
-    footerText: "Orlando · Florida",
-    bgImage: "/images/tablet/crown-bg.jpg",
-  },
-  {
-    id: "disney",
-    label: "Disney Family Trip",
-    sublabel: "Walt Disney World Area",
-    bgColor: "#3b0764",
-    accentHex: "#f0c040",
-    borderStyle: "solid",
-    headerText: "Orlando Family Trip · Walt Disney World Area",
-    footerText: "Sottovento Luxury Ride",
-    bgImage: "/images/tablet/orlando-bg.jpg",
-  },
-  {
-    id: "universal",
-    label: "Universal Adventure",
-    sublabel: "Universal Orlando",
-    bgColor: "#0f2040",
-    accentHex: "#60a0ff",
-    borderStyle: "solid",
-    headerText: "Universal Orlando Adventure",
-    footerText: "Sottovento Luxury Ride",
-    bgImage: "/images/tablet/kennedy-bg.jpg",
-  },
-  {
-    id: "cruise",
-    label: "Cruise Memories",
-    sublabel: "Port Canaveral",
-    bgColor: "#0a1a30",
-    accentHex: "#7ec8e3",
-    borderStyle: "solid",
-    headerText: "Port Canaveral Cruise Memories",
-    footerText: "Sottovento Luxury Ride",
-    bgImage: "/images/tablet/port-canaveral-bg.jpg",
-  },
-]
-
-function CrownMomentSection({ accentColor }: { accentColor: string }) {
-  const [selectedFrame, setSelectedFrame] = useState<CrownFrame | null>(null)
-
-  if (!selectedFrame) {
-    return <CrownFrameGrid accentColor={accentColor} onSelect={setSelectedFrame} />
-  }
+function GridCard({ card, onTap }: { card: GridCard; onTap: () => void }) {
+  const isExperience = card.type === "experience"
 
   return (
-    <CrownCamera
-      accentColor={accentColor}
-      frame={CROWN_FRAMES.find((f) => f.id === selectedFrame)!}
-      onBack={() => setSelectedFrame(null)}
-    />
+    <button
+      onClick={onTap}
+      className="relative rounded-xl overflow-hidden flex flex-col items-start justify-end text-left transition-all active:scale-95 active:brightness-110"
+      style={{
+        border: `1.5px solid ${card.accentHex}40`,
+        backgroundColor: "#0a0a0a",
+      }}
+    >
+      {/* Background photo */}
+      <div className="absolute inset-0">
+        <Image
+          src={card.photo}
+          alt={card.label}
+          fill
+          className="object-cover object-center"
+          sizes="25vw"
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            background: isExperience
+              ? `linear-gradient(to top, rgba(0,0,0,0.92) 40%, rgba(0,0,0,0.5) 70%, rgba(0,0,0,0.2))`
+              : `linear-gradient(to top, rgba(0,0,0,0.88) 35%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0.15))`,
+          }}
+        />
+      </div>
+
+      {/* Experience badge */}
+      {isExperience && (
+        <div
+          className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-xs tracking-widest uppercase font-medium"
+          style={{ backgroundColor: `${card.accentHex}30`, color: card.accentHex, border: `1px solid ${card.accentHex}50` }}
+        >
+          Photo
+        </div>
+      )}
+
+      {/* Top accent line */}
+      <div
+        className="absolute top-0 left-0 right-0 h-0.5"
+        style={{ backgroundColor: `${card.accentHex}70` }}
+      />
+
+      {/* Text */}
+      <div className="relative z-10 px-3 pb-3 w-full">
+        <p
+          className="text-white font-semibold text-sm leading-tight"
+          style={{ fontFamily: "serif" }}
+        >
+          {card.label}
+        </p>
+        <p
+          className="text-xs mt-0.5 leading-tight"
+          style={{ color: `${card.accentHex}cc` }}
+        >
+          {card.sublabel}
+        </p>
+      </div>
+    </button>
   )
 }
 
-// ── Grid 2×2 of themed frames ──────────────────────────────
-function CrownFrameGrid({
+// ─────────────────────────────────────────────────────────────
+// BOOKING FLOW SECTION
+// Opens when a service card is tapped — destination preselected
+// ─────────────────────────────────────────────────────────────
+
+function BookingFlowSection({
   accentColor,
-  onSelect,
+  destination,
+  bookingUrl,
+  name,
+  phone,
+  email,
+  onName,
+  onPhone,
+  onEmail,
+  onSubmit,
+  submitting,
+  submitted,
+  onBack,
 }: {
   accentColor: string
-  onSelect: (f: CrownFrame) => void
+  destination: string
+  bookingUrl: string
+  name: string
+  phone: string
+  email: string
+  onName: (v: string) => void
+  onPhone: (v: string) => void
+  onEmail: (v: string) => void
+  onSubmit: () => void
+  submitting: boolean
+  submitted: boolean
+  onBack: () => void
 }) {
+  // Auto-return after success
+  useEffect(() => {
+    if (submitted) {
+      const t = setTimeout(onBack, 5000)
+      return () => clearTimeout(t)
+    }
+  }, [submitted, onBack])
+
+  // Auto-return after 2 min inactivity
+  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetInactivity = useCallback(() => {
+    if (inactivityRef.current) clearTimeout(inactivityRef.current)
+    inactivityRef.current = setTimeout(onBack, 120000)
+  }, [onBack])
+
+  useEffect(() => {
+    resetInactivity()
+    return () => {
+      if (inactivityRef.current) clearTimeout(inactivityRef.current)
+    }
+  }, [resetInactivity])
+
+  if (submitted) {
+    return (
+      <div className="relative w-full h-full flex flex-col items-center justify-center text-center" style={{ backgroundColor: "#000" }}>
+        <div className="flex flex-col items-center gap-6">
+          <div className="text-6xl" style={{ color: accentColor }}>✓</div>
+          <h2
+            className="text-4xl font-light text-white"
+            style={{ fontFamily: "serif" }}
+          >
+            Request Sent
+          </h2>
+          <p className="text-white/50 text-lg">We will be in touch shortly.</p>
+          <p className="text-white/30 text-sm">Returning to menu in 5 seconds...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const fullBookingUrl = `${bookingUrl}&destination=${encodeURIComponent(destination)}`
+
   return (
-    <div className="relative w-full h-full flex flex-col">
-      <FullScreenPhoto src="/images/tablet/lead-bg.jpg" overlay={0.75} />
+    <div
+      className="relative w-full h-full flex flex-col items-center justify-center"
+      style={{ backgroundColor: "#000" }}
+      onTouchStart={resetInactivity}
+      onClick={resetInactivity}
+    >
+      <div className="relative z-10 flex flex-col items-center gap-5 px-10 max-w-2xl w-full">
+        {/* Back */}
+        <button
+          onClick={onBack}
+          className="self-start text-white/40 text-xs tracking-widest uppercase mb-2 active:text-white/70"
+        >
+          ← Back
+        </button>
+
+        <p
+          className="text-xs tracking-[0.4em] uppercase self-start"
+          style={{ color: accentColor }}
+        >
+          Book Your Ride
+        </p>
+        <h2
+          className="text-4xl font-light text-white self-start"
+          style={{ fontFamily: "serif" }}
+        >
+          {destination}
+        </h2>
+        <GoldDivider color={accentColor} />
+
+        {/* Two-column layout: QR left, form right */}
+        <div className="flex gap-8 w-full items-start mt-2">
+          {/* QR code */}
+          <div className="flex flex-col items-center gap-3 flex-shrink-0">
+            <div className="p-3 rounded-xl" style={{ backgroundColor: "#fff" }}>
+              <QRCodeSVG
+                value={fullBookingUrl}
+                size={150}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
+              />
+            </div>
+            <p
+              className="text-xs tracking-widest uppercase text-center"
+              style={{ color: accentColor }}
+            >
+              Scan to Book
+            </p>
+          </div>
+
+          {/* Lead form */}
+          <div className="flex flex-col gap-3 flex-1">
+            <input
+              type="tel"
+              placeholder="Phone number"
+              value={phone}
+              onChange={(e) => { onPhone(e.target.value); resetInactivity() }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <button
+              onClick={onSubmit}
+              disabled={submitting || !phone}
+              className="w-full py-3 rounded-lg text-black font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
+              style={{ backgroundColor: accentColor }}
+            >
+              {submitting ? "Sending..." : "Send Link"}
+            </button>
+            <input
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => { onName(e.target.value); resetInactivity() }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => { onEmail(e.target.value); resetInactivity() }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <button
+              onClick={onSubmit}
+              disabled={submitting || (!name && !phone && !email)}
+              className="w-full py-3 rounded-lg font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
+              style={{
+                backgroundColor: "transparent",
+                color: accentColor,
+                border: `1px solid ${accentColor}`,
+              }}
+            >
+              Get Quote
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// CROWN MOMENT FLOW
+// Opens when an experience card is tapped
+// ─────────────────────────────────────────────────────────────
+
+function CrownMomentFlow({
+  accentColor,
+  initialFrameId,
+  onBack,
+}: {
+  accentColor: string
+  initialFrameId: CrownFrame
+  onBack: () => void
+}) {
+  const [selectedFrame, setSelectedFrame] = useState<CrownFrame>(initialFrameId)
+  const [inCamera, setInCamera] = useState(false)
+
+  // Auto-return after 2 min inactivity
+  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetInactivity = useCallback(() => {
+    if (inactivityRef.current) clearTimeout(inactivityRef.current)
+    inactivityRef.current = setTimeout(onBack, 120000)
+  }, [onBack])
+
+  useEffect(() => {
+    resetInactivity()
+    return () => {
+      if (inactivityRef.current) clearTimeout(inactivityRef.current)
+    }
+  }, [resetInactivity])
+
+  if (inCamera) {
+    const frame = CROWN_FRAMES.find((f) => f.id === selectedFrame)!
+    return (
+      <CrownCamera
+        accentColor={accentColor}
+        frame={frame}
+        onBack={() => { setInCamera(false); resetInactivity() }}
+        onDone={onBack}
+        onActivity={resetInactivity}
+      />
+    )
+  }
+
+  return (
+    <div
+      className="relative w-full h-full flex flex-col"
+      style={{ backgroundColor: "#000" }}
+      onTouchStart={resetInactivity}
+      onClick={resetInactivity}
+    >
+      {/* Back */}
+      <button
+        onClick={onBack}
+        className="absolute top-5 left-6 z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70"
+      >
+        ← Back
+      </button>
 
       {/* Header */}
-      <div className="relative z-10 flex flex-col items-center pt-8 pb-4 gap-1">
+      <div className="flex-shrink-0 flex flex-col items-center pt-12 pb-4 gap-1 z-10">
         <p className="text-xs tracking-[0.5em] uppercase" style={{ color: accentColor }}>
           Crown Moment
         </p>
@@ -688,12 +1018,12 @@ function CrownFrameGrid({
         </p>
       </div>
 
-      {/* 2×2 Grid */}
-      <div className="relative z-10 flex-1 grid grid-cols-2 gap-3 px-4 pb-16 overflow-hidden">
+      {/* 2×2 Frame grid */}
+      <div className="flex-1 grid grid-cols-2 gap-3 px-4 pb-16 overflow-hidden">
         {CROWN_FRAMES.map((frame) => (
           <button
             key={frame.id}
-            onClick={() => onSelect(frame.id)}
+            onClick={() => { setSelectedFrame(frame.id); setInCamera(true) }}
             className="relative rounded-2xl overflow-hidden flex flex-col items-center justify-end text-center transition-all active:scale-95"
             style={{
               border: `2px solid ${frame.accentHex}60`,
@@ -717,36 +1047,18 @@ function CrownFrameGrid({
               />
             </div>
 
-            {/* Decorative top border accent */}
-            <div
-              className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
-              style={{ backgroundColor: frame.accentHex }}
-            />
+            {/* Top accent bar */}
+            <div className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl" style={{ backgroundColor: frame.accentHex }} />
 
             {/* Corner ornaments */}
-            <div
-              className="absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 rounded-tl"
-              style={{ borderColor: frame.accentHex }}
-            />
-            <div
-              className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 rounded-tr"
-              style={{ borderColor: frame.accentHex }}
-            />
-            <div
-              className="absolute bottom-12 left-3 w-5 h-5 border-b-2 border-l-2 rounded-bl"
-              style={{ borderColor: frame.accentHex }}
-            />
-            <div
-              className="absolute bottom-12 right-3 w-5 h-5 border-b-2 border-r-2 rounded-br"
-              style={{ borderColor: frame.accentHex }}
-            />
+            <div className="absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 rounded-tl" style={{ borderColor: frame.accentHex }} />
+            <div className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 rounded-tr" style={{ borderColor: frame.accentHex }} />
+            <div className="absolute bottom-12 left-3 w-5 h-5 border-b-2 border-l-2 rounded-bl" style={{ borderColor: frame.accentHex }} />
+            <div className="absolute bottom-12 right-3 w-5 h-5 border-b-2 border-r-2 rounded-br" style={{ borderColor: frame.accentHex }} />
 
             {/* Text */}
             <div className="relative z-10 px-4 pb-4">
-              <p
-                className="text-base font-semibold"
-                style={{ color: frame.accentHex, fontFamily: "serif" }}
-              >
+              <p className="text-base font-semibold" style={{ color: frame.accentHex, fontFamily: "serif" }}>
                 {frame.label}
               </p>
               <p className="text-white/50 text-xs mt-0.5">{frame.sublabel}</p>
@@ -758,15 +1070,22 @@ function CrownFrameGrid({
   )
 }
 
-// ── Camera with themed frame overlay ──────────────────────
+// ─────────────────────────────────────────────────────────────
+// CROWN CAMERA — real device camera with themed frame overlay
+// ─────────────────────────────────────────────────────────────
+
 function CrownCamera({
   accentColor,
   frame,
   onBack,
+  onDone,
+  onActivity,
 }: {
   accentColor: string
   frame: (typeof CROWN_FRAMES)[0]
   onBack: () => void
+  onDone: () => void
+  onActivity: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -796,6 +1115,7 @@ function CrownCamera({
   }, [])
 
   const startCountdown = () => {
+    onActivity()
     setCountdown(3)
     let c = 3
     const iv = setInterval(() => {
@@ -822,10 +1142,11 @@ function CrownCamera({
     setPhotoDataUrl(c.toDataURL("image/jpeg", 0.92))
   }
 
-  const retake = () => setPhotoDataUrl(null)
+  const retake = () => { setPhotoDataUrl(null); onActivity() }
 
   const share = async () => {
     if (!photoDataUrl) return
+    onActivity()
     try {
       const blob = await (await fetch(photoDataUrl)).blob()
       const file = new File([blob], "sottovento-crown-moment.jpg", { type: "image/jpeg" })
@@ -844,9 +1165,18 @@ function CrownCamera({
     <div
       className="relative w-full h-full flex flex-col items-center justify-center"
       style={{ backgroundColor: "#000" }}
+      onTouchStart={onActivity}
     >
       {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
+
+      {/* Back */}
+      <button
+        onClick={onBack}
+        className="absolute top-5 left-6 z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70"
+      >
+        ← Back
+      </button>
 
       {/* Frame container */}
       <div
@@ -958,7 +1288,6 @@ function CrownCamera({
       {/* Action buttons */}
       <div className="flex items-center gap-4 mt-5">
         {!photoDataUrl ? (
-          // Shutter button
           <button
             onClick={startCountdown}
             disabled={!cameraReady || countdown !== null}
@@ -971,7 +1300,6 @@ function CrownCamera({
             </svg>
           </button>
         ) : (
-          // Post-capture actions
           <>
             <button
               onClick={retake}
@@ -987,134 +1315,22 @@ function CrownCamera({
             >
               Save / Share
             </button>
+            <button
+              onClick={onDone}
+              className="px-6 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
+              style={{ borderColor: "rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.4)" }}
+            >
+              Done
+            </button>
           </>
         )}
       </div>
-
-      {/* Back */}
-      <button
-        onClick={onBack}
-        className="mt-4 text-white/30 text-xs tracking-widest uppercase"
-      >
-        ← Back
-      </button>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. FLEET SECTION
-// ─────────────────────────────────────────────────────────────
-
-function FleetSection({ accentColor }: { accentColor: string }) {
-  return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center text-center">
-      <FullScreenPhoto src="/images/tablet/fleet-bg.jpg" overlay={0.65} />
-      <div className="relative z-10 flex flex-col items-center gap-6 px-12 max-w-2xl">
-        <p
-          className="text-xs tracking-[0.4em] uppercase"
-          style={{ color: accentColor }}
-        >
-          Our Fleet
-        </p>
-        <h2
-          className="text-5xl font-light text-white"
-          style={{ fontFamily: "serif" }}
-        >
-          Premium Vehicles
-        </h2>
-        <GoldDivider color={accentColor} />
-        <div className="grid grid-cols-3 gap-4 mt-2 w-full">
-          {[
-            {
-              name: "Suburban",
-              desc: "Spacious luxury SUV for families and groups",
-            },
-            {
-              name: "Escalade",
-              desc: "Premium executive SUV experience",
-            },
-            {
-              name: "Executive SUV",
-              desc: "Comfort, style, and reliability",
-            },
-          ].map((v) => (
-            <div
-              key={v.name}
-              className="rounded-xl p-5 text-center"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.04)",
-                border: `1px solid ${accentColor}25`,
-              }}
-            >
-              <p
-                className="text-white font-light text-lg mb-2"
-                style={{ fontFamily: "serif" }}
-              >
-                {v.name}
-              </p>
-              <p className="text-white/40 text-xs leading-relaxed">{v.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// 5. DESTINATIONS SECTION (secondary)
-// ─────────────────────────────────────────────────────────────
-
-function DestinationsSection({ accentColor }: { accentColor: string }) {
-  const destinations = [
-    "Orlando Airport (MCO)",
-    "Port Canaveral",
-    "Disney Resorts",
-    "Universal Studios",
-    "Clearwater Beach",
-    "Miami",
-  ]
-
-  return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center text-center">
-      <FullScreenPhoto src="/images/tablet/airport-bg.jpg" overlay={0.70} />
-      <div className="relative z-10 flex flex-col items-center gap-6 px-12 max-w-2xl w-full">
-        <p
-          className="text-xs tracking-[0.4em] uppercase"
-          style={{ color: accentColor }}
-        >
-          Popular Routes
-        </p>
-        <h2
-          className="text-5xl font-light text-white"
-          style={{ fontFamily: "serif" }}
-        >
-          Popular Routes & Destinations
-        </h2>
-        <GoldDivider color={accentColor} />
-        <div className="grid grid-cols-2 gap-3 w-full mt-2">
-          {destinations.map((dest) => (
-            <div
-              key={dest}
-              className="flex items-center gap-3 rounded-xl px-5 py-4 text-left"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.04)",
-                border: `1px solid ${accentColor}20`,
-              }}
-            >
-              <span style={{ color: accentColor, fontSize: 10 }}>◆</span>
-              <span className="text-white/70 text-base font-light">{dest}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// 6. QR BOOKING SECTION
+// QR BOOKING SECTION (secondary — accessible via Quick Book btn)
 // ─────────────────────────────────────────────────────────────
 
 function QRBookingSection({
@@ -1129,6 +1345,7 @@ function QRBookingSection({
   onSubmit,
   submitting,
   submitted,
+  onBack,
 }: {
   accentColor: string
   bookingUrl: string
@@ -1141,6 +1358,7 @@ function QRBookingSection({
   onSubmit: () => void
   submitting: boolean
   submitted: boolean
+  onBack: () => void
 }) {
   if (submitted) {
     return (
@@ -1164,14 +1382,22 @@ function QRBookingSection({
     <div className="relative w-full h-full flex flex-col items-center justify-center">
       <FullScreenPhoto src="/images/tablet/qr-bg.jpg" overlay={0.65} />
       <div className="relative z-10 flex flex-col items-center gap-5 px-10 max-w-2xl w-full">
+        {/* Back */}
+        <button
+          onClick={onBack}
+          className="self-start text-white/40 text-xs tracking-widest uppercase mb-2 active:text-white/70"
+        >
+          ← Back
+        </button>
+
         <p
-          className="text-xs tracking-[0.4em] uppercase"
+          className="text-xs tracking-[0.4em] uppercase self-start"
           style={{ color: accentColor }}
         >
           Quick Booking
         </p>
         <h2
-          className="text-4xl font-light text-white text-center"
+          className="text-4xl font-light text-white self-start"
           style={{ fontFamily: "serif" }}
         >
           Scan or send link to book instantly
