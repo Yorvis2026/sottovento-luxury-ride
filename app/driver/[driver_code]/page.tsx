@@ -30,31 +30,10 @@ export default function DriverDashboardByCode() {
 
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
 
-  // ── PWA icons: inject driver-specific manifest + icon ──────
+  // Persist driver code in localStorage for fallback
+  // (manifest is now injected SSR via generateMetadata in layout.tsx)
   useEffect(() => {
     if (!driverCode) return
-
-    // Remove existing apple-touch-icon and manifest links
-    document.querySelectorAll('link[rel="apple-touch-icon"], link[rel="manifest"]').forEach(el => el.remove())
-
-    // Apple touch icon — black bg, gold crown
-    const appleIcon = document.createElement("link")
-    appleIcon.rel = "apple-touch-icon"
-    appleIcon.setAttribute("sizes", "180x180")
-    appleIcon.href = "/icons/sottovento-driver-180.png"
-    document.head.appendChild(appleIcon)
-
-    // Driver manifest with stable start_url = /driver/{code}
-    const manifest = document.createElement("link")
-    manifest.rel = "manifest"
-    manifest.href = `/api/driver-manifest?code=${driverCode}`
-    document.head.appendChild(manifest)
-
-    // PWA title
-    const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]')
-    if (metaTitle) metaTitle.setAttribute("content", "Driver")
-
-    // Persist driver code in localStorage for fallback
     try {
       localStorage.setItem("sottovento_driver_code", driverCode)
     } catch {}

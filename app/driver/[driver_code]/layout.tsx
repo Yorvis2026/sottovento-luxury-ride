@@ -3,7 +3,11 @@ import type { Metadata, Viewport } from "next"
 
 // ─────────────────────────────────────────────────────────────
 // DRIVER PANEL LAYOUT — /driver/[driver_code]
-// Stable path-based route for Home Screen PWA installation.
+//
+// Uses generateMetadata (SSR) to inject the correct manifest
+// link in the <head> BEFORE the page reaches the browser.
+// This is critical for iOS "Add to Home Screen" — iOS reads
+// the manifest at install time, before JS executes.
 // ─────────────────────────────────────────────────────────────
 
 export const viewport: Viewport = {
@@ -16,37 +20,50 @@ export const viewport: Viewport = {
   themeColor: "#000000",
 }
 
-export const metadata: Metadata = {
-  title: "Sottovento Driver",
-  description: "Driver Dashboard · Sottovento Network",
-  applicationName: "Sottovento Driver",
-  appleWebApp: {
-    capable: true,
-    title: "Driver",
-    statusBarStyle: "black-translucent",
-  },
-  icons: {
-    apple: [
-      {
-        url: "/icons/sottovento-driver-180.png",
-        sizes: "180x180",
-        type: "image/png",
-      },
-    ],
-    icon: [
-      {
-        url: "/icons/sottovento-driver-192.png",
-        sizes: "192x192",
-        type: "image/png",
-      },
-      {
-        url: "/icons/sottovento-driver-512.png",
-        sizes: "512x512",
-        type: "image/png",
-      },
-    ],
-  },
-  robots: { index: false, follow: false },
+// generateMetadata runs on the SERVER — manifest href is in the
+// initial HTML, so iOS reads it correctly before any JS runs.
+export async function generateMetadata({
+  params,
+}: {
+  params: { driver_code: string }
+}): Promise<Metadata> {
+  const code = params.driver_code?.toUpperCase() ?? "UNKNOWN"
+
+  return {
+    title: "Sottovento Driver",
+    description: "Driver Dashboard · Sottovento Network",
+    applicationName: "Sottovento Driver",
+    appleWebApp: {
+      capable: true,
+      title: "Driver",
+      statusBarStyle: "black-translucent",
+    },
+    // This manifest URL is rendered in the initial HTML by Next.js SSR
+    // iOS Safari reads it at "Add to Home Screen" time — start_url is preserved
+    manifest: `/api/driver-manifest?code=${code}`,
+    icons: {
+      apple: [
+        {
+          url: "/icons/sottovento-driver-180.png",
+          sizes: "180x180",
+          type: "image/png",
+        },
+      ],
+      icon: [
+        {
+          url: "/icons/sottovento-driver-192.png",
+          sizes: "192x192",
+          type: "image/png",
+        },
+        {
+          url: "/icons/sottovento-driver-512.png",
+          sizes: "512x512",
+          type: "image/png",
+        },
+      ],
+    },
+    robots: { index: false, follow: false },
+  }
 }
 
 export default function DriverByCodeLayout({
@@ -61,18 +78,17 @@ export default function DriverByCodeLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Driver" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="theme-color" content="#000000" />
 
-        {/* Driver Panel icon — black bg, gold crown */}
-        <link rel="apple-touch-icon" href="/icons/sottovento-driver-180.png" />
+        {/* Icons — also in metadata above, duplicated here for max compatibility */}
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/sottovento-driver-180.png" />
         <link rel="icon" type="image/png" sizes="192x192" href="/icons/sottovento-driver-192.png" />
         <link rel="icon" type="image/png" sizes="512x512" href="/icons/sottovento-driver-512.png" />
 
-        {/* Note: manifest is injected client-side with dynamic start_url per driver */}
-
-        {/* Theme */}
-        <meta name="theme-color" content="#000000" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="format-detection" content="telephone=no" />
+        {/* NOTE: manifest is injected by generateMetadata above (SSR) */}
+        {/* Do NOT add a static manifest link here — it would conflict */}
       </head>
       {children}
     </>
