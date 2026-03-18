@@ -582,156 +582,419 @@ function ServiceCarousel({
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3. CROWN MOMENT SECTION
+// 3. CROWN MOMENT SECTION — with real camera + themed frames
 // ─────────────────────────────────────────────────────────────
 
-function CrownMomentSection({ accentColor }: { accentColor: string }) {
-  const [mode, setMode] = useState<"intro" | "disney" | "universal">("intro")
-  const [photoTaken, setPhotoTaken] = useState(false)
+type CrownFrame = "sottovento" | "disney" | "universal" | "cruise"
 
-  if (mode === "intro") {
-    return (
-      <div className="relative w-full h-full flex flex-col items-center justify-center text-center">
-        <FullScreenPhoto src="/images/tablet/lead-bg.jpg" overlay={0.55} />
-        <div className="relative z-10 flex flex-col items-center gap-6 px-12">
-          <p className="text-xs tracking-[0.5em] uppercase text-white/30">The</p>
-          <h2
-            className="text-6xl font-light text-white"
-            style={{ fontFamily: "serif", letterSpacing: "0.08em" }}
-          >
-            Crown Moment
-          </h2>
-          <GoldDivider color={accentColor} />
-          <p className="text-white/60 text-xl font-light max-w-md leading-relaxed">
-            Capture Your Orlando Memory
-          </p>
-          <p className="text-white/40 text-base max-w-sm leading-relaxed">
-            Complimentary luxury photo experience during your ride
-          </p>
-          <div className="flex gap-4 mt-4">
-            <button
-              onClick={() => setMode("disney")}
-              className="px-8 py-3 rounded-full text-sm font-medium tracking-widest uppercase transition-all active:scale-95"
-              style={{
-                backgroundColor: accentColor,
-                color: "#000",
-              }}
-            >
-              Disney Frame
-            </button>
-            <button
-              onClick={() => setMode("universal")}
-              className="px-8 py-3 rounded-full text-sm font-medium tracking-widest uppercase transition-all active:scale-95"
-              style={{
-                backgroundColor: "transparent",
-                color: accentColor,
-                border: `1px solid ${accentColor}`,
-              }}
-            >
-              Universal Frame
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+const CROWN_FRAMES: {
+  id: CrownFrame
+  label: string
+  sublabel: string
+  bgColor: string
+  accentHex: string
+  borderStyle: string
+  headerText: string
+  footerText: string
+  bgImage: string
+}[] = [
+  {
+    id: "sottovento",
+    label: "Classic Sottovento",
+    sublabel: "Elegance & Prestige",
+    bgColor: "#0a0a0a",
+    accentHex: "#C9A84C",
+    borderStyle: "double",
+    headerText: "SOTTOVENTO LUXURY RIDE",
+    footerText: "Orlando · Florida",
+    bgImage: "/images/tablet/crown-bg.jpg",
+  },
+  {
+    id: "disney",
+    label: "Disney Family Trip",
+    sublabel: "Walt Disney World Area",
+    bgColor: "#3b0764",
+    accentHex: "#f0c040",
+    borderStyle: "solid",
+    headerText: "Orlando Family Trip · Walt Disney World Area",
+    footerText: "Sottovento Luxury Ride",
+    bgImage: "/images/tablet/orlando-bg.jpg",
+  },
+  {
+    id: "universal",
+    label: "Universal Adventure",
+    sublabel: "Universal Orlando",
+    bgColor: "#0f2040",
+    accentHex: "#60a0ff",
+    borderStyle: "solid",
+    headerText: "Universal Orlando Adventure",
+    footerText: "Sottovento Luxury Ride",
+    bgImage: "/images/tablet/kennedy-bg.jpg",
+  },
+  {
+    id: "cruise",
+    label: "Cruise Memories",
+    sublabel: "Port Canaveral",
+    bgColor: "#0a1a30",
+    accentHex: "#7ec8e3",
+    borderStyle: "solid",
+    headerText: "Port Canaveral Cruise Memories",
+    footerText: "Sottovento Luxury Ride",
+    bgImage: "/images/tablet/port-canaveral-bg.jpg",
+  },
+]
+
+function CrownMomentSection({ accentColor }: { accentColor: string }) {
+  const [selectedFrame, setSelectedFrame] = useState<CrownFrame | null>(null)
+
+  if (!selectedFrame) {
+    return <CrownFrameGrid accentColor={accentColor} onSelect={setSelectedFrame} />
   }
 
-  const isDisney = mode === "disney"
-  const frameColor = isDisney ? "#6B21A8" : "#1E3A5F"
-  const frameAccent = accentColor
-  const frameTitle = isDisney
-    ? "Orlando Family Trip · Walt Disney World Area"
-    : "Universal Orlando Adventure"
+  return (
+    <CrownCamera
+      accentColor={accentColor}
+      frame={CROWN_FRAMES.find((f) => f.id === selectedFrame)!}
+      onBack={() => setSelectedFrame(null)}
+    />
+  )
+}
+
+// ── Grid 2×2 of themed frames ──────────────────────────────
+function CrownFrameGrid({
+  accentColor,
+  onSelect,
+}: {
+  accentColor: string
+  onSelect: (f: CrownFrame) => void
+}) {
+  return (
+    <div className="relative w-full h-full flex flex-col">
+      <FullScreenPhoto src="/images/tablet/lead-bg.jpg" overlay={0.75} />
+
+      {/* Header */}
+      <div className="relative z-10 flex flex-col items-center pt-8 pb-4 gap-1">
+        <p className="text-xs tracking-[0.5em] uppercase" style={{ color: accentColor }}>
+          Crown Moment
+        </p>
+        <h2
+          className="text-4xl font-light text-white"
+          style={{ fontFamily: "serif", letterSpacing: "0.06em" }}
+        >
+          Choose Your Memory
+        </h2>
+        <p className="text-white/40 text-sm mt-1">
+          Complimentary Orlando Family Photo
+        </p>
+      </div>
+
+      {/* 2×2 Grid */}
+      <div className="relative z-10 flex-1 grid grid-cols-2 gap-3 px-4 pb-16 overflow-hidden">
+        {CROWN_FRAMES.map((frame) => (
+          <button
+            key={frame.id}
+            onClick={() => onSelect(frame.id)}
+            className="relative rounded-2xl overflow-hidden flex flex-col items-center justify-end text-center transition-all active:scale-95"
+            style={{
+              border: `2px solid ${frame.accentHex}60`,
+              backgroundColor: frame.bgColor,
+            }}
+          >
+            {/* Background photo */}
+            <div className="absolute inset-0">
+              <Image
+                src={frame.bgImage}
+                alt={frame.label}
+                fill
+                className="object-cover object-center opacity-40"
+                sizes="50vw"
+              />
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: `linear-gradient(to top, ${frame.bgColor}ee 30%, ${frame.bgColor}88 70%, transparent)`,
+                }}
+              />
+            </div>
+
+            {/* Decorative top border accent */}
+            <div
+              className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
+              style={{ backgroundColor: frame.accentHex }}
+            />
+
+            {/* Corner ornaments */}
+            <div
+              className="absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 rounded-tl"
+              style={{ borderColor: frame.accentHex }}
+            />
+            <div
+              className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 rounded-tr"
+              style={{ borderColor: frame.accentHex }}
+            />
+            <div
+              className="absolute bottom-12 left-3 w-5 h-5 border-b-2 border-l-2 rounded-bl"
+              style={{ borderColor: frame.accentHex }}
+            />
+            <div
+              className="absolute bottom-12 right-3 w-5 h-5 border-b-2 border-r-2 rounded-br"
+              style={{ borderColor: frame.accentHex }}
+            />
+
+            {/* Text */}
+            <div className="relative z-10 px-4 pb-4">
+              <p
+                className="text-base font-semibold"
+                style={{ color: frame.accentHex, fontFamily: "serif" }}
+              >
+                {frame.label}
+              </p>
+              <p className="text-white/50 text-xs mt-0.5">{frame.sublabel}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Camera with themed frame overlay ──────────────────────
+function CrownCamera({
+  accentColor,
+  frame,
+  onBack,
+}: {
+  accentColor: string
+  frame: (typeof CROWN_FRAMES)[0]
+  onBack: () => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [cameraError, setCameraError] = useState(false)
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+
+  useEffect(() => {
+    let active = true
+    navigator.mediaDevices
+      ?.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then((stream) => {
+        if (!active) { stream.getTracks().forEach((t) => t.stop()); return }
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play().then(() => { if (active) setCameraReady(true) }).catch(() => {})
+        }
+      })
+      .catch(() => { if (active) setCameraError(true) })
+    return () => {
+      active = false
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    }
+  }, [])
+
+  const startCountdown = () => {
+    setCountdown(3)
+    let c = 3
+    const iv = setInterval(() => {
+      c--
+      if (c <= 0) {
+        clearInterval(iv)
+        setCountdown(null)
+        capturePhoto()
+      } else {
+        setCountdown(c)
+      }
+    }, 1000)
+  }
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return
+    const v = videoRef.current
+    const c = canvasRef.current
+    c.width = v.videoWidth || 640
+    c.height = v.videoHeight || 480
+    const ctx = c.getContext("2d")
+    if (!ctx) return
+    ctx.drawImage(v, 0, 0)
+    setPhotoDataUrl(c.toDataURL("image/jpeg", 0.92))
+  }
+
+  const retake = () => setPhotoDataUrl(null)
+
+  const share = async () => {
+    if (!photoDataUrl) return
+    try {
+      const blob = await (await fetch(photoDataUrl)).blob()
+      const file = new File([blob], "sottovento-crown-moment.jpg", { type: "image/jpeg" })
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "My Crown Moment — Sottovento Luxury Ride" })
+      } else {
+        const a = document.createElement("a")
+        a.href = photoDataUrl
+        a.download = "sottovento-crown-moment.jpg"
+        a.click()
+      }
+    } catch {}
+  }
 
   return (
     <div
       className="relative w-full h-full flex flex-col items-center justify-center"
       style={{ backgroundColor: "#000" }}
     >
-      {/* Photo frame */}
+      {/* Hidden canvas for capture */}
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Frame container */}
       <div
-        className="relative flex flex-col items-center"
+        className="relative flex flex-col items-center overflow-hidden"
         style={{
-          border: `6px solid ${frameAccent}`,
+          border: `4px solid ${frame.accentHex}`,
           borderRadius: 16,
-          padding: 8,
-          backgroundColor: frameColor,
-          maxWidth: 480,
-          width: "90%",
+          backgroundColor: frame.bgColor,
+          maxWidth: 460,
+          width: "88%",
+          maxHeight: "80vh",
         }}
       >
+        {/* Top accent bar */}
+        <div className="w-full h-1" style={{ backgroundColor: frame.accentHex }} />
+
         {/* Frame header */}
         <div
-          className="w-full text-center py-3 text-sm tracking-widest uppercase font-medium"
-          style={{ color: frameAccent, fontFamily: "serif" }}
+          className="w-full text-center py-2 text-xs tracking-widest uppercase font-semibold px-4"
+          style={{ color: frame.accentHex, fontFamily: "serif" }}
         >
-          {frameTitle}
+          {frame.headerText}
         </div>
 
-        {/* Camera viewport */}
+        {/* Camera / Photo area */}
         <div
-          className="relative w-full overflow-hidden rounded-lg"
+          className="relative w-full overflow-hidden"
           style={{ aspectRatio: "4/3", backgroundColor: "#111" }}
         >
-          {!photoTaken ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-              <svg
-                width="48"
-                height="48"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={frameAccent}
-                strokeWidth="1.5"
-              >
+          {/* Live video */}
+          {!photoDataUrl && (
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover"
+              playsInline
+              muted
+              autoPlay
+            />
+          )}
+
+          {/* Captured photo */}
+          {photoDataUrl && (
+            <img
+              src={photoDataUrl}
+              alt="Captured"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
+
+          {/* Camera error state */}
+          {cameraError && !photoDataUrl && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={frame.accentHex} strokeWidth="1.5">
                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                 <circle cx="12" cy="13" r="4" />
+                <line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2" />
               </svg>
-              <p className="text-white/40 text-sm tracking-widest uppercase">
-                Tap to take photo
+              <p className="text-white/40 text-xs tracking-widest uppercase text-center px-4">
+                Camera unavailable — check permissions
               </p>
-              <button
-                onClick={() => setPhotoTaken(true)}
-                className="px-8 py-3 rounded-full text-sm font-medium tracking-widest uppercase"
-                style={{ backgroundColor: frameAccent, color: "#000" }}
+            </div>
+          )}
+
+          {/* Loading state */}
+          {!cameraReady && !cameraError && !photoDataUrl && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div
+                className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+                style={{ borderColor: `${frame.accentHex} transparent transparent transparent` }}
+              />
+            </div>
+          )}
+
+          {/* Countdown overlay */}
+          {countdown !== null && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+              <span
+                className="text-8xl font-bold"
+                style={{ color: frame.accentHex, fontFamily: "serif" }}
               >
-                Take Photo
-              </button>
+                {countdown}
+              </span>
             </div>
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-900">
-              <p className="text-white/60 text-base">Photo captured!</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setPhotoTaken(false)}
-                  className="px-6 py-2 rounded-full text-xs tracking-widest uppercase border"
-                  style={{ borderColor: frameAccent, color: frameAccent }}
-                >
-                  Retake
-                </button>
-                <button
-                  className="px-6 py-2 rounded-full text-xs tracking-widest uppercase font-medium"
-                  style={{ backgroundColor: frameAccent, color: "#000" }}
-                >
-                  Save / Share
-                </button>
-              </div>
-            </div>
+          )}
+
+          {/* Corner ornaments overlay on live view */}
+          {!photoDataUrl && (
+            <>
+              <div className="absolute top-3 left-3 w-8 h-8 border-t-2 border-l-2" style={{ borderColor: `${frame.accentHex}80` }} />
+              <div className="absolute top-3 right-3 w-8 h-8 border-t-2 border-r-2" style={{ borderColor: `${frame.accentHex}80` }} />
+              <div className="absolute bottom-3 left-3 w-8 h-8 border-b-2 border-l-2" style={{ borderColor: `${frame.accentHex}80` }} />
+              <div className="absolute bottom-3 right-3 w-8 h-8 border-b-2 border-r-2" style={{ borderColor: `${frame.accentHex}80` }} />
+            </>
           )}
         </div>
 
         {/* Frame footer */}
         <div
-          className="w-full text-center py-2 text-xs tracking-widest uppercase opacity-50"
-          style={{ color: frameAccent }}
+          className="w-full text-center py-1.5 text-xs tracking-widest uppercase opacity-60"
+          style={{ color: frame.accentHex }}
         >
-          Sottovento Luxury Ride
+          {frame.footerText}
         </div>
+
+        {/* Bottom accent bar */}
+        <div className="w-full h-0.5" style={{ backgroundColor: `${frame.accentHex}60` }} />
       </div>
 
-      {/* Back button */}
+      {/* Action buttons */}
+      <div className="flex items-center gap-4 mt-5">
+        {!photoDataUrl ? (
+          // Shutter button
+          <button
+            onClick={startCountdown}
+            disabled={!cameraReady || countdown !== null}
+            className="w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+            style={{ backgroundColor: frame.accentHex }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
+            </svg>
+          </button>
+        ) : (
+          // Post-capture actions
+          <>
+            <button
+              onClick={retake}
+              className="px-6 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
+              style={{ borderColor: frame.accentHex, color: frame.accentHex }}
+            >
+              Retake
+            </button>
+            <button
+              onClick={share}
+              className="px-8 py-3 rounded-full text-xs tracking-widest uppercase font-semibold transition-all active:scale-95"
+              style={{ backgroundColor: frame.accentHex, color: "#000" }}
+            >
+              Save / Share
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Back */}
       <button
-        onClick={() => { setMode("intro"); setPhotoTaken(false) }}
-        className="mt-6 text-white/30 text-xs tracking-widest uppercase"
+        onClick={onBack}
+        className="mt-4 text-white/30 text-xs tracking-widest uppercase"
       >
         ← Back
       </button>
