@@ -4,7 +4,7 @@
 type AppRoutes = "/" | "/admin" | "/confirmation" | "/driver" | "/driver/earnings" | "/driver/source-clients" | "/tablet" | "/tablet/[driver_code]"
 type AppRouteHandlerRoutes = "/api/admin/bookings" | "/api/admin/drivers" | "/api/admin/drivers/[id]" | "/api/create-checkout-session" | "/api/dispatch/create-booking" | "/api/dispatch/leads" | "/api/dispatch/respond-offer" | "/api/dispatch/source-summary" | "/api/dispatch/test-sms" | "/api/driver/me"
 type PageRoutes = never
-type LayoutRoutes = "/" | "/tablet" | "/tablet/[driver_code]"
+type LayoutRoutes = "/" | "/driver" | "/tablet" | "/tablet/[driver_code]"
 type RedirectRoutes = never
 type RewriteRoutes = never
 type Routes = AppRoutes | PageRoutes | LayoutRoutes | RedirectRoutes | RewriteRoutes | AppRouteHandlerRoutes
@@ -36,6 +36,7 @@ export type ParamsOf<Route extends Routes> = ParamMap[Route]
 
 interface LayoutSlotMap {
   "/": never
+  "/driver": never
   "/tablet": never
   "/tablet/[driver_code]": never
 }
