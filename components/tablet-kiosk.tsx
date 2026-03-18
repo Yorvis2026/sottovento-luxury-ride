@@ -82,12 +82,14 @@ const SECTION_DURATION: Record<SectionId, number> = {
 
 interface TabletKioskProps {
   driverCode?: string | null
+  operatorName?: string | null
 }
 
-export default function TabletKiosk({ driverCode }: TabletKioskProps) {
+export default function TabletKiosk({ driverCode, operatorName: propOperatorName }: TabletKioskProps) {
   const [sectionIndex, setSectionIndex] = useState(0)
   const [urlDriverCode, setUrlDriverCode] = useState<string | null>(null)
   const [tabletCode, setTabletCode] = useState<string | null>(null)
+  const [urlOperatorName, setUrlOperatorName] = useState<string | null>(null)
   const [leadName, setLeadName] = useState("")
   const [leadPhone, setLeadPhone] = useState("")
   const [leadEmail, setLeadEmail] = useState("")
@@ -100,7 +102,14 @@ export default function TabletKiosk({ driverCode }: TabletKioskProps) {
     const params = new URLSearchParams(window.location.search)
     setUrlDriverCode(params.get("driver") ?? params.get("ref") ?? null)
     setTabletCode(params.get("tablet") ?? null)
+    setUrlOperatorName(params.get("operator") ?? null)
   }, [])
+
+  // Brand Hierarchy:
+  // - If operator is Sottovento itself (no operatorName), show "Sottovento Luxury Ride"
+  // - If another operator is onboarded, show "[Operator Name] by Sottovento Network"
+  const effectiveOperatorName = propOperatorName ?? urlOperatorName
+  const isSottovento = !effectiveOperatorName || effectiveOperatorName.toLowerCase().includes("sottovento")
 
   const effectiveDriverCode = driverCode ?? urlDriverCode
 
@@ -184,6 +193,8 @@ export default function TabletKiosk({ driverCode }: TabletKioskProps) {
           <HeroSection
             accentColor={GOLD}
             driverCode={effectiveDriverCode}
+            operatorName={effectiveOperatorName}
+            isSottovento={isSottovento}
             onReserve={() => goToSection(SECTIONS.indexOf("qr"))}
           />
         )}
@@ -373,10 +384,14 @@ function FullScreenPhoto({
 function HeroSection({
   accentColor,
   driverCode,
+  operatorName,
+  isSottovento,
   onReserve,
 }: {
   accentColor: string
   driverCode?: string | null
+  operatorName?: string | null
+  isSottovento: boolean
   onReserve: () => void
 }) {
   return (
@@ -403,19 +418,39 @@ function HeroSection({
           <line x1="4" y1="32" x2="44" y2="32" stroke={accentColor} strokeWidth="1.5" />
         </svg>
 
-        <h1
-          className="text-6xl md:text-7xl font-light text-white"
-          style={{ fontFamily: "serif", letterSpacing: "0.05em" }}
-        >
-          Sottovento Luxury Ride
-        </h1>
-
-        <p
-          className="text-lg tracking-[0.3em] uppercase"
-          style={{ color: accentColor }}
-        >
-          Orlando Luxury Transportation
-        </p>
+        {isSottovento ? (
+          // OWNER CASE: Sottovento itself
+          <>
+            <h1
+              className="text-6xl md:text-7xl font-light text-white"
+              style={{ fontFamily: "serif", letterSpacing: "0.05em" }}
+            >
+              Sottovento Luxury Ride
+            </h1>
+            <p
+              className="text-lg tracking-[0.3em] uppercase"
+              style={{ color: accentColor }}
+            >
+              Orlando Luxury Transportation
+            </p>
+          </>
+        ) : (
+          // NETWORK CASE: another operator
+          <>
+            <h1
+              className="text-6xl md:text-7xl font-light text-white"
+              style={{ fontFamily: "serif", letterSpacing: "0.05em" }}
+            >
+              {operatorName}
+            </h1>
+            <p
+              className="text-sm tracking-[0.25em] uppercase"
+              style={{ color: accentColor, opacity: 0.75 }}
+            >
+              by Sottovento Network
+            </p>
+          </>
+        )}
 
         <GoldDivider color={accentColor} />
 
