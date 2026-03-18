@@ -24,6 +24,29 @@ export default function DriverDashboard() {
 
   const tabletUrl = summary ? `${BASE_URL}/tablet/${summary.driver_code}` : ""
 
+  // Inject Driver Panel icons into <head> — overrides root layout icons
+  useEffect(() => {
+    // Remove existing apple-touch-icon and manifest links
+    document.querySelectorAll('link[rel="apple-touch-icon"], link[rel="manifest"]').forEach(el => el.remove())
+
+    // Apple touch icon (180x180) — black bg, gold crown
+    const appleIcon = document.createElement('link')
+    appleIcon.rel = 'apple-touch-icon'
+    appleIcon.setAttribute('sizes', '180x180')
+    appleIcon.href = '/icons/sottovento-driver-180.png'
+    document.head.appendChild(appleIcon)
+
+    // Manifest — driver-specific
+    const manifest = document.createElement('link')
+    manifest.rel = 'manifest'
+    manifest.href = '/driver-manifest.json'
+    document.head.appendChild(manifest)
+
+    // PWA title
+    const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]')
+    if (metaTitle) metaTitle.setAttribute('content', 'Driver')
+  }, [])
+
   // Load driver data from URL param ?code=YHV001
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
