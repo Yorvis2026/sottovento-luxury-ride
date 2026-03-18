@@ -70,10 +70,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Sottovento" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="format-detection" content="telephone=no" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-        <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167x167.png" />
-        <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152x152.png" />
-        <link rel="manifest" href="/manifest.json" />
+        {/* Icons and manifest are defined per-route via Next.js metadata API */}
       </head>
       <body className="font-mono antialiased">
         {children}
