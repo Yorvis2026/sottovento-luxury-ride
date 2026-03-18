@@ -1,16 +1,22 @@
 {
   "/_global-error/page": "/_global-error",
   "/_not-found/page": "/_not-found",
+  "/admin/page": "/admin",
+  "/api/admin/bookings/route": "/api/admin/bookings",
+  "/api/admin/drivers/[id]/route": "/api/admin/drivers/[id]",
+  "/api/admin/drivers/route": "/api/admin/drivers",
   "/api/create-checkout-session/route": "/api/create-checkout-session",
   "/api/dispatch/create-booking/route": "/api/dispatch/create-booking",
   "/api/dispatch/leads/route": "/api/dispatch/leads",
   "/api/dispatch/respond-offer/route": "/api/dispatch/respond-offer",
   "/api/dispatch/source-summary/route": "/api/dispatch/source-summary",
   "/api/dispatch/test-sms/route": "/api/dispatch/test-sms",
+  "/api/driver/me/route": "/api/driver/me",
   "/confirmation/page": "/confirmation",
   "/driver/earnings/page": "/driver/earnings",
   "/driver/page": "/driver",
   "/driver/source-clients/page": "/driver/source-clients",
   "/page": "/",
+  "/tablet/[driver_code]/page": "/tablet/[driver_code]",
   "/tablet/page": "/tablet"
 }

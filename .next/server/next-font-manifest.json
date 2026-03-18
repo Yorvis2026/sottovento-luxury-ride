@@ -1,30 +1,38 @@
 {
   "app": {
-    "[project]/app/_not-found/page": [
+    "[project]/sottovento/app/_not-found/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ],
-    "[project]/app/confirmation/page": [
+    "[project]/sottovento/app/admin/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ],
-    "[project]/app/driver/earnings/page": [
+    "[project]/sottovento/app/confirmation/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ],
-    "[project]/app/driver/page": [
+    "[project]/sottovento/app/driver/earnings/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ],
-    "[project]/app/driver/source-clients/page": [
+    "[project]/sottovento/app/driver/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ],
-    "[project]/app/page": [
+    "[project]/sottovento/app/driver/source-clients/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ],
-    "[project]/app/tablet/page": [
+    "[project]/sottovento/app/page": [
+      "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
+    ],
+    "[project]/sottovento/app/tablet/[driver_code]/page": [
+      "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
+    ],
+    "[project]/sottovento/app/tablet/page": [
       "static/media/2a65768255d6b625-s.p.d19752fb.woff2",
       "static/media/83afe278b6a6bb3c-s.p.3a6ba036.woff2"
     ]

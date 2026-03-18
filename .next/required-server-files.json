@@ -99,7 +99,7 @@
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "/home/ubuntu/sottovento",
+    "outputFileTracingRoot": "/home/ubuntu",
     "cacheComponents": false,
     "cacheLife": {
       "default": {
@@ -291,12 +291,12 @@
     "bundlePagesRouterDependencies": false,
     "configFileName": "next.config.mjs",
     "turbopack": {
-      "root": "/home/ubuntu/sottovento"
+      "root": "/home/ubuntu"
     },
     "distDirRoot": ".next"
   },
   "appDir": "/home/ubuntu/sottovento",
-  "relativeAppDir": "",
+  "relativeAppDir": "sottovento",
   "files": [
     ".next/routes-manifest.json",
     ".next/server/pages-manifest.json",

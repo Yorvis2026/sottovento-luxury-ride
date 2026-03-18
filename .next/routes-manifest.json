@@ -20,7 +20,24 @@
     "afterFiles": [],
     "fallback": []
   },
-  "dynamicRoutes": [],
+  "dynamicRoutes": [
+    {
+      "page": "/api/admin/drivers/[id]",
+      "regex": "^/api/admin/drivers/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/drivers/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/tablet/[driver_code]",
+      "regex": "^/tablet/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPdriver_code": "nxtPdriver_code"
+      },
+      "namedRegex": "^/tablet/(?<nxtPdriver_code>[^/]+?)(?:/)?$"
+    }
+  ],
   "staticRoutes": [
     {
       "page": "/",
@@ -39,6 +56,24 @@
       "regex": "^/_not\\-found(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/admin",
+      "regex": "^/admin(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin(?:/)?$"
+    },
+    {
+      "page": "/api/admin/bookings",
+      "regex": "^/api/admin/bookings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/bookings(?:/)?$"
+    },
+    {
+      "page": "/api/admin/drivers",
+      "regex": "^/api/admin/drivers(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/drivers(?:/)?$"
     },
     {
       "page": "/api/create-checkout-session",
@@ -75,6 +110,12 @@
       "regex": "^/api/dispatch/test\\-sms(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/dispatch/test\\-sms(?:/)?$"
+    },
+    {
+      "page": "/api/driver/me",
+      "regex": "^/api/driver/me(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/driver/me(?:/)?$"
     },
     {
       "page": "/confirmation",
