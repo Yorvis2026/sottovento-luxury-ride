@@ -2,9 +2,14 @@ import type React from "react"
 import type { Metadata, Viewport } from "next"
 
 // ─────────────────────────────────────────────────────────────
-// DRIVER PANEL LAYOUT — /driver
-// Dedicated layout for the Driver Dashboard PWA.
-// Uses Sottovento Driver branded icons (black bg, gold crown).
+// DRIVER PANEL LAYOUT — /driver (parent)
+//
+// This is the parent layout for ALL /driver/* routes.
+// It does NOT define a manifest — each child route defines
+// its own via generateMetadata so the start_url is correct.
+//
+// /driver/[driver_code]/layout.tsx handles the manifest for
+// the path-based route with the correct start_url per driver.
 // ─────────────────────────────────────────────────────────────
 
 export const viewport: Viewport = {
@@ -26,7 +31,7 @@ export const metadata: Metadata = {
     title: "Driver",
     statusBarStyle: "black-translucent",
   },
-  manifest: "/driver-manifest.json",
+  // NO manifest here — defined per-route in [driver_code]/layout.tsx
   icons: {
     apple: [
       {
@@ -69,8 +74,7 @@ export default function DriverLayout({
         <link rel="icon" type="image/png" sizes="192x192" href="/icons/sottovento-driver-192.png" />
         <link rel="icon" type="image/png" sizes="512x512" href="/icons/sottovento-driver-512.png" />
 
-        {/* Manifest */}
-        <link rel="manifest" href="/driver-manifest.json" />
+        {/* NO manifest link here — defined per-route in [driver_code]/layout.tsx */}
 
         {/* Theme */}
         <meta name="theme-color" content="#000000" />
