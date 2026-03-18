@@ -49,7 +49,7 @@ interface GridCard {
   frameId?: CrownFrame   // for experience cards — opens Crown Moment with this frame
 }
 
-// 12 cards in conversion priority order
+// 12 cards in conversion priority order (Section 15 of master block)
 const GRID_CARDS: GridCard[] = [
   // ── TOP PRIORITY ROW ──────────────────────────────────────
   {
@@ -235,8 +235,6 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
   const [leadName, setLeadName] = useState("")
   const [leadPhone, setLeadPhone] = useState("")
   const [leadEmail, setLeadEmail] = useState("")
-  const [leadDate, setLeadDate] = useState("")
-  const [leadTime, setLeadTime] = useState("")
   const [leadSubmitted, setLeadSubmitted] = useState(false)
   const [leadSubmitting, setLeadSubmitting] = useState(false)
 
@@ -288,17 +286,6 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
     goToSection(SECTIONS.indexOf("grid"))
   }
 
-  const goBack = () => {
-    // Reliable back: always go to grid, never rely on history.back()
-    if (bookingDestination || crownFrameId) {
-      goToGrid()
-    } else if (sectionIndex > 0) {
-      goToSection(sectionIndex - 1)
-    } else {
-      goToSection(0)
-    }
-  }
-
   // Card tap handler
   const handleCardTap = (card: GridCard) => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -325,8 +312,6 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
           tablet_code: tabletCode,
           lead_source: "tablet",
           destination: bookingDestination,
-          pickup_date: leadDate || undefined,
-          pickup_time: leadTime || undefined,
         }),
       })
       setLeadSubmitted(true)
@@ -335,8 +320,6 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
         setLeadName("")
         setLeadPhone("")
         setLeadEmail("")
-        setLeadDate("")
-        setLeadTime("")
         setBookingDestination(null)
         goToGrid()
       }, 5000)
@@ -351,10 +334,10 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
     <div
       className="fixed inset-0 bg-black overflow-hidden select-none"
       style={{
-        paddingTop: "env(safe-area-inset-top, 0px)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        paddingLeft: "env(safe-area-inset-left, 0px)",
-        paddingRight: "env(safe-area-inset-right, 0px)",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
         overscrollBehavior: "none",
         width: "100dvw",
         height: "100dvh",
@@ -394,17 +377,13 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             name={leadName}
             phone={leadPhone}
             email={leadEmail}
-            date={leadDate}
-            time={leadTime}
             onName={setLeadName}
             onPhone={setLeadPhone}
             onEmail={setLeadEmail}
-            onDate={setLeadDate}
-            onTime={setLeadTime}
             onSubmit={submitLead}
             submitting={leadSubmitting}
             submitted={leadSubmitted}
-            onBack={goBack}
+            onBack={goToGrid}
           />
         )}
 
@@ -413,7 +392,7 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
           <CrownMomentFlow
             accentColor={GOLD}
             initialFrameId={crownFrameId}
-            onBack={goBack}
+            onBack={goToGrid}
           />
         )}
 
@@ -425,17 +404,13 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             name={leadName}
             phone={leadPhone}
             email={leadEmail}
-            date={leadDate}
-            time={leadTime}
             onName={setLeadName}
             onPhone={setLeadPhone}
             onEmail={setLeadEmail}
-            onDate={setLeadDate}
-            onTime={setLeadTime}
             onSubmit={submitLead}
             submitting={leadSubmitting}
             submitted={leadSubmitted}
-            onBack={goBack}
+            onBack={goToGrid}
           />
         )}
       </div>
@@ -475,13 +450,8 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
 
       {/* ── BRANDING WATERMARK ── */}
       <div
-        className="absolute z-50 text-xs tracking-[0.3em] uppercase opacity-40"
-        style={{
-          color: GOLD,
-          fontFamily: "serif",
-          top: "calc(env(safe-area-inset-top, 0px) + 14px)",
-          left: "24px",
-        }}
+        className="absolute top-5 left-6 z-50 text-xs tracking-[0.3em] uppercase opacity-40"
+        style={{ color: GOLD, fontFamily: "serif" }}
       >
         Sottovento
       </div>
@@ -496,51 +466,26 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
         </div>
       )}
 
-      {/* ── HEADER BUTTONS: Quick Book (primary) + Safety (secondary) ── */}
-      <div
-        className="absolute z-50 flex items-center gap-2"
+      {/* ── SAFETY BUTTON (floating, always visible) ── */}
+      <button
+        onClick={() => setShowSafety(!showSafety)}
+        className="absolute top-5 right-6 z-50 px-4 py-2 rounded-full text-xs tracking-widest uppercase font-medium transition-all"
         style={{
-          top: "calc(env(safe-area-inset-top, 0px) + 10px)",
-          right: "16px",
+          backgroundColor: showSafety ? GOLD : "rgba(255,255,255,0.08)",
+          color: showSafety ? "#000" : "rgba(255,255,255,0.5)",
+          border: `1px solid ${showSafety ? GOLD : "rgba(255,255,255,0.15)"}`,
         }}
       >
-        {/* Quick Book — PRIMARY */}
-        {!bookingDestination && !crownFrameId && (
-          <button
-            onClick={() => goToSection(SECTIONS.indexOf("qr"))}
-            className="px-4 py-2 rounded-full text-xs tracking-widest uppercase font-semibold transition-all active:scale-95"
-            style={{
-              backgroundColor: GOLD,
-              color: "#000",
-            }}
-          >
-            Quick Book
-          </button>
-        )}
-
-        {/* Safety — SECONDARY */}
-        <button
-          onClick={() => setShowSafety(!showSafety)}
-          className="px-4 py-2 rounded-full text-xs tracking-widest uppercase font-medium transition-all active:scale-95"
-          style={{
-            backgroundColor: showSafety ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)",
-            color: showSafety ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
-            border: `1px solid ${showSafety ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.12)"}`,
-          }}
-        >
-          Safety
-        </button>
-      </div>
+        Safety
+      </button>
 
       {/* Safety panel */}
       {showSafety && (
         <div
-          className="absolute z-50 rounded-2xl p-6 w-72"
+          className="absolute top-16 right-6 z-50 rounded-2xl p-6 w-72"
           style={{
             backgroundColor: "rgba(0,0,0,0.95)",
             border: `1px solid ${GOLD}40`,
-            top: "calc(env(safe-area-inset-top, 0px) + 52px)",
-            right: "16px",
           }}
         >
           <h3
@@ -732,12 +677,19 @@ function GridSection({
             Tap a destination to book your ride
           </p>
         </div>
+        <button
+          onClick={onQR}
+          className="px-4 py-2 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
+          style={{ borderColor: `${accentColor}50`, color: accentColor }}
+        >
+          Quick Book
+        </button>
       </div>
 
       {/* 3×4 Grid */}
       <div className="flex-1 grid grid-cols-4 grid-rows-3 gap-2 px-3 pb-14 overflow-hidden">
         {GRID_CARDS.map((card) => (
-          <GridCardItem
+          <GridCard
             key={card.id}
             card={card}
             onTap={() => onCardTap(card)}
@@ -748,7 +700,7 @@ function GridSection({
   )
 }
 
-function GridCardItem({ card, onTap }: { card: GridCard; onTap: () => void }) {
+function GridCard({ card, onTap }: { card: GridCard; onTap: () => void }) {
   const isExperience = card.type === "experience"
 
   return (
@@ -826,13 +778,9 @@ function BookingFlowSection({
   name,
   phone,
   email,
-  date,
-  time,
   onName,
   onPhone,
   onEmail,
-  onDate,
-  onTime,
   onSubmit,
   submitting,
   submitted,
@@ -844,13 +792,9 @@ function BookingFlowSection({
   name: string
   phone: string
   email: string
-  date: string
-  time: string
   onName: (v: string) => void
   onPhone: (v: string) => void
   onEmail: (v: string) => void
-  onDate: (v: string) => void
-  onTime: (v: string) => void
   onSubmit: () => void
   submitting: boolean
   submitted: boolean
@@ -900,121 +844,98 @@ function BookingFlowSection({
 
   return (
     <div
-      className="relative w-full h-full flex flex-col"
+      className="relative w-full h-full flex flex-col items-center justify-center"
       style={{ backgroundColor: "#000" }}
       onTouchStart={resetInactivity}
       onClick={resetInactivity}
     >
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
-        <div className="flex flex-col items-center gap-4 px-8 pt-6 pb-8 max-w-2xl mx-auto w-full">
-          {/* Back */}
-          <button
-            onClick={onBack}
-            className="self-start text-white/50 text-sm tracking-widest uppercase mb-1 active:text-white/80 flex items-center gap-2"
-          >
-            <span>←</span>
-            <span>Back</span>
-          </button>
+      <div className="relative z-10 flex flex-col items-center gap-5 px-10 max-w-2xl w-full">
+        {/* Back */}
+        <button
+          onClick={onBack}
+          className="self-start text-white/40 text-xs tracking-widest uppercase mb-2 active:text-white/70"
+        >
+          ← Back
+        </button>
 
-          <p
-            className="text-xs tracking-[0.4em] uppercase self-start"
-            style={{ color: accentColor }}
-          >
-            Book Your Ride
-          </p>
-          <h2
-            className="text-4xl font-light text-white self-start"
-            style={{ fontFamily: "serif" }}
-          >
-            {destination}
-          </h2>
-          <GoldDivider color={accentColor} />
+        <p
+          className="text-xs tracking-[0.4em] uppercase self-start"
+          style={{ color: accentColor }}
+        >
+          Book Your Ride
+        </p>
+        <h2
+          className="text-4xl font-light text-white self-start"
+          style={{ fontFamily: "serif" }}
+        >
+          {destination}
+        </h2>
+        <GoldDivider color={accentColor} />
 
-          {/* Two-column layout: QR left, form right */}
-          <div className="flex gap-6 w-full items-start mt-1">
-            {/* QR code */}
-            <div className="flex flex-col items-center gap-3 flex-shrink-0">
-              <div className="p-3 rounded-xl" style={{ backgroundColor: "#fff" }}>
-                <QRCodeSVG
-                  value={fullBookingUrl}
-                  size={140}
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                  level="M"
-                />
-              </div>
-              <p
-                className="text-xs tracking-widest uppercase text-center"
-                style={{ color: accentColor }}
-              >
-                Scan to Book
-              </p>
+        {/* Two-column layout: QR left, form right */}
+        <div className="flex gap-8 w-full items-start mt-2">
+          {/* QR code */}
+          <div className="flex flex-col items-center gap-3 flex-shrink-0">
+            <div className="p-3 rounded-xl" style={{ backgroundColor: "#fff" }}>
+              <QRCodeSVG
+                value={fullBookingUrl}
+                size={150}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
+              />
             </div>
+            <p
+              className="text-xs tracking-widest uppercase text-center"
+              style={{ color: accentColor }}
+            >
+              Scan to Book
+            </p>
+          </div>
 
-            {/* Lead form */}
-            <div className="flex flex-col gap-3 flex-1">
-              {/* Date & Time row */}
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => { onDate(e.target.value); resetInactivity() }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white text-base focus:outline-none focus:border-yellow-600/50"
-                  style={{ colorScheme: "dark" }}
-                />
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(e) => { onTime(e.target.value); resetInactivity() }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white text-base focus:outline-none focus:border-yellow-600/50"
-                  style={{ colorScheme: "dark" }}
-                />
-              </div>
-              <input
-                type="text"
-                placeholder="Your name"
-                value={name}
-                onChange={(e) => { onName(e.target.value); resetInactivity() }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
-              />
-              <input
-                type="tel"
-                placeholder="Phone number"
-                value={phone}
-                onChange={(e) => { onPhone(e.target.value); resetInactivity() }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
-              />
-              <input
-                type="email"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => { onEmail(e.target.value); resetInactivity() }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
-              />
-              <button
-                onClick={onSubmit}
-                disabled={submitting || (!name && !phone && !email)}
-                className="w-full py-4 rounded-lg text-black font-semibold tracking-widest uppercase text-sm disabled:opacity-40 transition-opacity active:scale-95"
-                style={{ backgroundColor: accentColor }}
-              >
-                {submitting ? "Sending..." : "Get Quote"}
-              </button>
-              {phone && (
-                <button
-                  onClick={onSubmit}
-                  disabled={submitting || !phone}
-                  className="w-full py-3 rounded-lg font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
-                  style={{
-                    backgroundColor: "transparent",
-                    color: accentColor,
-                    border: `1px solid ${accentColor}60`,
-                  }}
-                >
-                  {submitting ? "Sending..." : "Send Booking Link"}
-                </button>
-              )}
-            </div>
+          {/* Lead form */}
+          <div className="flex flex-col gap-3 flex-1">
+            <input
+              type="tel"
+              placeholder="Phone number"
+              value={phone}
+              onChange={(e) => { onPhone(e.target.value); resetInactivity() }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <button
+              onClick={onSubmit}
+              disabled={submitting || !phone}
+              className="w-full py-3 rounded-lg text-black font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
+              style={{ backgroundColor: accentColor }}
+            >
+              {submitting ? "Sending..." : "Send Link"}
+            </button>
+            <input
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => { onName(e.target.value); resetInactivity() }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => { onEmail(e.target.value); resetInactivity() }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <button
+              onClick={onSubmit}
+              disabled={submitting || (!name && !phone && !email)}
+              className="w-full py-3 rounded-lg font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
+              style={{
+                backgroundColor: "transparent",
+                color: accentColor,
+                border: `1px solid ${accentColor}`,
+              }}
+            >
+              Get Quote
+            </button>
           </div>
         </div>
       </div>
@@ -1076,11 +997,9 @@ function CrownMomentFlow({
       {/* Back */}
       <button
         onClick={onBack}
-        className="absolute z-20 text-white/50 text-sm tracking-widest uppercase active:text-white/80 flex items-center gap-2"
-        style={{ top: "20px", left: "24px" }}
+        className="absolute top-5 left-6 z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70"
       >
-        <span>←</span>
-        <span>Back</span>
+        ← Back
       </button>
 
       {/* Header */}
@@ -1153,7 +1072,6 @@ function CrownMomentFlow({
 
 // ─────────────────────────────────────────────────────────────
 // CROWN CAMERA — real device camera with themed frame overlay
-// No navigator.share() — only email delivery + Done
 // ─────────────────────────────────────────────────────────────
 
 function CrownCamera({
@@ -1175,11 +1093,7 @@ function CrownCamera({
   const [cameraError, setCameraError] = useState(false)
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
-  const [showEmailModal, setShowEmailModal] = useState(false)
-  const [emailInput, setEmailInput] = useState("")
-  const [emailSending, setEmailSending] = useState(false)
-  const [emailSent, setEmailSent] = useState(false)
-  const [emailError, setEmailError] = useState("")
+  const [showShareModal, setShowShareModal] = useState(false)
   const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
@@ -1229,46 +1143,38 @@ function CrownCamera({
     setPhotoDataUrl(c.toDataURL("image/jpeg", 0.92))
   }
 
-  const retake = () => {
-    setPhotoDataUrl(null)
-    setEmailInput("")
-    setEmailSent(false)
-    setEmailError("")
+  const retake = () => { setPhotoDataUrl(null); onActivity() }
+
+  const share = async () => {
+    if (!photoDataUrl) return
     onActivity()
+    setShowShareModal(true)
   }
 
-  const sendPhotoEmail = async () => {
-    if (!photoDataUrl || !emailInput) return
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(emailInput)) {
-      setEmailError("Please enter a valid email address")
-      return
-    }
-    setEmailSending(true)
-    setEmailError("")
+  const doNativeShare = async () => {
+    if (!photoDataUrl) return
     try {
-      const res = await fetch("/api/crown-moment/send-photo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: emailInput,
-          photoDataUrl,
-          frameName: frame.label,
-        }),
-      })
-      if (res.ok) {
-        setEmailSent(true)
-        setShowEmailModal(false)
-        onActivity()
+      const blob = await (await fetch(photoDataUrl)).blob()
+      const file = new File([blob], "sottovento-crown-moment.jpg", { type: "image/jpeg" })
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "My Crown Moment — Sottovento Luxury Ride" })
       } else {
-        const data = await res.json()
-        setEmailError(data.error ?? "Failed to send. Please try again.")
+        const a = document.createElement("a")
+        a.href = photoDataUrl
+        a.download = "sottovento-crown-moment.jpg"
+        a.click()
       }
-    } catch {
-      setEmailError("Network error. Please try again.")
-    } finally {
-      setEmailSending(false)
-    }
+    } catch {}
+    setShowShareModal(false)
+  }
+
+  const doSaveOnly = () => {
+    if (!photoDataUrl) return
+    const a = document.createElement("a")
+    a.href = photoDataUrl
+    a.download = "sottovento-crown-moment.jpg"
+    a.click()
+    setShowShareModal(false)
   }
 
   return (
@@ -1283,45 +1189,36 @@ function CrownCamera({
       {/* Back */}
       <button
         onClick={onBack}
-        className="absolute z-20 text-white/50 text-sm tracking-widest uppercase active:text-white/80 flex items-center gap-2"
-        style={{ top: "20px", left: "24px" }}
+        className="absolute top-5 left-6 z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70"
       >
-        <span>←</span>
-        <span>Back</span>
+        ← Back
       </button>
 
-      {/* Email Modal — Send to My Email */}
-      {showEmailModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center px-6" style={{ backgroundColor: "rgba(0,0,0,0.90)" }}>
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="absolute inset-0 z-50 flex items-end justify-center pb-12" style={{ backgroundColor: "rgba(0,0,0,0.85)" }}>
           <div className="w-full max-w-sm rounded-3xl overflow-hidden" style={{ backgroundColor: "#111", border: `1px solid ${frame.accentHex}40` }}>
             <div className="p-6 text-center">
               <p className="text-xs tracking-widest uppercase mb-1" style={{ color: frame.accentHex }}>Crown Moment</p>
-              <h3 className="text-xl font-light text-white mb-2" style={{ fontFamily: "serif" }}>Send to My Email</h3>
-              <p className="text-white/40 text-sm mb-5">We'll send your photo directly to your inbox.</p>
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={emailInput}
-                onChange={(e) => { setEmailInput(e.target.value); setEmailError("") }}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none mb-2"
-                style={{ borderColor: emailError ? "#ff4444" : undefined }}
-                autoFocus
-              />
-              {emailError && (
-                <p className="text-red-400 text-xs mb-3">{emailError}</p>
-              )}
+              <h3 className="text-xl font-light text-white mb-4" style={{ fontFamily: "serif" }}>Share Your Memory</h3>
             </div>
             <div className="flex flex-col gap-2 px-4 pb-6">
               <button
-                onClick={sendPhotoEmail}
-                disabled={emailSending || !emailInput}
-                className="w-full py-4 rounded-2xl text-black font-semibold tracking-widest uppercase text-sm disabled:opacity-40"
+                onClick={doNativeShare}
+                className="w-full py-4 rounded-2xl text-black font-medium tracking-widest uppercase text-sm"
                 style={{ backgroundColor: frame.accentHex }}
               >
-                {emailSending ? "Sending..." : "Send Photo"}
+                Share / AirDrop
               </button>
               <button
-                onClick={() => { setShowEmailModal(false); setEmailError("") }}
+                onClick={doSaveOnly}
+                className="w-full py-4 rounded-2xl text-sm tracking-widest uppercase"
+                style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}
+              >
+                Save to Camera Roll
+              </button>
+              <button
+                onClick={() => setShowShareModal(false)}
                 className="w-full py-3 text-xs tracking-widest uppercase"
                 style={{ color: "rgba(255,255,255,0.3)" }}
               >
@@ -1332,41 +1229,32 @@ function CrownCamera({
         </div>
       )}
 
-      {/* Email sent confirmation */}
-      {emailSent && (
-        <div
-          className="absolute top-20 left-1/2 -translate-x-1/2 z-40 px-6 py-3 rounded-full text-sm font-medium tracking-widest uppercase"
-          style={{ backgroundColor: `${frame.accentHex}20`, color: frame.accentHex, border: `1px solid ${frame.accentHex}40` }}
-        >
-          ✓ Photo sent to your email
-        </div>
-      )}
-
-      {/* Frame container — tight, no dead space */}
+      {/* Frame container — fullscreen on mobile */}
       <div
-        className="relative flex flex-col overflow-hidden"
+        className="relative flex flex-col items-center overflow-hidden"
         style={{
-          border: `3px solid ${frame.accentHex}`,
-          borderRadius: 14,
+          border: `4px solid ${frame.accentHex}`,
+          borderRadius: 16,
           backgroundColor: frame.bgColor,
-          width: "min(88vw, 400px)",
-          maxHeight: "72vh",
+          maxWidth: 460,
+          width: "88%",
+          maxHeight: "80vh",
         }}
       >
         {/* Top accent bar */}
-        <div className="w-full h-1 flex-shrink-0" style={{ backgroundColor: frame.accentHex }} />
+        <div className="w-full h-1" style={{ backgroundColor: frame.accentHex }} />
 
         {/* Frame header */}
         <div
-          className="w-full text-center py-2 text-xs tracking-widest uppercase font-semibold px-4 flex-shrink-0"
+          className="w-full text-center py-2 text-xs tracking-widest uppercase font-semibold px-4"
           style={{ color: frame.accentHex, fontFamily: "serif" }}
         >
           {frame.headerText}
         </div>
 
-        {/* Camera / Photo area — fills remaining space */}
+        {/* Camera / Photo area */}
         <div
-          className="relative w-full flex-1 overflow-hidden"
+          className="relative w-full overflow-hidden"
           style={{ aspectRatio: "4/3", backgroundColor: "#111" }}
         >
           {/* Live video */}
@@ -1438,17 +1326,17 @@ function CrownCamera({
 
         {/* Frame footer */}
         <div
-          className="w-full text-center py-1.5 text-xs tracking-widest uppercase opacity-60 flex-shrink-0"
+          className="w-full text-center py-1.5 text-xs tracking-widest uppercase opacity-60"
           style={{ color: frame.accentHex }}
         >
           {frame.footerText}
         </div>
 
         {/* Bottom accent bar */}
-        <div className="w-full h-0.5 flex-shrink-0" style={{ backgroundColor: `${frame.accentHex}60` }} />
+        <div className="w-full h-0.5" style={{ backgroundColor: `${frame.accentHex}60` }} />
       </div>
 
-      {/* Action buttons — ONLY: camera shutter / retake + Send to My Email + Done */}
+      {/* Action buttons */}
       <div className="flex items-center gap-4 mt-5">
         {!photoDataUrl ? (
           <button
@@ -1466,22 +1354,22 @@ function CrownCamera({
           <>
             <button
               onClick={retake}
-              className="px-5 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
-              style={{ borderColor: `${frame.accentHex}60`, color: `${frame.accentHex}cc` }}
+              className="px-6 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
+              style={{ borderColor: frame.accentHex, color: frame.accentHex }}
             >
               Retake
             </button>
             <button
-              onClick={() => { setShowEmailModal(true); onActivity() }}
-              className="px-7 py-3 rounded-full text-xs tracking-widest uppercase font-semibold transition-all active:scale-95"
+              onClick={share}
+              className="px-8 py-3 rounded-full text-xs tracking-widest uppercase font-semibold transition-all active:scale-95"
               style={{ backgroundColor: frame.accentHex, color: "#000" }}
             >
-              Send to My Email
+              Save / Share
             </button>
             <button
               onClick={onDone}
-              className="px-5 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
-              style={{ borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)" }}
+              className="px-6 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
+              style={{ borderColor: "rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.4)" }}
             >
               Done
             </button>
@@ -1493,7 +1381,7 @@ function CrownCamera({
 }
 
 // ─────────────────────────────────────────────────────────────
-// QR BOOKING SECTION (accessible via Quick Book btn)
+// QR BOOKING SECTION (secondary — accessible via Quick Book btn)
 // ─────────────────────────────────────────────────────────────
 
 function QRBookingSection({
@@ -1502,13 +1390,9 @@ function QRBookingSection({
   name,
   phone,
   email,
-  date,
-  time,
   onName,
   onPhone,
   onEmail,
-  onDate,
-  onTime,
   onSubmit,
   submitting,
   submitted,
@@ -1519,32 +1403,14 @@ function QRBookingSection({
   name: string
   phone: string
   email: string
-  date: string
-  time: string
   onName: (v: string) => void
   onPhone: (v: string) => void
   onEmail: (v: string) => void
-  onDate: (v: string) => void
-  onTime: (v: string) => void
   onSubmit: () => void
   submitting: boolean
   submitted: boolean
   onBack: () => void
 }) {
-  // Auto-return after 2 min inactivity
-  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const resetInactivity = useCallback(() => {
-    if (inactivityRef.current) clearTimeout(inactivityRef.current)
-    inactivityRef.current = setTimeout(onBack, 120000)
-  }, [onBack])
-
-  useEffect(() => {
-    resetInactivity()
-    return () => {
-      if (inactivityRef.current) clearTimeout(inactivityRef.current)
-    }
-  }, [resetInactivity])
-
   if (submitted) {
     return (
       <div className="relative w-full h-full flex flex-col items-center justify-center text-center">
@@ -1564,123 +1430,97 @@ function QRBookingSection({
   }
 
   return (
-    <div
-      className="relative w-full h-full flex flex-col"
-      onTouchStart={resetInactivity}
-      onClick={resetInactivity}
-    >
+    <div className="relative w-full h-full flex flex-col items-center justify-center">
       <FullScreenPhoto src="/images/tablet/qr-bg.jpg" overlay={0.65} />
+      <div className="relative z-10 flex flex-col items-center gap-5 px-10 max-w-2xl w-full">
+        {/* Back */}
+        <button
+          onClick={onBack}
+          className="self-start text-white/40 text-xs tracking-widest uppercase mb-2 active:text-white/70"
+        >
+          ← Back
+        </button>
 
-      {/* Scrollable content */}
-      <div className="relative z-10 flex-1 overflow-y-auto overscroll-contain">
-        <div className="flex flex-col items-center gap-4 px-8 pt-6 pb-8 max-w-2xl mx-auto w-full">
-          {/* Back */}
-          <button
-            onClick={onBack}
-            className="self-start text-white/50 text-sm tracking-widest uppercase mb-1 active:text-white/80 flex items-center gap-2"
-          >
-            <span>←</span>
-            <span>Back</span>
-          </button>
+        <p
+          className="text-xs tracking-[0.4em] uppercase self-start"
+          style={{ color: accentColor }}
+        >
+          Quick Booking
+        </p>
+        <h2
+          className="text-4xl font-light text-white self-start"
+          style={{ fontFamily: "serif" }}
+        >
+          Scan or send link to book instantly
+        </h2>
+        <GoldDivider color={accentColor} />
 
-          <p
-            className="text-xs tracking-[0.4em] uppercase self-start"
-            style={{ color: accentColor }}
-          >
-            Quick Booking
-          </p>
-          <h2
-            className="text-4xl font-light text-white self-start"
-            style={{ fontFamily: "serif" }}
-          >
-            Book Your Luxury Ride
-          </h2>
-          <GoldDivider color={accentColor} />
-
-          {/* Two-column layout: QR left, form right */}
-          <div className="flex gap-6 w-full items-start mt-1">
-            {/* QR code */}
-            <div className="flex flex-col items-center gap-3 flex-shrink-0">
-              <div className="p-3 rounded-xl" style={{ backgroundColor: "#fff" }}>
-                <QRCodeSVG
-                  value={bookingUrl}
-                  size={150}
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                  level="M"
-                />
-              </div>
-              <p
-                className="text-xs tracking-widest uppercase"
-                style={{ color: accentColor }}
-              >
-                sottoventoluxuryride.com
-              </p>
+        {/* Two-column layout: QR left, form right */}
+        <div className="flex gap-8 w-full items-start mt-2">
+          {/* QR code */}
+          <div className="flex flex-col items-center gap-3 flex-shrink-0">
+            <div className="p-3 rounded-xl" style={{ backgroundColor: "#fff" }}>
+              <QRCodeSVG
+                value={bookingUrl}
+                size={160}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
+              />
             </div>
+            <p
+              className="text-xs tracking-widest uppercase"
+              style={{ color: accentColor }}
+            >
+              sottoventoluxuryride.com
+            </p>
+          </div>
 
-            {/* Lead form */}
-            <div className="flex flex-col gap-3 flex-1">
-              {/* Date & Time row */}
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => { onDate(e.target.value); resetInactivity() }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white text-base focus:outline-none focus:border-yellow-600/50"
-                  style={{ colorScheme: "dark" }}
-                />
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(e) => { onTime(e.target.value); resetInactivity() }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white text-base focus:outline-none focus:border-yellow-600/50"
-                  style={{ colorScheme: "dark" }}
-                />
-              </div>
-              <input
-                type="text"
-                placeholder="Your name"
-                value={name}
-                onChange={(e) => { onName(e.target.value); resetInactivity() }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
-              />
-              <input
-                type="tel"
-                placeholder="Phone number"
-                value={phone}
-                onChange={(e) => { onPhone(e.target.value); resetInactivity() }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
-              />
-              <input
-                type="email"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => { onEmail(e.target.value); resetInactivity() }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
-              />
+          {/* Lead form */}
+          <div className="flex flex-col gap-3 flex-1">
+            <input
+              type="tel"
+              placeholder="Phone number"
+              value={phone}
+              onChange={(e) => onPhone(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <div className="flex gap-2">
               <button
                 onClick={onSubmit}
-                disabled={submitting || (!name && !phone && !email)}
-                className="w-full py-4 rounded-lg text-black font-semibold tracking-widest uppercase text-sm disabled:opacity-40 transition-opacity active:scale-95"
+                disabled={submitting || !phone}
+                className="flex-1 py-3 rounded-lg text-black font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
                 style={{ backgroundColor: accentColor }}
               >
-                {submitting ? "Sending..." : "Get Quote"}
+                {submitting ? "Sending..." : "Send Link"}
               </button>
-              {phone && (
-                <button
-                  onClick={onSubmit}
-                  disabled={submitting || !phone}
-                  className="w-full py-3 rounded-lg font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
-                  style={{
-                    backgroundColor: "transparent",
-                    color: accentColor,
-                    border: `1px solid ${accentColor}60`,
-                  }}
-                >
-                  {submitting ? "Sending..." : "Send Booking Link"}
-                </button>
-              )}
             </div>
+            <input
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => onName(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => onEmail(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 text-base focus:outline-none focus:border-yellow-600/50"
+            />
+            <button
+              onClick={onSubmit}
+              disabled={submitting || (!name && !phone && !email)}
+              className="w-full py-3 rounded-lg font-medium tracking-widest uppercase text-xs disabled:opacity-40 transition-opacity"
+              style={{
+                backgroundColor: "transparent",
+                color: accentColor,
+                border: `1px solid ${accentColor}`,
+              }}
+            >
+              Get Quote
+            </button>
           </div>
         </div>
       </div>

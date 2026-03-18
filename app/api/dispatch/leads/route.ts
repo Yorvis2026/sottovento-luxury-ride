@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/dispatch/db";
+import { sendLeadNotification } from "@/lib/email";
 
 // ============================================================
 // POST /api/dispatch/leads
@@ -43,6 +44,16 @@ export async function POST(req: NextRequest) {
       email: email ?? null,
       interested_package: interested_package ?? null,
     });
+
+    // ---- Send email notification to admin (non-blocking) ----
+    sendLeadNotification({
+      name: full_name ?? undefined,
+      phone: phone ?? undefined,
+      email: email ?? undefined,
+      driverCode: driver_code ?? undefined,
+      tabletCode: tablet_code ?? undefined,
+      package: interested_package ?? undefined,
+    }).catch((err) => console.error("[leads] email notification failed:", err));
 
     return NextResponse.json({ success: true, lead_id: lead.id }, { status: 201 });
   } catch (err: any) {
