@@ -29,7 +29,7 @@ const SECTIONS: SectionId[] = ["hero", "grid", "qr"]
 
 const SECTION_DURATION: Record<SectionId, number> = {
   hero: 10000,
-  grid: 60000,
+  grid: 90000,
   booking: 120000,
   crown: 120000,
   qr: 30000,
@@ -75,7 +75,7 @@ const GRID_CARDS: GridCard[] = [
     type: "service",
     label: "Universal",
     sublabel: "Universal Orlando",
-    photo: "/images/tablet/kennedy-bg.jpg",
+    photo: "/images/tablet/universal-bg.jpg",
     accentHex: "#60a0ff",
     destination: "Universal Orlando",
   },
@@ -127,13 +127,13 @@ const GRID_CARDS: GridCard[] = [
   },
   // ── THIRD ROW / SUPPORTING EXPERIENCE ─────────────────────
   {
-    id: "everglades",
+    id: "idrive",
     type: "service",
-    label: "Everglades",
-    sublabel: "Wildlife Adventure",
-    photo: "/images/tablet/everglades-bg.jpg",
-    accentHex: "#7ec8e3",
-    destination: "Everglades",
+    label: "International Drive",
+    sublabel: "Dining & Entertainment",
+    photo: "/images/tablet/idrive-bg.jpg",
+    accentHex: "#f0c040",
+    destination: "International Drive",
   },
   {
     id: "corporate",
@@ -196,7 +196,7 @@ const CROWN_FRAMES = [
     accentHex: "#60a0ff",
     headerText: "Universal Orlando Adventure",
     footerText: "Sottovento Luxury Ride",
-    bgImage: "/images/tablet/kennedy-bg.jpg",
+    bgImage: "/images/tablet/universal-bg.jpg",
   },
   {
     id: "cruise" as CrownFrame,
@@ -667,15 +667,15 @@ function GridSection({
       {/* Header */}
       <div className="flex-shrink-0 flex items-center justify-between px-6 pt-5 pb-3 z-10">
         <div>
-          <p className="text-xs tracking-[0.4em] uppercase" style={{ color: accentColor }}>
-            Sottovento
-          </p>
           <h2
             className="text-2xl font-light text-white"
             style={{ fontFamily: "serif", letterSpacing: "0.04em" }}
           >
             Where are you headed?
           </h2>
+          <p className="text-xs tracking-[0.3em] uppercase mt-0.5" style={{ color: accentColor, opacity: 0.7 }}>
+            Tap a destination to book your ride
+          </p>
         </div>
         <button
           onClick={onQR}
@@ -1093,6 +1093,7 @@ function CrownCamera({
   const [cameraError, setCameraError] = useState(false)
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [showShareModal, setShowShareModal] = useState(false)
   const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
@@ -1147,6 +1148,11 @@ function CrownCamera({
   const share = async () => {
     if (!photoDataUrl) return
     onActivity()
+    setShowShareModal(true)
+  }
+
+  const doNativeShare = async () => {
+    if (!photoDataUrl) return
     try {
       const blob = await (await fetch(photoDataUrl)).blob()
       const file = new File([blob], "sottovento-crown-moment.jpg", { type: "image/jpeg" })
@@ -1159,6 +1165,16 @@ function CrownCamera({
         a.click()
       }
     } catch {}
+    setShowShareModal(false)
+  }
+
+  const doSaveOnly = () => {
+    if (!photoDataUrl) return
+    const a = document.createElement("a")
+    a.href = photoDataUrl
+    a.download = "sottovento-crown-moment.jpg"
+    a.click()
+    setShowShareModal(false)
   }
 
   return (
@@ -1178,7 +1194,42 @@ function CrownCamera({
         ← Back
       </button>
 
-      {/* Frame container */}
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="absolute inset-0 z-50 flex items-end justify-center pb-12" style={{ backgroundColor: "rgba(0,0,0,0.85)" }}>
+          <div className="w-full max-w-sm rounded-3xl overflow-hidden" style={{ backgroundColor: "#111", border: `1px solid ${frame.accentHex}40` }}>
+            <div className="p-6 text-center">
+              <p className="text-xs tracking-widest uppercase mb-1" style={{ color: frame.accentHex }}>Crown Moment</p>
+              <h3 className="text-xl font-light text-white mb-4" style={{ fontFamily: "serif" }}>Share Your Memory</h3>
+            </div>
+            <div className="flex flex-col gap-2 px-4 pb-6">
+              <button
+                onClick={doNativeShare}
+                className="w-full py-4 rounded-2xl text-black font-medium tracking-widest uppercase text-sm"
+                style={{ backgroundColor: frame.accentHex }}
+              >
+                Share / AirDrop
+              </button>
+              <button
+                onClick={doSaveOnly}
+                className="w-full py-4 rounded-2xl text-sm tracking-widest uppercase"
+                style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}
+              >
+                Save to Camera Roll
+              </button>
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="w-full py-3 text-xs tracking-widest uppercase"
+                style={{ color: "rgba(255,255,255,0.3)" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Frame container — fullscreen on mobile */}
       <div
         className="relative flex flex-col items-center overflow-hidden"
         style={{
