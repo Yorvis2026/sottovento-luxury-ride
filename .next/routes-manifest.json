@@ -30,6 +30,14 @@
       "namedRegex": "^/api/admin/drivers/(?<nxtPid>[^/]+?)(?:/)?$"
     },
     {
+      "page": "/driver/[driver_code]",
+      "regex": "^/driver/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPdriver_code": "nxtPdriver_code"
+      },
+      "namedRegex": "^/driver/(?<nxtPdriver_code>[^/]+?)(?:/)?$"
+    },
+    {
       "page": "/tablet/[driver_code]",
       "regex": "^/tablet/([^/]+?)(?:/)?$",
       "routeKeys": {
@@ -116,6 +124,18 @@
       "regex": "^/api/driver/me(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/driver/me(?:/)?$"
+    },
+    {
+      "page": "/api/driver-manifest",
+      "regex": "^/api/driver\\-manifest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/driver\\-manifest(?:/)?$"
+    },
+    {
+      "page": "/api/tablet-manifest",
+      "regex": "^/api/tablet\\-manifest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/tablet\\-manifest(?:/)?$"
     },
     {
       "page": "/confirmation",

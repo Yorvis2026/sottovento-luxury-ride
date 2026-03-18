@@ -47,13 +47,35 @@ export default function DriverDashboard() {
     if (metaTitle) metaTitle.setAttribute('content', 'Driver')
   }, [])
 
-  // Load driver data from URL param ?code=YHV001
+  // Redirect /driver?code=YHV001 → /driver/YHV001 (stable path-based route)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get("code")
+    if (code) {
+      // Normalize to stable path route — preserves identity when installed to Home Screen
+      window.location.replace(`/driver/${code.toUpperCase()}`)
+      return
+    }
+    // No code in query param — try localStorage fallback
+    try {
+      const saved = localStorage.getItem("sottovento_driver_code")
+      if (saved) {
+        window.location.replace(`/driver/${saved.toUpperCase()}`)
+        return
+      }
+    } catch {}
+    setError("No driver code provided. Open your personal link: /driver/YOUR_CODE")
+    setLoading(false)
+    return
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Placeholder — actual load happens in /driver/[driver_code]
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const code = params.get("code")
     if (!code) {
-      setError("No driver code provided. Use /driver?code=YOUR_CODE")
-      setLoading(false)
+      // Already handled above
       return
     }
     fetch(`/api/driver/me?code=${encodeURIComponent(code)}`)

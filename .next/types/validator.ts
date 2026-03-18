@@ -65,6 +65,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/driver/[driver_code]/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/driver/[driver_code]">> = Specific
+  const handler = {} as typeof import("../../app/driver/[driver_code]/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/driver/earnings/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/driver/earnings">> = Specific
@@ -200,6 +209,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/driver-manifest/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/driver-manifest">> = Specific
+  const handler = {} as typeof import("../../app/api/driver-manifest/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/driver/me/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/driver/me">> = Specific
@@ -209,9 +227,27 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/tablet-manifest/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/tablet-manifest">> = Specific
+  const handler = {} as typeof import("../../app/api/tablet-manifest/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
 
 
 
+
+
+// Validate ../../app/driver/[driver_code]/layout.tsx
+{
+  type __IsExpected<Specific extends LayoutConfig<"/driver/[driver_code]">> = Specific
+  const handler = {} as typeof import("../../app/driver/[driver_code]/layout.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
 
 // Validate ../../app/driver/layout.tsx
 {

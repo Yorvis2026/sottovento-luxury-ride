@@ -48,7 +48,7 @@ export const metadata: Metadata = {
       },
     ],
   },
-  manifest: "/manifest.json",
+  // manifest is injected client-side dynamically with start_url = /tablet/{code}
   icons: {
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
