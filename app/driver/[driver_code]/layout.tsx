@@ -25,9 +25,10 @@ export const viewport: Viewport = {
 export async function generateMetadata({
   params,
 }: {
-  params: { driver_code: string }
+  params: Promise<{ driver_code: string }>
 }): Promise<Metadata> {
-  const code = params.driver_code?.toUpperCase() ?? "UNKNOWN"
+  const { driver_code } = await params
+  const code = driver_code?.toUpperCase() ?? "UNKNOWN"
 
   return {
     title: "Sottovento Driver",

@@ -37,7 +37,8 @@ export const metadata: Metadata = {
     title: "Sottovento",
     statusBarStyle: "black-translucent",
   },
-  manifest: "/manifest.json",
+  // manifest is defined per-route (driver, tablet) — not globally
+  // to avoid iOS using the wrong start_url for Home Screen shortcuts
   icons: {
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
