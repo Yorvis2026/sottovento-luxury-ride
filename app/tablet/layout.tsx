@@ -48,7 +48,8 @@ export const metadata: Metadata = {
       },
     ],
   },
-  manifest: "/tablet-manifest.json",
+  // NO manifest here — defined per-route in [driver_code]/layout.tsx via generateMetadata
+  // to ensure iOS uses start_url=/tablet/{code} not /tablet
   icons: {
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },

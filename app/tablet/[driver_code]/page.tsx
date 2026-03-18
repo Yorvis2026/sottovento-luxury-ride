@@ -11,6 +11,9 @@ import TabletKiosk from "@/components/tablet-kiosk"
 // INSTALL URL: https://www.sottoventoluxuryride.com/tablet/YHV001
 // iOS preserves path params reliably; always use this URL for
 // "Add to Home Screen" to ensure correct driver attribution.
+//
+// MANIFEST: injected SSR via generateMetadata in layout.tsx
+// start_url = /tablet/{code} — iOS reads it before JS runs
 // ─────────────────────────────────────────────────────────────
 
 export default function TabletDriverPage() {
@@ -19,21 +22,10 @@ export default function TabletDriverPage() {
     ? params.driver_code.toUpperCase()
     : null
 
-  // Inject dynamic manifest with start_url = /tablet/{code}
-  // This ensures the Home Screen shortcut always opens the correct driver carousel
+  // Persist driver code in localStorage for fallback recovery
+  // (manifest is now injected SSR via generateMetadata in layout.tsx)
   useEffect(() => {
     if (!driverCode) return
-
-    // Remove existing manifest links
-    document.querySelectorAll('link[rel="manifest"]').forEach(el => el.remove())
-
-    // Inject tablet manifest with driver-specific start_url
-    const manifest = document.createElement("link")
-    manifest.rel = "manifest"
-    manifest.href = `/api/tablet-manifest?code=${driverCode}`
-    document.head.appendChild(manifest)
-
-    // Persist driver code for fallback
     try {
       localStorage.setItem("sottovento_tablet_driver_code", driverCode)
     } catch {}
