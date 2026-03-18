@@ -381,17 +381,17 @@ function HeroSection({
 }) {
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center text-center">
-      <FullScreenPhoto src="/images/tablet/crown-bg.jpg" overlay={0.45} />
+      <FullScreenPhoto src="/images/tablet/airport-bg.jpg" overlay={0.50} />
 
       <div className="relative z-10 flex flex-col items-center gap-5 px-12">
-        {/* Crown icon */}
+        {/* Crown — minimal, small, not protagonist */}
         <svg
-          width="52"
-          height="40"
+          width="28"
+          height="22"
           viewBox="0 0 48 36"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          style={{ opacity: 0.9 }}
+          style={{ opacity: 0.45 }}
         >
           <path
             d="M4 32L8 12L18 22L24 4L30 22L40 12L44 32H4Z"
