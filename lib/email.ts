@@ -25,25 +25,34 @@ export async function sendLeadNotification(opts: {
   driverCode?: string
   tabletCode?: string
   package?: string
+  destination?: string
+  pickupDate?: string
+  pickupTime?: string
 }) {
   const resend = getResend()
   if (!resend) return
 
-  const subject = `New Lead — Sottovento Luxury Ride`
+  const subject = opts.destination
+    ? `New Quote Request — ${opts.destination} — Sottovento`
+    : `New Lead — Sottovento Luxury Ride`
+
   const html = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;padding:32px;border-radius:12px;">
       <div style="text-align:center;margin-bottom:24px;">
         <p style="color:#b8960c;letter-spacing:0.3em;text-transform:uppercase;font-size:11px;margin:0;">Sottovento Luxury Ride</p>
-        <h1 style="font-size:24px;font-weight:300;margin:8px 0;color:#fff;">New Lead Received</h1>
+        <h1 style="font-size:24px;font-weight:300;margin:8px 0;color:#fff;">New Quote Request</h1>
+        ${opts.destination ? `<p style="color:#b8960c;font-size:16px;margin:4px 0;font-weight:600;">${opts.destination}</p>` : ""}
       </div>
       <table style="width:100%;border-collapse:collapse;">
         ${opts.name ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;width:140px;">Name</td><td style="padding:8px 0;color:#fff;font-size:14px;">${opts.name}</td></tr>` : ""}
-        ${opts.phone ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Phone</td><td style="padding:8px 0;color:#fff;font-size:14px;">${opts.phone}</td></tr>` : ""}
-        ${opts.email ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Email</td><td style="padding:8px 0;color:#fff;font-size:14px;">${opts.email}</td></tr>` : ""}
+        ${opts.phone ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Phone</td><td style="padding:8px 0;color:#fff;font-size:14px;"><a href="tel:${opts.phone}" style="color:#b8960c;">${opts.phone}</a></td></tr>` : ""}
+        ${opts.email ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Email</td><td style="padding:8px 0;color:#fff;font-size:14px;"><a href="mailto:${opts.email}" style="color:#b8960c;">${opts.email}</a></td></tr>` : ""}
+        ${opts.pickupDate ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Date</td><td style="padding:8px 0;color:#b8960c;font-size:14px;font-weight:600;">${opts.pickupDate}</td></tr>` : ""}
+        ${opts.pickupTime ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Time</td><td style="padding:8px 0;color:#b8960c;font-size:14px;font-weight:600;">${opts.pickupTime}</td></tr>` : ""}
         ${opts.package ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Package</td><td style="padding:8px 0;color:#b8960c;font-size:14px;">${opts.package}</td></tr>` : ""}
         ${opts.driverCode ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Driver Code</td><td style="padding:8px 0;color:#fff;font-size:14px;">${opts.driverCode}</td></tr>` : ""}
         ${opts.tabletCode ? `<tr><td style="padding:8px 0;color:#888;font-size:13px;">Tablet Code</td><td style="padding:8px 0;color:#fff;font-size:14px;">${opts.tabletCode}</td></tr>` : ""}
-        <tr><td style="padding:8px 0;color:#888;font-size:13px;">Time</td><td style="padding:8px 0;color:#fff;font-size:14px;">${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET</td></tr>
+        <tr><td style="padding:8px 0;color:#888;font-size:13px;">Received</td><td style="padding:8px 0;color:#fff;font-size:14px;">${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET</td></tr>
       </table>
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid #222;text-align:center;">
         <a href="https://www.sottoventoluxuryride.com/admin" style="display:inline-block;padding:12px 24px;background:#b8960c;color:#000;text-decoration:none;border-radius:6px;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;font-weight:600;">View in Admin Panel</a>

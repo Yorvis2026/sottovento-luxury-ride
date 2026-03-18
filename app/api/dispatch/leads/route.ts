@@ -18,6 +18,9 @@ export async function POST(req: NextRequest) {
       tablet_code,
       lead_source = "tablet",
       interested_package,
+      destination,
+      pickup_date,
+      pickup_time,
     } = body;
 
     if (!full_name && !phone && !email) {
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest) {
       full_name: full_name ?? null,
       phone: phone ?? null,
       email: email ?? null,
-      interested_package: interested_package ?? null,
+      interested_package: interested_package ?? destination ?? null,
     });
 
     // ---- Send email notification to admin (non-blocking) ----
@@ -53,6 +56,9 @@ export async function POST(req: NextRequest) {
       driverCode: driver_code ?? undefined,
       tabletCode: tablet_code ?? undefined,
       package: interested_package ?? undefined,
+      destination: destination ?? undefined,
+      pickupDate: pickup_date ?? undefined,
+      pickupTime: pickup_time ?? undefined,
     }).catch((err) => console.error("[leads] email notification failed:", err));
 
     return NextResponse.json({ success: true, lead_id: lead.id }, { status: 201 });
