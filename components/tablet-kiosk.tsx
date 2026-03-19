@@ -1202,6 +1202,21 @@ function CrownCamera({
   const [emailError, setEmailError] = useState("")
   const streamRef = useRef<MediaStream | null>(null)
 
+  // Request fullscreen when Crown Moment opens — hides iOS status bar
+  useEffect(() => {
+    const el = document.documentElement
+    try {
+      if (el.requestFullscreen) el.requestFullscreen().catch(() => {})
+      else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen()
+    } catch {}
+    return () => {
+      try {
+        if (document.exitFullscreen && document.fullscreenElement) document.exitFullscreen().catch(() => {})
+        else if ((document as any).webkitExitFullscreen && (document as any).webkitFullscreenElement) (document as any).webkitExitFullscreen()
+      } catch {}
+    }
+  }, [])
+
   // Preload the frame PNG for canvas compositing
   useEffect(() => {
     const img = new window.Image()
@@ -1415,34 +1430,20 @@ function CrownCamera({
         </div>
       )}
 
-      {/* ── FRAME STAGE: full viewport, frame is the hero ── */}
+      {/* ── FRAME STAGE: TRUE FULLSCREEN — no padding, no margins, frame is the screen ── */}
       <div
         style={{
           position: "absolute",
           inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          paddingTop: "calc(env(safe-area-inset-top) + 44px)",
-          paddingBottom: isCapture
-            ? "calc(env(safe-area-inset-bottom) + 96px)"
-            : "calc(env(safe-area-inset-bottom) + 120px)",
-          paddingLeft: "8px",
-          paddingRight: "8px",
-          boxSizing: "border-box" as const,
+          overflow: "hidden",
         }}
       >
-        {/* ── FRAME WRAPPER: 75–85% screen height, maintains aspect ratio ── */}
+        {/* ── FRAME WRAPPER: 100% of the stage, fills entire screen ── */}
         <div
           style={{
-            width: "min(92vw, 85vh)",
-            maxWidth: "1000px",
-            maxHeight: "86vh",
-            aspectRatio: "3 / 4",
-            position: "relative",
+            position: "absolute",
+            inset: 0,
             overflow: "hidden",
-            borderRadius: 6,
-            boxShadow: "0 0 60px rgba(255,215,120,0.08), 0 0 120px rgba(0,0,0,0.9)",
           }}
         >
           {/* STATE A: Live video */}
@@ -1508,36 +1509,35 @@ function CrownCamera({
               </span>
             </div>
           )}
-
-          {/* ── STATE A: CAPTURE BUTTON — physically connected to frame bottom ── */}
-          {isCapture && (
-            <button
-              onClick={startCountdown}
-              disabled={!cameraReady || countdown !== null}
-              className="flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
-              style={{
-                position: "absolute",
-                bottom: "-28px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                width: "90px",
-                height: "90px",
-                borderRadius: "50%",
-                background: "linear-gradient(145deg, #FFD700, #C9A646)",
-                boxShadow: "0 10px 30px rgba(255,215,120,0.35)",
-                zIndex: 20,
-                border: "none",
-              }}
-            >
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-            </button>
-          )}
         </div>
       </div>
-
+      {/* ── STATE A: CAPTURE BUTTON — floating over frame, bottom-center ── */}
+      {isCapture && (
+        <button
+          onClick={startCountdown}
+          disabled={!cameraReady || countdown !== null}
+          className="flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+          style={{
+            position: "absolute",
+            bottom: "calc(env(safe-area-inset-bottom, 0px) + 32px)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: "90px",
+            height: "90px",
+            borderRadius: "50%",
+            background: "linear-gradient(145deg, #FFD700, #C9A646)",
+            boxShadow: "0 10px 30px rgba(255,215,120,0.35)",
+            zIndex: 30,
+            border: "none",
+          }}
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="4" />
+          </svg>
+        </button>
+      )}
+      {/* ── STATE B: PREVIEW BUTTONS — closer to frame, proper hierarchy ── */}
       {/* ── STATE B: PREVIEW BUTTONS — closer to frame, proper hierarchy ── */}
       {!isCapture && (
         <div
