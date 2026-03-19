@@ -21,7 +21,7 @@ export async function POST() {
   try {
     // Step 1: Show current state
     const before = await sql`
-      SELECT id, status, dispatch_status, client_name, pickup_at
+      SELECT id, status, dispatch_status, pickup_at
       FROM bookings
       ORDER BY created_at DESC
     `;
@@ -30,7 +30,7 @@ export async function POST() {
       id: b.id?.slice(0, 8),
       status: b.status,
       dispatch_status: b.dispatch_status,
-    })))}`);
+    })))}`)
 
     // Step 2: Reclassify bookings that are DONE — these are the only ones where not_required is valid
     await sql`
@@ -85,7 +85,7 @@ export async function POST() {
 
     // Step 5: Verify — no active booking should remain as not_required
     const remaining = await sql`
-      SELECT id, status, dispatch_status, client_name
+      SELECT id, status, dispatch_status
       FROM bookings
       WHERE dispatch_status = 'not_required'
     `;
@@ -122,7 +122,7 @@ export async function GET() {
     `;
 
     const inconsistent = await sql`
-      SELECT id, status, dispatch_status, client_name, pickup_at
+      SELECT id, status, dispatch_status, pickup_at
       FROM bookings
       WHERE dispatch_status = 'not_required'
         AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress')
