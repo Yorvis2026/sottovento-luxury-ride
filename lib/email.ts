@@ -174,9 +174,26 @@ export async function sendCrownMomentPhoto(opts: {
 
 <!-- PHOTO -->
 <tr>
+<td align="center" style="padding:0 20px 8px;">
+  <a href="${opts.photoUrl ?? '#'}" target="_blank" style="display:block;">
+    <img src="${opts.photoUrl ?? 'cid:crown-moment-photo'}" alt="Your Crown Moment"
+      style="width:100%;max-width:540px;border-radius:12px;border:3px solid #D4AF37;display:block;cursor:pointer;" />
+  </a>
+</td>
+</tr>
+
+<!-- DOWNLOAD BUTTON -->
+<tr>
 <td align="center" style="padding:0 20px 20px;">
-  <img src="${opts.photoUrl ?? 'cid:crown-moment-photo'}" alt="Your Crown Moment"
-    style="width:100%;max-width:540px;border-radius:12px;border:3px solid #D4AF37;display:block;" />
+  <a href="${opts.photoUrl ?? '#'}" download="sottovento-crown-moment.jpg" target="_blank"
+    style="display:inline-block;margin-top:8px;padding:12px 28px;background:#222;color:#FFD700;
+           border-radius:25px;text-decoration:none;font-weight:bold;font-size:14px;
+           letter-spacing:1px;border:1px solid rgba(255,215,0,0.3);">
+    &#11015; Download Your Photo
+  </a>
+  <p style="color:#666;font-size:11px;margin:10px 0 0;">Having trouble?
+    <a href="${opts.photoUrl ?? '#'}" target="_blank" style="color:#D4AF37;">Download your photo here</a>
+  </p>
 </td>
 </tr>
 
