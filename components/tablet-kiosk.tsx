@@ -177,6 +177,10 @@ const CROWN_FRAMES = [
     headerText: "SOTTOVENTO LUXURY RIDE",
     footerText: "Orlando · Florida",
     bgImage: "/images/tablet/crown-bg.jpg",
+    // Approved frame PNG from kiosk — used as overlay on camera and composited into final photo
+    frameImage: "/images/frames/frame-classic.png",
+    // This frame supports dynamic branding (company name replaces hardcoded text)
+    dynamicBranding: true,
   },
   {
     id: "disney" as CrownFrame,
@@ -187,6 +191,8 @@ const CROWN_FRAMES = [
     headerText: "Orlando Family Trip · Walt Disney World Area",
     footerText: "Sottovento Luxury Ride",
     bgImage: "/images/tablet/orlando-bg.jpg",
+    frameImage: "/images/frames/frame-disney.png",
+    dynamicBranding: false,
   },
   {
     id: "universal" as CrownFrame,
@@ -197,6 +203,8 @@ const CROWN_FRAMES = [
     headerText: "Universal Orlando Adventure",
     footerText: "Sottovento Luxury Ride",
     bgImage: "/images/tablet/universal-bg.jpg",
+    frameImage: "/images/frames/frame-universal.png",
+    dynamicBranding: false,
   },
   {
     id: "cruise" as CrownFrame,
@@ -207,6 +215,8 @@ const CROWN_FRAMES = [
     headerText: "Port Canaveral Cruise Memories",
     footerText: "Sottovento Luxury Ride",
     bgImage: "/images/tablet/port-canaveral-bg.jpg",
+    frameImage: "/images/frames/frame-cruise.png",
+    dynamicBranding: false,
   },
 ]
 
@@ -414,6 +424,8 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             accentColor={GOLD}
             initialFrameId={crownFrameId}
             onBack={goBack}
+            companyName={effectiveOperatorName}
+            isSottovento={isSottovento}
           />
         )}
 
@@ -1031,10 +1043,14 @@ function CrownMomentFlow({
   accentColor,
   initialFrameId,
   onBack,
+  companyName,
+  isSottovento,
 }: {
   accentColor: string
   initialFrameId: CrownFrame
   onBack: () => void
+  companyName?: string | null
+  isSottovento?: boolean
 }) {
   const [selectedFrame, setSelectedFrame] = useState<CrownFrame>(initialFrameId)
   const [inCamera, setInCamera] = useState(false)
@@ -1062,6 +1078,8 @@ function CrownMomentFlow({
         onBack={() => { setInCamera(false); resetInactivity() }}
         onDone={onBack}
         onActivity={resetInactivity}
+        companyName={companyName}
+        isSottovento={isSottovento ?? true}
       />
     )
   }
@@ -1099,50 +1117,38 @@ function CrownMomentFlow({
         </p>
       </div>
 
-      {/* 2×2 Frame grid */}
+      {/* 2×2 Frame grid — shows real approved frame PNG as thumbnail */}
       <div className="flex-1 grid grid-cols-2 gap-3 px-4 pb-16 overflow-hidden">
         {CROWN_FRAMES.map((frame) => (
           <button
             key={frame.id}
             onClick={() => { setSelectedFrame(frame.id); setInCamera(true) }}
-            className="relative rounded-2xl overflow-hidden flex flex-col items-center justify-end text-center transition-all active:scale-95"
+            className="relative rounded-2xl overflow-hidden flex flex-col items-center justify-center text-center transition-all active:scale-95"
             style={{
               border: `2px solid ${frame.accentHex}60`,
               backgroundColor: frame.bgColor,
             }}
           >
-            {/* Background photo */}
+            {/* Real approved frame PNG as thumbnail */}
             <div className="absolute inset-0">
               <Image
-                src={frame.bgImage}
+                src={frame.frameImage}
                 alt={frame.label}
                 fill
-                className="object-cover object-center opacity-40"
+                className="object-contain object-center"
                 sizes="50vw"
-              />
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: `linear-gradient(to top, ${frame.bgColor}ee 30%, ${frame.bgColor}88 70%, transparent)`,
-                }}
               />
             </div>
 
-            {/* Top accent bar */}
-            <div className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl" style={{ backgroundColor: frame.accentHex }} />
-
-            {/* Corner ornaments */}
-            <div className="absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 rounded-tl" style={{ borderColor: frame.accentHex }} />
-            <div className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 rounded-tr" style={{ borderColor: frame.accentHex }} />
-            <div className="absolute bottom-12 left-3 w-5 h-5 border-b-2 border-l-2 rounded-bl" style={{ borderColor: frame.accentHex }} />
-            <div className="absolute bottom-12 right-3 w-5 h-5 border-b-2 border-r-2 rounded-br" style={{ borderColor: frame.accentHex }} />
-
-            {/* Text */}
-            <div className="relative z-10 px-4 pb-4">
-              <p className="text-base font-semibold" style={{ color: frame.accentHex, fontFamily: "serif" }}>
+            {/* Bottom label overlay */}
+            <div
+              className="absolute bottom-0 left-0 right-0 px-3 py-2 z-10"
+              style={{ background: `linear-gradient(to top, ${frame.bgColor}ee 60%, transparent)` }}
+            >
+              <p className="text-sm font-semibold" style={{ color: frame.accentHex, fontFamily: "serif" }}>
                 {frame.label}
               </p>
-              <p className="text-white/50 text-xs mt-0.5">{frame.sublabel}</p>
+              <p className="text-white/50 text-xs">{frame.sublabel}</p>
             </div>
           </button>
         ))}
@@ -1162,15 +1168,20 @@ function CrownCamera({
   onBack,
   onDone,
   onActivity,
+  companyName,
+  isSottovento,
 }: {
   accentColor: string
   frame: (typeof CROWN_FRAMES)[0]
   onBack: () => void
   onDone: () => void
   onActivity: () => void
+  companyName?: string | null
+  isSottovento?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const frameImgRef = useRef<HTMLImageElement | null>(null)
   const [cameraReady, setCameraReady] = useState(false)
   const [cameraError, setCameraError] = useState(false)
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
@@ -1181,6 +1192,14 @@ function CrownCamera({
   const [emailSent, setEmailSent] = useState(false)
   const [emailError, setEmailError] = useState("")
   const streamRef = useRef<MediaStream | null>(null)
+
+  // Preload the frame PNG for canvas compositing
+  useEffect(() => {
+    const img = new window.Image()
+    img.crossOrigin = "anonymous"
+    img.src = frame.frameImage
+    img.onload = () => { frameImgRef.current = img }
+  }, [frame.frameImage])
 
   useEffect(() => {
     let active = true
@@ -1221,11 +1240,42 @@ function CrownCamera({
     if (!videoRef.current || !canvasRef.current) return
     const v = videoRef.current
     const c = canvasRef.current
-    c.width = v.videoWidth || 640
-    c.height = v.videoHeight || 480
-    const ctx = c.getContext("2d")
-    if (!ctx) return
-    ctx.drawImage(v, 0, 0)
+    // Use the frame PNG dimensions as the canvas size (1792x2400) if available,
+    // otherwise fall back to camera resolution
+    const frameImg = frameImgRef.current
+    if (frameImg && frameImg.naturalWidth > 0) {
+      // Composite: draw camera photo scaled to fill frame area, then overlay frame PNG
+      c.width = frameImg.naturalWidth   // 1792
+      c.height = frameImg.naturalHeight // 2400
+      const ctx = c.getContext("2d")
+      if (!ctx) return
+      // Fill black background
+      ctx.fillStyle = "#000"
+      ctx.fillRect(0, 0, c.width, c.height)
+      // Draw camera photo centered and scaled to fill canvas
+      const camAspect = v.videoWidth / v.videoHeight
+      const canvasAspect = c.width / c.height
+      let sx = 0, sy = 0, sw = v.videoWidth, sh = v.videoHeight
+      if (camAspect > canvasAspect) {
+        // Camera is wider — crop sides
+        sw = v.videoHeight * canvasAspect
+        sx = (v.videoWidth - sw) / 2
+      } else {
+        // Camera is taller — crop top/bottom
+        sh = v.videoWidth / canvasAspect
+        sy = (v.videoHeight - sh) / 2
+      }
+      ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height)
+      // Overlay the approved frame PNG on top
+      ctx.drawImage(frameImg, 0, 0, c.width, c.height)
+    } else {
+      // Fallback: no frame compositing, just camera photo
+      c.width = v.videoWidth || 640
+      c.height = v.videoHeight || 480
+      const ctx = c.getContext("2d")
+      if (!ctx) return
+      ctx.drawImage(v, 0, 0)
+    }
     setPhotoDataUrl(c.toDataURL("image/jpeg", 0.92))
   }
 
@@ -1342,110 +1392,80 @@ function CrownCamera({
         </div>
       )}
 
-      {/* Frame container — tight, no dead space */}
+      {/* Frame container — approved PNG frame overlaid on camera, portrait 3:4 ratio */}
       <div
-        className="relative flex flex-col overflow-hidden"
+        className="relative overflow-hidden"
         style={{
-          border: `3px solid ${frame.accentHex}`,
-          borderRadius: 14,
-          backgroundColor: frame.bgColor,
-          width: "min(88vw, 400px)",
-          maxHeight: "72vh",
+          width: "min(80vw, 360px)",
+          aspectRatio: "3/4",
+          backgroundColor: "#000",
+          borderRadius: 8,
         }}
       >
-        {/* Top accent bar */}
-        <div className="w-full h-1 flex-shrink-0" style={{ backgroundColor: frame.accentHex }} />
+        {/* Live video — fills the entire frame area */}
+        {!photoDataUrl && (
+          <video
+            ref={videoRef}
+            className="absolute inset-0 w-full h-full object-cover"
+            playsInline
+            muted
+            autoPlay
+          />
+        )}
 
-        {/* Frame header */}
-        <div
-          className="w-full text-center py-2 text-xs tracking-widest uppercase font-semibold px-4 flex-shrink-0"
-          style={{ color: frame.accentHex, fontFamily: "serif" }}
-        >
-          {frame.headerText}
-        </div>
+        {/* Captured photo with frame composited in — fills entire area */}
+        {photoDataUrl && (
+          <img
+            src={photoDataUrl}
+            alt="Captured"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
 
-        {/* Camera / Photo area — fills remaining space */}
-        <div
-          className="relative w-full flex-1 overflow-hidden"
-          style={{ aspectRatio: "4/3", backgroundColor: "#111" }}
-        >
-          {/* Live video */}
-          {!photoDataUrl && (
-            <video
-              ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover"
-              playsInline
-              muted
-              autoPlay
+        {/* Approved frame PNG overlay — always on top, covers full area */}
+        {/* pointer-events: none so it doesn't block camera interactions */}
+        <img
+          src={frame.frameImage}
+          alt=""
+          className="absolute inset-0 w-full h-full"
+          style={{ objectFit: "cover", pointerEvents: "none", zIndex: 10 }}
+        />
+
+        {/* Camera error state */}
+        {cameraError && !photoDataUrl && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-20">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={frame.accentHex} strokeWidth="1.5">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
+              <line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2" />
+            </svg>
+            <p className="text-white/60 text-xs tracking-widest uppercase text-center px-4">
+              Camera unavailable — check permissions
+            </p>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {!cameraReady && !cameraError && !photoDataUrl && (
+          <div className="absolute inset-0 flex items-center justify-center z-20">
+            <div
+              className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+              style={{ borderColor: `${frame.accentHex} transparent transparent transparent` }}
             />
-          )}
+          </div>
+        )}
 
-          {/* Captured photo */}
-          {photoDataUrl && (
-            <img
-              src={photoDataUrl}
-              alt="Captured"
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          )}
-
-          {/* Camera error state */}
-          {cameraError && !photoDataUrl && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={frame.accentHex} strokeWidth="1.5">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-                <line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2" />
-              </svg>
-              <p className="text-white/40 text-xs tracking-widest uppercase text-center px-4">
-                Camera unavailable — check permissions
-              </p>
-            </div>
-          )}
-
-          {/* Loading state */}
-          {!cameraReady && !cameraError && !photoDataUrl && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div
-                className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-                style={{ borderColor: `${frame.accentHex} transparent transparent transparent` }}
-              />
-            </div>
-          )}
-
-          {/* Countdown overlay */}
-          {countdown !== null && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-              <span
-                className="text-8xl font-bold"
-                style={{ color: frame.accentHex, fontFamily: "serif" }}
-              >
-                {countdown}
-              </span>
-            </div>
-          )}
-
-          {/* Corner ornaments overlay on live view */}
-          {!photoDataUrl && (
-            <>
-              <div className="absolute top-3 left-3 w-8 h-8 border-t-2 border-l-2" style={{ borderColor: `${frame.accentHex}80` }} />
-              <div className="absolute top-3 right-3 w-8 h-8 border-t-2 border-r-2" style={{ borderColor: `${frame.accentHex}80` }} />
-              <div className="absolute bottom-3 left-3 w-8 h-8 border-b-2 border-l-2" style={{ borderColor: `${frame.accentHex}80` }} />
-              <div className="absolute bottom-3 right-3 w-8 h-8 border-b-2 border-r-2" style={{ borderColor: `${frame.accentHex}80` }} />
-            </>
-          )}
-        </div>
-
-        {/* Frame footer */}
-        <div
-          className="w-full text-center py-1.5 text-xs tracking-widest uppercase opacity-60 flex-shrink-0"
-          style={{ color: frame.accentHex }}
-        >
-          {frame.footerText}
-        </div>
-
-        {/* Bottom accent bar */}
-        <div className="w-full h-0.5 flex-shrink-0" style={{ backgroundColor: `${frame.accentHex}60` }} />
+        {/* Countdown overlay */}
+        {countdown !== null && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
+            <span
+              className="text-9xl font-bold"
+              style={{ color: frame.accentHex, fontFamily: "serif", textShadow: "0 0 40px rgba(0,0,0,0.8)" }}
+            >
+              {countdown}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Action buttons — ONLY: camera shutter / retake + Send to My Email + Done */}
