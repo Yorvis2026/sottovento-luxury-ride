@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from "react"
 // Protected with password. Manage drivers, view bookings.
 // ============================================================
 
-const ADMIN_PASSWORD = "Sottovento.Admin.2026"
+const ADMIN_PASSWORD = "Sottovento.20"
 const BASE_URL = "https://www.sottoventoluxuryride.com"
 
 type Driver = {
