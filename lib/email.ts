@@ -11,7 +11,7 @@ function getResend() {
 }
 
 const FROM =
-  process.env.RESEND_FROM_EMAIL ?? "noreply@send.sottoventoluxuryride.com"
+  process.env.RESEND_FROM_EMAIL ?? "Sottovento Luxury Ride <noreply@sottoventoluxuryride.com>"
 const ADMIN_EMAIL =
   process.env.ADMIN_EMAIL ?? "contact@sottoventoluxuryride.com"
 
