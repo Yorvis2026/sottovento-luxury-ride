@@ -485,21 +485,23 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
         </>
       )}
 
-      {/* ── BRANDING WATERMARK ── */}
-      <div
-        className="absolute z-50 text-xs tracking-[0.3em] uppercase opacity-40"
-        style={{
-          color: GOLD,
-          fontFamily: "serif",
-          top: "calc(env(safe-area-inset-top, 0px) + 14px)",
-          left: "24px",
-        }}
-      >
-        Sottovento
-      </div>
+      {/* ── BRANDING WATERMARK — hidden during Crown Moment ── */}
+      {!crownFrameId && (
+        <div
+          className="absolute z-50 text-xs tracking-[0.3em] uppercase opacity-40"
+          style={{
+            color: GOLD,
+            fontFamily: "serif",
+            top: "calc(env(safe-area-inset-top, 0px) + 14px)",
+            left: "24px",
+          }}
+        >
+          Sottovento
+        </div>
+      )}
 
-      {/* ── DRIVER ATTRIBUTION ── */}
-      {effectiveDriverCode && (
+      {/* ── DRIVER ATTRIBUTION — hidden during Crown Moment ── */}
+      {effectiveDriverCode && !crownFrameId && (
         <div
           className="absolute bottom-6 right-6 z-50 text-xs opacity-20 tracking-widest uppercase"
           style={{ color: GOLD }}
@@ -508,7 +510,8 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
         </div>
       )}
 
-      {/* ── HEADER BUTTONS: Quick Book (primary) + Safety (secondary) ── */}
+      {/* ── HEADER BUTTONS: Quick Book (primary) + Safety (secondary) — hidden during Crown Moment ── */}
+      {!crownFrameId && (
       <div
         className="absolute z-50 flex items-center gap-2"
         style={{
@@ -540,10 +543,10 @@ export default function TabletKiosk({ driverCode, operatorName: propOperatorName
             border: `1px solid ${showSafety ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.12)"}`,
           }}
         >
-          Safety
+           Safety
         </button>
       </div>
-
+      )}
       {/* Safety panel */}
       {showSafety && (
         <div
@@ -1360,22 +1363,7 @@ function CrownCamera({
         <span style={{ letterSpacing: "0.1em" }}>Back</span>
       </button>
 
-      {/* ── SAFETY — ghost style, top-right, minimal ── */}
-      <button
-        onClick={() => { onBack(); }}
-        className="absolute z-30 rounded-full text-xs tracking-widest uppercase active:opacity-100"
-        style={{
-          top: "calc(env(safe-area-inset-top) + 10px)",
-          right: "16px",
-          padding: "6px 14px",
-          opacity: 0.6,
-          border: "1px solid rgba(255,255,255,0.3)",
-          color: "rgba(255,255,255,0.85)",
-          background: "transparent",
-        }}
-      >
-        Safety
-      </button>
+      {/* Safety handled by parent TabletKiosk — not duplicated here */}
 
       {/* ── EMAIL MODAL ── */}
       {showEmailModal && (
@@ -1437,19 +1425,19 @@ function CrownCamera({
           justifyContent: "center",
           paddingTop: "calc(env(safe-area-inset-top) + 44px)",
           paddingBottom: isCapture
-            ? "calc(env(safe-area-inset-bottom) + 80px)"
-            : "calc(env(safe-area-inset-bottom) + 108px)",
-          paddingLeft: "16px",
-          paddingRight: "16px",
+            ? "calc(env(safe-area-inset-bottom) + 96px)"
+            : "calc(env(safe-area-inset-bottom) + 120px)",
+          paddingLeft: "8px",
+          paddingRight: "8px",
           boxSizing: "border-box" as const,
         }}
       >
         {/* ── FRAME WRAPPER: 75–85% screen height, maintains aspect ratio ── */}
         <div
           style={{
-            width: "min(85vw, 85vh)",
+            width: "min(92vw, 85vh)",
             maxWidth: "1000px",
-            maxHeight: "88vh",
+            maxHeight: "86vh",
             aspectRatio: "3 / 4",
             position: "relative",
             overflow: "hidden",
