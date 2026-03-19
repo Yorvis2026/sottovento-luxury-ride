@@ -1327,14 +1327,16 @@ function CrownCamera({
     }
   }
 
+  // STATE A = live capture mode | STATE B = photo preview mode
+  const isCapture = !photoDataUrl
+
   return (
     <div
-      className="relative w-full h-full flex flex-col items-center justify-center"
+      className="relative overflow-hidden"
       style={{
-        // Premium cinematic background — deep charcoal with subtle gold spotlight
-        background: "radial-gradient(circle at center, rgba(255,215,120,0.08) 0%, rgba(10,10,12,0.98) 55%, rgba(0,0,0,1) 100%)",
-        paddingTop: "env(safe-area-inset-top)",
-        paddingBottom: "env(safe-area-inset-bottom)",
+        width: "100vw",
+        height: "100vh",
+        background: "radial-gradient(circle at 50% 45%, rgba(255,215,120,0.10) 0%, rgba(14,14,18,0.97) 50%, rgba(0,0,0,1) 100%)",
         boxSizing: "border-box" as const,
       }}
       onTouchStart={onActivity}
@@ -1342,24 +1344,47 @@ function CrownCamera({
       {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Back — quiet, top-left, does not compete with frame */}
+      {/* ── BACK — always visible, top-left, safe area aware ── */}
       <button
         onClick={onBack}
-        className="absolute z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70 flex items-center gap-1"
-        style={{ top: "calc(env(safe-area-inset-top) + 16px)", left: "20px" }}
+        className="absolute z-30 flex items-center gap-1 active:opacity-100"
+        style={{
+          top: "calc(env(safe-area-inset-top) + 10px)",
+          left: "16px",
+          fontSize: "14px",
+          color: "#fff",
+          opacity: 0.85,
+        }}
       >
         <span>←</span>
-        <span>Back</span>
+        <span style={{ letterSpacing: "0.1em" }}>Back</span>
       </button>
 
-      {/* Email Modal — Send to My Email */}
+      {/* ── SAFETY — ghost style, top-right, minimal ── */}
+      <button
+        onClick={() => { onBack(); }}
+        className="absolute z-30 rounded-full text-xs tracking-widest uppercase active:opacity-100"
+        style={{
+          top: "calc(env(safe-area-inset-top) + 10px)",
+          right: "16px",
+          padding: "6px 14px",
+          opacity: 0.6,
+          border: "1px solid rgba(255,255,255,0.3)",
+          color: "rgba(255,255,255,0.85)",
+          background: "transparent",
+        }}
+      >
+        Safety
+      </button>
+
+      {/* ── EMAIL MODAL ── */}
       {showEmailModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center px-6" style={{ backgroundColor: "rgba(0,0,0,0.90)" }}>
           <div className="w-full max-w-sm rounded-3xl overflow-hidden" style={{ backgroundColor: "#111", border: `1px solid ${frame.accentHex}40` }}>
             <div className="p-6 text-center">
               <p className="text-xs tracking-widest uppercase mb-1" style={{ color: frame.accentHex }}>Crown Moment</p>
               <h3 className="text-xl font-light text-white mb-2" style={{ fontFamily: "serif" }}>Send to My Email</h3>
-              <p className="text-white/40 text-sm mb-5">We'll send your photo directly to your inbox.</p>
+              <p className="text-white/40 text-sm mb-5">{"We'll send your photo directly to your inbox."}</p>
               <input
                 type="email"
                 placeholder="your@email.com"
@@ -1369,16 +1394,14 @@ function CrownCamera({
                 style={{ borderColor: emailError ? "#ff4444" : undefined }}
                 autoFocus
               />
-              {emailError && (
-                <p className="text-red-400 text-xs mb-3">{emailError}</p>
-              )}
+              {emailError && <p className="text-red-400 text-xs mb-3">{emailError}</p>}
             </div>
             <div className="flex flex-col gap-2 px-4 pb-6">
               <button
                 onClick={sendPhotoEmail}
                 disabled={emailSending || !emailInput}
                 className="w-full py-4 rounded-2xl text-black font-semibold tracking-widest uppercase text-sm disabled:opacity-40"
-                style={{ backgroundColor: frame.accentHex }}
+                style={{ background: "linear-gradient(145deg, #FFD700, #C9A646)", boxShadow: "0 8px 25px rgba(255,215,120,0.35)" }}
               >
                 {emailSending ? "Sending..." : "Send Photo"}
               </button>
@@ -1394,7 +1417,7 @@ function CrownCamera({
         </div>
       )}
 
-      {/* Email sent confirmation */}
+      {/* ── EMAIL SENT CONFIRMATION ── */}
       {emailSent && (
         <div
           className="absolute top-20 left-1/2 -translate-x-1/2 z-40 px-6 py-3 rounded-full text-sm font-medium tracking-widest uppercase"
@@ -1404,133 +1427,169 @@ function CrownCamera({
         </div>
       )}
 
-      {/* ── FRAME STAGE: hero element, fills 72–84% of viewport height ── */}
+      {/* ── FRAME STAGE: full viewport, frame is the hero ── */}
       <div
         style={{
-          // Responsive sizing: frame is the hero — occupies most of visible area
-          width: "min(min(82vw, 82vh), 980px)",
-          maxHeight: "84vh",
-          aspectRatio: "3 / 4",
-          position: "relative",
-          overflow: "hidden",
-          borderRadius: 6,
-          // Subtle glow behind frame for depth
-          boxShadow: `0 0 80px rgba(255,215,120,0.06), 0 0 160px rgba(0,0,0,0.8)`,
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          paddingTop: "calc(env(safe-area-inset-top) + 44px)",
+          paddingBottom: isCapture
+            ? "calc(env(safe-area-inset-bottom) + 80px)"
+            : "calc(env(safe-area-inset-bottom) + 108px)",
+          paddingLeft: "16px",
+          paddingRight: "16px",
+          boxSizing: "border-box" as const,
         }}
       >
-        {/* Live video — fills the entire frame area, object-cover no letterboxing */}
-        {!photoDataUrl && (
-          <video
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full object-cover"
-            playsInline
-            muted
-            autoPlay
-          />
-        )}
-
-        {/* Captured photo — fills entire area */}
-        {photoDataUrl && (
-          <img
-            src={photoDataUrl}
-            alt="Captured"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        )}
-
-        {/* Approved frame PNG overlay — always on top, full area, pointer-events none */}
-        <img
-          src={frame.frameImage}
-          alt=""
-          className="absolute inset-0 w-full h-full"
-          style={{ objectFit: "cover", pointerEvents: "none", zIndex: 10 }}
-        />
-
-        {/* Camera error state */}
-        {cameraError && !photoDataUrl && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-20">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={frame.accentHex} strokeWidth="1.5">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-              <circle cx="12" cy="13" r="4" />
-              <line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2" />
-            </svg>
-            <p className="text-white/60 text-xs tracking-widest uppercase text-center px-4">
-              Camera unavailable — check permissions
-            </p>
-          </div>
-        )}
-
-        {/* Loading state */}
-        {!cameraReady && !cameraError && !photoDataUrl && (
-          <div className="absolute inset-0 flex items-center justify-center z-20">
-            <div
-              className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-              style={{ borderColor: `${frame.accentHex} transparent transparent transparent` }}
+        {/* ── FRAME WRAPPER: 75–85% screen height, maintains aspect ratio ── */}
+        <div
+          style={{
+            width: "min(85vw, 85vh)",
+            maxWidth: "1000px",
+            maxHeight: "88vh",
+            aspectRatio: "3 / 4",
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 6,
+            boxShadow: "0 0 60px rgba(255,215,120,0.08), 0 0 120px rgba(0,0,0,0.9)",
+          }}
+        >
+          {/* STATE A: Live video */}
+          {isCapture && (
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover"
+              playsInline
+              muted
+              autoPlay
             />
-          </div>
-        )}
+          )}
 
-        {/* Countdown overlay */}
-        {countdown !== null && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
-            <span
-              className="text-9xl font-bold"
-              style={{ color: frame.accentHex, fontFamily: "serif", textShadow: "0 0 40px rgba(0,0,0,0.8)" }}
+          {/* STATE B: Captured photo */}
+          {!isCapture && (
+            <img
+              src={photoDataUrl!}
+              alt="Captured"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
+
+          {/* Approved frame PNG overlay — always on top */}
+          <img
+            src={frame.frameImage}
+            alt=""
+            className="absolute inset-0 w-full h-full"
+            style={{ objectFit: "cover", pointerEvents: "none", zIndex: 10 }}
+          />
+
+          {/* Camera error */}
+          {cameraError && isCapture && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-20">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={frame.accentHex} strokeWidth="1.5">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+                <line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2" />
+              </svg>
+              <p className="text-white/60 text-xs tracking-widest uppercase text-center px-4">
+                Camera unavailable — check permissions
+              </p>
+            </div>
+          )}
+
+          {/* Loading */}
+          {!cameraReady && !cameraError && isCapture && (
+            <div className="absolute inset-0 flex items-center justify-center z-20">
+              <div
+                className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+                style={{ borderColor: `${frame.accentHex} transparent transparent transparent` }}
+              />
+            </div>
+          )}
+
+          {/* Countdown overlay */}
+          {countdown !== null && (
+            <div className="absolute inset-0 flex items-center justify-center z-30" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}>
+              <span
+                className="text-9xl font-bold"
+                style={{ color: frame.accentHex, fontFamily: "serif", textShadow: "0 0 40px rgba(0,0,0,0.8)" }}
+              >
+                {countdown}
+              </span>
+            </div>
+          )}
+
+          {/* ── STATE A: CAPTURE BUTTON — physically connected to frame bottom ── */}
+          {isCapture && (
+            <button
+              onClick={startCountdown}
+              disabled={!cameraReady || countdown !== null}
+              className="flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+              style={{
+                position: "absolute",
+                bottom: "-28px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: "90px",
+                height: "90px",
+                borderRadius: "50%",
+                background: "linear-gradient(145deg, #FFD700, #C9A646)",
+                boxShadow: "0 10px 30px rgba(255,215,120,0.35)",
+                zIndex: 20,
+                border: "none",
+              }}
             >
-              {countdown}
-            </span>
-          </div>
-        )}
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* ── ACTION BUTTONS: visually connected to frame, 24–32px below ── */}
-      <div className="flex items-center gap-4" style={{ marginTop: "24px" }}>
-        {!photoDataUrl ? (
-          // Capture button — premium circular CTA with subtle glow
+      {/* ── STATE B: PREVIEW BUTTONS — closer to frame, proper hierarchy ── */}
+      {!isCapture && (
+        <div
+          className="absolute left-0 right-0 flex flex-col items-center gap-3"
+          style={{
+            bottom: "calc(env(safe-area-inset-bottom) + 24px)",
+            paddingLeft: "24px",
+            paddingRight: "24px",
+          }}
+        >
+          {/* PRIMARY: Send to My Email */}
           <button
-            onClick={startCountdown}
-            disabled={!cameraReady || countdown !== null}
-            className="w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+            onClick={() => { setShowEmailModal(true); onActivity() }}
+            className="w-full max-w-xs py-4 rounded-2xl text-black font-semibold tracking-widest uppercase text-sm transition-all active:scale-95"
             style={{
-              backgroundColor: frame.accentHex,
-              boxShadow: `0 0 24px ${frame.accentHex}55, 0 4px 16px rgba(0,0,0,0.6)`,
+              background: "linear-gradient(145deg, #FFD700, #C9A646)",
+              boxShadow: "0 8px 25px rgba(255,215,120,0.35)",
             }}
           >
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-              <circle cx="12" cy="13" r="4" />
-            </svg>
+            Send to My Email
           </button>
-        ) : (
-          <>
+          {/* SECONDARY: Retake + Done */}
+          <div className="flex gap-4 w-full max-w-xs">
             <button
               onClick={retake}
-              className="px-5 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
-              style={{ borderColor: `${frame.accentHex}60`, color: `${frame.accentHex}cc` }}
+              className="flex-1 py-3 rounded-xl text-xs tracking-widest uppercase border transition-all active:scale-95"
+              style={{ borderColor: `${frame.accentHex}60`, color: `${frame.accentHex}cc`, opacity: 0.7 }}
             >
               Retake
             </button>
             <button
-              onClick={() => { setShowEmailModal(true); onActivity() }}
-              className="px-7 py-3 rounded-full text-xs tracking-widest uppercase font-semibold transition-all active:scale-95"
-              style={{
-                backgroundColor: frame.accentHex,
-                color: "#000",
-                boxShadow: `0 0 20px ${frame.accentHex}44`,
-              }}
-            >
-              Send to My Email
-            </button>
-            <button
               onClick={onDone}
-              className="px-5 py-3 rounded-full text-xs tracking-widest uppercase border transition-all active:scale-95"
-              style={{ borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)" }}
+              className="flex-1 py-3 rounded-xl text-xs tracking-widest uppercase border transition-all active:scale-95"
+              style={{ borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)", opacity: 0.7 }}
             >
               Done
             </button>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
