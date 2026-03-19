@@ -1537,15 +1537,15 @@ function CrownCamera({
           </svg>
         </button>
       )}
-      {/* ── STATE B: PREVIEW BUTTONS — closer to frame, proper hierarchy ── */}
-      {/* ── STATE B: PREVIEW BUTTONS — closer to frame, proper hierarchy ── */}
+      {/* ── STATE B: PREVIEW BUTTONS — Send to Email / Retake / Done ── */}
       {!isCapture && (
         <div
           className="absolute left-0 right-0 flex flex-col items-center gap-3"
           style={{
-            bottom: "calc(env(safe-area-inset-bottom) + 24px)",
+            bottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)",
             paddingLeft: "24px",
             paddingRight: "24px",
+            zIndex: 30,
           }}
         >
           {/* PRIMARY: Send to My Email */}
