@@ -71,6 +71,8 @@ export default function AdminPanel() {
   const [loadingDispatch, setLoadingDispatch] = useState(false)
   const [migrationMsg, setMigrationMsg] = useState("")
   const [runningMigration, setRunningMigration] = useState(false)
+  const [runningReclassify, setRunningReclassify] = useState(false)
+  const [reclassifyMsg, setReclassifyMsg] = useState("")
 
   const [loadingDash, setLoadingDash] = useState(false)
   const [loadingDrivers, setLoadingDrivers] = useState(false)
@@ -126,6 +128,17 @@ export default function AdminPanel() {
 
   const handleDispatchStatus = async (id: string, dispatch_status: string) => {
     try { await fetch("/api/admin/dispatch", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ booking_id: id, dispatch_status }) }); loadDispatch(); loadBookings() } catch { }
+  }
+
+  const handleRunReclassify = async () => {
+    setRunningReclassify(true); setReclassifyMsg("")
+    try {
+      const r = await fetch("/api/admin/reclassify", { method: "POST" })
+      const d = await r.json()
+      if (r.ok) { setReclassifyMsg(`✅ Fixed ${d.fixed ?? 0} bookings. ${d.results?.slice(-2).join(" | ")}`); loadBookings(); loadDispatch() }
+      else setReclassifyMsg(`❌ Error: ${d.error}`)
+    } catch (e: any) { setReclassifyMsg(`❌ Network error: ${e.message}`) }
+    finally { setRunningReclassify(false) }
   }
 
   const handleRunMigration = async () => {
@@ -930,6 +943,16 @@ export default function AdminPanel() {
               <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
                 {lang === "en" ? "Language preference is saved automatically." : "La preferencia de idioma se guarda automáticamente."}
               </div>
+            </div>
+
+            {/* Dispatch Reclassify — Emergency Fix */}
+            <div style={{ ...S.card, marginTop: 16, border: "1px solid #1e3a5f" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#60a5fa", marginBottom: 8 }}>⚡ DISPATCH STATE RECLASSIFY</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>Fixes bookings incorrectly classified as <code style={{ background: "#1a1a1a", padding: "2px 6px", borderRadius: 4, color: "#f87171" }}>not_required</code>. Moves all active SLN bookings to the correct dispatch bucket. Safe to run multiple times.</div>
+              <button onClick={handleRunReclassify} disabled={runningReclassify} style={{ background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: runningReclassify ? 0.5 : 1 }}>
+                {runningReclassify ? "⏳ Reclassifying..." : "🔄 Fix Dispatch Classification"}
+              </button>
+              {reclassifyMsg && <div style={{ marginTop: 12, padding: "10px 14px", background: reclassifyMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 12, color: reclassifyMsg.startsWith("✅") ? "#4ade80" : "#f87171", wordBreak: "break-all" }}>{reclassifyMsg}</div>}
             </div>
 
             {/* Database Migration */}
