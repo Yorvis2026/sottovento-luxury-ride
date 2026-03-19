@@ -14,7 +14,7 @@ type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "le
 
 // ---- TYPES ----
 type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
-type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; assigned_driver_id?: string; driver_name?: string }
+type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
@@ -32,6 +32,8 @@ const S = {
 
 const statusColor: Record<string, string> = { new: "#1e3a5f", offered: "#1e3a5f", accepted: "#14532d", in_progress: "#3b1f5e", completed: "#14532d", cancelled: "#3b0000", contacted: "#1e3a5f", booked: "#14532d", lost: "#3b0000" }
 const statusText: Record<string, string> = { new: "#60a5fa", offered: "#60a5fa", accepted: "#4ade80", in_progress: "#a78bfa", completed: "#4ade80", cancelled: "#f87171", contacted: "#60a5fa", booked: "#4ade80", lost: "#f87171" }
+const dispatchColor: Record<string, string> = { not_required: "#1a1a1a", awaiting_source_owner: "#1e3a5f", awaiting_sln_member: "#3b1f5e", manual_dispatch_required: "#3b1a00", assigned: "#14532d", expired: "#3b0000", cancelled: "#3b0000" }
+const dispatchText: Record<string, string> = { not_required: "#444", awaiting_source_owner: "#60a5fa", awaiting_sln_member: "#a78bfa", manual_dispatch_required: "#f59e0b", assigned: "#4ade80", expired: "#f87171", cancelled: "#f87171" }
 
 function fmt(n: number) { return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function fmtDate(s: string) { try { return new Date(s).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) } catch { return s } }
@@ -65,6 +67,10 @@ export default function AdminPanel() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [finance, setFinance] = useState<FinanceData | null>(null)
   const [crownData, setCrownData] = useState<CrownData | null>(null)
+  const [dispatchData, setDispatchData] = useState<{ awaitingSourceOwner: Booking[]; awaitingSlnMember: Booking[]; manualDispatchRequired: Booking[]; total: number; migrationRequired?: boolean } | null>(null)
+  const [loadingDispatch, setLoadingDispatch] = useState(false)
+  const [migrationMsg, setMigrationMsg] = useState("")
+  const [runningMigration, setRunningMigration] = useState(false)
 
   const [loadingDash, setLoadingDash] = useState(false)
   const [loadingDrivers, setLoadingDrivers] = useState(false)
@@ -89,9 +95,10 @@ export default function AdminPanel() {
   const loadLeads = useCallback(async () => { setLoadingLeads(true); try { const r = await fetch("/api/admin/leads"); if (r.ok) { const d = await r.json(); setLeads(d.leads ?? []) } } catch { } finally { setLoadingLeads(false) } }, [])
   const loadFinance = useCallback(async () => { setLoadingFinance(true); try { const r = await fetch("/api/admin/finance"); if (r.ok) setFinance(await r.json()) } catch { } finally { setLoadingFinance(false) } }, [])
   const loadCrown = useCallback(async () => { setLoadingCrown(true); try { const r = await fetch("/api/admin/crown-moment"); if (r.ok) setCrownData(await r.json()) } catch { } finally { setLoadingCrown(false) } }, [])
+  const loadDispatch = useCallback(async () => { setLoadingDispatch(true); try { const r = await fetch("/api/admin/dispatch"); if (r.ok) setDispatchData(await r.json()) } catch { } finally { setLoadingDispatch(false) } }, [])
 
   useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings() } }, [authed, loadDashboard, loadDrivers, loadBookings])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown() }, [tab, authed, loadLeads, loadFinance, loadCrown])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") loadDispatch() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch])
 
   // ---- ACTIONS ----
   const handleLogin = () => { if (pw === ADMIN_PASSWORD) { setAuthed(true); setPwError(false) } else setPwError(true) }
@@ -113,8 +120,23 @@ export default function AdminPanel() {
     try { await fetch(`/api/admin/drivers/${driver.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver_status: newStatus }) }); loadDrivers() } catch { }
   }
 
-  const handleBookingStatus = async (id: string, status: string) => {
-    try { await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }); loadBookings(); loadDashboard() } catch { }
+  const handleBookingStatus = async (id: string, status: string, dispatch_status?: string) => {
+    try { await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, dispatch_status }) }); loadBookings(); loadDispatch(); loadDashboard() } catch { }
+  }
+
+  const handleDispatchStatus = async (id: string, dispatch_status: string) => {
+    try { await fetch("/api/admin/dispatch", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ booking_id: id, dispatch_status }) }); loadDispatch(); loadBookings() } catch { }
+  }
+
+  const handleRunMigration = async () => {
+    setRunningMigration(true); setMigrationMsg("")
+    try {
+      const r = await fetch("/api/admin/migrate", { method: "POST" })
+      const d = await r.json()
+      if (r.ok) { setMigrationMsg(`✅ Migration complete: ${d.results?.join(" | ")}`); loadBookings(); loadDispatch() }
+      else setMigrationMsg(`❌ Error: ${d.error}`)
+    } catch (e: any) { setMigrationMsg(`❌ Network error: ${e.message}`) }
+    finally { setRunningMigration(false) }
   }
 
   const handleLeadStatus = async (id: string, status: string) => {
@@ -348,16 +370,19 @@ export default function AdminPanel() {
                         {b.client_name && <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{t("bookClient")}: {b.client_name} {b.client_phone && `· ${b.client_phone}`}</div>}
                         <div style={{ fontSize: 11, color: "#333", marginTop: 4 }}>ID: {b.id.slice(0, 8)}...</div>
                       </div>
-                      <div style={{ textAlign: "right", minWidth: 120 }}>
-                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff", display: "block", marginBottom: 4 }}>{b.status?.toUpperCase()}</span>
+                      <div style={{ textAlign: "right", minWidth: 140 }}>
+                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff", display: "block", marginBottom: 4 }}>📋 {b.status?.toUpperCase()}</span>
+                        {b.dispatch_status && <span style={{ ...S.badge(dispatchColor[b.dispatch_status] ?? "#1a1a1a"), color: dispatchText[b.dispatch_status] ?? "#fff", display: "block", marginBottom: 4 }}>⚡ {b.dispatch_status?.replace(/_/g, " ").toUpperCase()}</span>}
                         <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b", fontSize: 11 }}>{b.payment_status?.toUpperCase()}</span>
                       </div>
                     </div>
+                    {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>🚗 {t("assign")}: {b.driver_name} ({b.driver_code})</div>}
                     <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                      {b.status === "new" && <button onClick={() => handleBookingStatus(b.id, "accepted")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookAccept")}</button>}
-                      {["new", "offered", "accepted"].includes(b.status) && <button onClick={() => handleBookingStatus(b.id, "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>}
-                      {b.status === "accepted" && <button onClick={() => handleBookingStatus(b.id, "in_progress")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>{t("bookInProgress")}</button>}
-                      {b.status === "in_progress" && <button onClick={() => handleBookingStatus(b.id, "completed")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookComplete")}</button>}
+                      {b.status === "new" && <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookAccept")}</button>}
+                      {["new", "offered", "accepted"].includes(b.status) && <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>}
+                      {b.status === "accepted" && <button onClick={() => handleBookingStatus(b.id, "in_progress", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>{t("bookInProgress")}</button>}
+                      {b.status === "in_progress" && <button onClick={() => handleBookingStatus(b.id, "completed", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookComplete")}</button>}
+                      {(!b.dispatch_status || b.dispatch_status === "awaiting_source_owner") && <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>⚡ Manual Dispatch</button>}
                     </div>
                   </div>
                 ))}
@@ -401,23 +426,124 @@ export default function AdminPanel() {
                 ))}
               </div>
             </div>
-            <div style={S.card}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 14 }}>{t("dispPendingTitle")}</div>
-              {bookings.filter(b => b.status === "new" || b.status === "offered").length === 0 ? (
-                <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-              ) : bookings.filter(b => b.status === "new" || b.status === "offered").map(b => (
-                <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a" }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
-                    <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                    <button onClick={() => handleBookingStatus(b.id, "accepted")} style={{ ...S.btn(), fontSize: 12, padding: "5px 10px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("assign")}</button>
-                  </div>
+            {/* ---- Migration Banner ---- */}
+            {dispatchData?.migrationRequired && (
+              <div style={{ background: "#3b1a00", border: "1px solid #f59e0b", borderRadius: 10, padding: "14px 18px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 13 }}>⚠️ Database Migration Required</div>
+                  <div style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>The dispatch_status column needs to be added to the database. Run migration to fix state consistency.</div>
+                </div>
+                <button onClick={handleRunMigration} disabled={runningMigration} style={{ background: "#f59e0b", color: "#000", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: runningMigration ? 0.5 : 1 }}>
+                  {runningMigration ? "Running..." : "Run Migration"}
+                </button>
+              </div>
+            )}
+            {migrationMsg && <div style={{ background: migrationMsg.startsWith("✅") ? "#14532d" : "#3b0000", border: `1px solid ${migrationMsg.startsWith("✅") ? "#4ade80" : "#f87171"}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: migrationMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{migrationMsg}</div>}
+
+            {/* ---- Summary Counters ---- */}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+              {[
+                { label: "Awaiting Source Owner", count: dispatchData?.awaitingSourceOwner?.length ?? 0, color: "#60a5fa" },
+                { label: "Awaiting SLN Member", count: dispatchData?.awaitingSlnMember?.length ?? 0, color: "#a78bfa" },
+                { label: "Manual Dispatch Required", count: dispatchData?.manualDispatchRequired?.length ?? 0, color: "#f59e0b" },
+              ].map(k => (
+                <div key={k.label} style={{ ...S.statCard(k.color + "33"), minWidth: 160 }}>
+                  <div style={{ fontSize: 10, color: k.color, letterSpacing: 1, marginBottom: 6 }}>{k.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: k.count > 0 ? k.color : "#333" }}>{k.count}</div>
+                  <div style={{ fontSize: 12, color: "#555" }}>bookings</div>
                 </div>
               ))}
             </div>
+
+            {loadingDispatch ? (
+              <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
+            ) : (
+              <>
+                {/* ---- Section 1: Awaiting Source Owner ---- */}
+                <div style={{ ...S.card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>🔵 Awaiting Source Owner</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Offer sent to the driver who sourced this booking</div>
+                    </div>
+                    <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>{dispatchData?.awaitingSourceOwner?.length ?? 0}</span>
+                  </div>
+                  {!dispatchData?.awaitingSourceOwner?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
+                  ) : dispatchData.awaitingSourceOwner.map(b => (
+                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a" }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
+                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name}</div>
+                        <div style={{ fontSize: 11, color: "#333" }}>ID: {b.id.slice(0, 8)}...</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                        <button onClick={() => handleDispatchStatus(b.id, "awaiting_sln_member")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>→ SLN Member</button>
+                        <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>→ Manual</button>
+                        <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("assign")}</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ---- Section 2: Awaiting SLN Member ---- */}
+                <div style={{ ...S.card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>🟣 Awaiting SLN Member</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Offer sent to available SLN network members</div>
+                    </div>
+                    <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.awaitingSlnMember?.length ?? 0}</span>
+                  </div>
+                  {!dispatchData?.awaitingSlnMember?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
+                  ) : dispatchData.awaitingSlnMember.map(b => (
+                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a" }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
+                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>→ Manual</button>
+                        <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("assign")}</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ---- Section 3: Manual Dispatch Required ---- */}
+                <div style={S.card}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>🟡 Manual Dispatch Required</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Requires manual admin assignment — no automatic offer possible</div>
+                    </div>
+                    <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{dispatchData?.manualDispatchRequired?.length ?? 0}</span>
+                  </div>
+                  {!dispatchData?.manualDispatchRequired?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
+                  ) : dispatchData.manualDispatchRequired.map(b => (
+                    <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
+                          <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
+                          {b.client_name && <div style={{ fontSize: 12, color: "#888" }}>{b.client_name} {b.client_phone && `· ${b.client_phone}`}</div>}
+                          <div style={{ fontSize: 11, color: "#333" }}>ID: {b.id.slice(0, 8)}...</div>
+                        </div>
+                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                        <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#14532d", color: "#4ade80", border: "none" }}>✅ {t("assign")} Driver</button>
+                        <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>
+                        <button onClick={() => handleDispatchStatus(b.id, "awaiting_source_owner")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px" }}>↩ Back to Source</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -804,6 +930,16 @@ export default function AdminPanel() {
               <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
                 {lang === "en" ? "Language preference is saved automatically." : "La preferencia de idioma se guarda automáticamente."}
               </div>
+            </div>
+
+            {/* Database Migration */}
+            <div style={{ ...S.card, marginTop: 16, border: "1px solid #3b1a00" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#f59e0b", marginBottom: 12 }}>🗄️ DATABASE MIGRATION</div>
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>Run database migrations to add new columns (e.g., <code style={{ background: "#1a1a1a", padding: "2px 6px", borderRadius: 4, color: "#c9a84c" }}>dispatch_status</code>) and sync state models. Safe to run multiple times.</div>
+              <button onClick={handleRunMigration} disabled={runningMigration} style={{ background: "#f59e0b", color: "#000", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: runningMigration ? 0.5 : 1 }}>
+                {runningMigration ? "⏳ Running Migration..." : "▶️ Run Migration"}
+              </button>
+              {migrationMsg && <div style={{ marginTop: 12, padding: "10px 14px", background: migrationMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 13, color: migrationMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{migrationMsg}</div>}
             </div>
 
             {/* SMS Test */}

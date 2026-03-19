@@ -1,23 +1,77 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
-// PATCH /api/admin/bookings/[id] — Update booking (assign driver, cancel, change status)
+// ============================================================
+// Booking Status → Dispatch Status mapping rules
+// ============================================================
+function inferDispatchStatus(bookingStatus: string): string {
+  switch (bookingStatus) {
+    case "new":
+    case "quote_sent":
+    case "awaiting_payment":
+    case "confirmed":
+      return "awaiting_source_owner"
+    case "accepted":
+    case "assigned":
+    case "in_service":
+    case "in_progress":
+    case "completed":
+      return "assigned"
+    case "cancelled":
+      return "cancelled"
+    default:
+      return "not_required"
+  }
+}
+
+// PATCH /api/admin/bookings/[id] — Update booking status and/or dispatch_status
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     const body = await req.json();
-    const { status, assigned_driver_id } = body;
+    const { status, dispatch_status, assigned_driver_id } = body;
 
     if (status) {
-      await sql`
-        UPDATE bookings
-        SET status = ${status}, updated_at = NOW()
-        WHERE id = ${params.id}::uuid
-      `;
+      const inferredDispatch = dispatch_status ?? inferDispatchStatus(status);
+      try {
+        await sql`
+          UPDATE bookings
+          SET
+            status = ${status},
+            dispatch_status = ${inferredDispatch},
+            updated_at = NOW()
+          WHERE id = ${params.id}::uuid
+        `;
+      } catch (e: any) {
+        // Fallback if dispatch_status column doesn't exist yet
+        if (e.message?.includes("dispatch_status")) {
+          await sql`
+            UPDATE bookings
+            SET status = ${status}, updated_at = NOW()
+            WHERE id = ${params.id}::uuid
+          `;
+        } else throw e;
+      }
     }
+
+    // Update dispatch_status independently (without changing booking status)
+    if (dispatch_status && !status) {
+      try {
+        await sql`
+          UPDATE bookings
+          SET dispatch_status = ${dispatch_status}, updated_at = NOW()
+          WHERE id = ${params.id}::uuid
+        `;
+      } catch (e: any) {
+        if (!e.message?.includes("dispatch_status")) throw e;
+      }
+    }
+
+    // Assign driver
     if (assigned_driver_id !== undefined) {
       await sql`
         UPDATE bookings
