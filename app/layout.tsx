@@ -51,11 +51,10 @@ export const metadata: Metadata = {
     ],
   },
   openGraph: {
-    title: "Sottovento Luxury Ride | Premium Transportation Orlando",
+    title: "Sottovento Luxury Ride | Luxury Transportation Orlando",
     description: "Experience luxury transportation with professional chauffeur service in Orlando, FL",
     type: "website",
-  },
-    generator: 'v0.app'
+  }
 }
 
 export default function RootLayout({
