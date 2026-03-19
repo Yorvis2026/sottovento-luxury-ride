@@ -1087,49 +1087,55 @@ function CrownMomentFlow({
   return (
     <div
       className="relative w-full h-full flex flex-col"
-      style={{ backgroundColor: "#000" }}
+      style={{
+        background: "radial-gradient(circle at center, rgba(255,215,120,0.06) 0%, rgba(10,10,12,0.99) 60%, rgba(0,0,0,1) 100%)",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+        boxSizing: "border-box" as const,
+      }}
       onTouchStart={resetInactivity}
       onClick={resetInactivity}
     >
-      {/* Back */}
+      {/* Back — quiet, secondary */}
       <button
         onClick={onBack}
-        className="absolute z-20 text-white/50 text-sm tracking-widest uppercase active:text-white/80 flex items-center gap-2"
-        style={{ top: "20px", left: "24px" }}
+        className="absolute z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70 flex items-center gap-1"
+        style={{ top: "calc(env(safe-area-inset-top) + 16px)", left: "20px" }}
       >
         <span>←</span>
         <span>Back</span>
       </button>
 
-      {/* Header */}
-      <div className="flex-shrink-0 flex flex-col items-center pt-12 pb-4 gap-1 z-10">
+      {/* Header — compact, not competing with frames */}
+      <div className="flex-shrink-0 flex flex-col items-center pt-10 pb-3 gap-1 z-10">
         <p className="text-xs tracking-[0.5em] uppercase" style={{ color: accentColor }}>
           Crown Moment
         </p>
         <h2
-          className="text-4xl font-light text-white"
+          className="text-3xl font-light text-white"
           style={{ fontFamily: "serif", letterSpacing: "0.06em" }}
         >
           Choose Your Memory
         </h2>
-        <p className="text-white/40 text-sm mt-1">
+        <p className="text-white/35 text-xs mt-0.5 tracking-wider">
           Complimentary Orlando Family Photo
         </p>
       </div>
 
-      {/* 2×2 Frame grid — shows real approved frame PNG as thumbnail */}
-      <div className="flex-1 grid grid-cols-2 gap-3 px-4 pb-16 overflow-hidden">
+      {/* 2×2 Frame grid — frames are the hero, fill available space */}
+      <div className="flex-1 grid grid-cols-2 gap-3 px-4 pb-6 overflow-hidden">
         {CROWN_FRAMES.map((frame) => (
           <button
             key={frame.id}
             onClick={() => { setSelectedFrame(frame.id); setInCamera(true) }}
-            className="relative rounded-2xl overflow-hidden flex flex-col items-center justify-center text-center transition-all active:scale-95"
+            className="relative rounded-xl overflow-hidden flex flex-col items-center justify-center text-center transition-all active:scale-95"
             style={{
-              border: `2px solid ${frame.accentHex}60`,
+              border: `1.5px solid ${frame.accentHex}50`,
               backgroundColor: frame.bgColor,
+              boxShadow: `0 0 20px ${frame.accentHex}15`,
             }}
           >
-            {/* Real approved frame PNG as thumbnail */}
+            {/* Real approved frame PNG as thumbnail — object-contain to show full frame */}
             <div className="absolute inset-0">
               <Image
                 src={frame.frameImage}
@@ -1140,15 +1146,15 @@ function CrownMomentFlow({
               />
             </div>
 
-            {/* Bottom label overlay */}
+            {/* Bottom label overlay — subtle, does not obscure frame art */}
             <div
               className="absolute bottom-0 left-0 right-0 px-3 py-2 z-10"
-              style={{ background: `linear-gradient(to top, ${frame.bgColor}ee 60%, transparent)` }}
+              style={{ background: `linear-gradient(to top, ${frame.bgColor}f0 50%, transparent)` }}
             >
               <p className="text-sm font-semibold" style={{ color: frame.accentHex, fontFamily: "serif" }}>
                 {frame.label}
               </p>
-              <p className="text-white/50 text-xs">{frame.sublabel}</p>
+              <p className="text-white/45 text-xs">{frame.sublabel}</p>
             </div>
           </button>
         ))}
@@ -1324,17 +1330,23 @@ function CrownCamera({
   return (
     <div
       className="relative w-full h-full flex flex-col items-center justify-center"
-      style={{ backgroundColor: "#000" }}
+      style={{
+        // Premium cinematic background — deep charcoal with subtle gold spotlight
+        background: "radial-gradient(circle at center, rgba(255,215,120,0.08) 0%, rgba(10,10,12,0.98) 55%, rgba(0,0,0,1) 100%)",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+        boxSizing: "border-box" as const,
+      }}
       onTouchStart={onActivity}
     >
       {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Back */}
+      {/* Back — quiet, top-left, does not compete with frame */}
       <button
         onClick={onBack}
-        className="absolute z-20 text-white/50 text-sm tracking-widest uppercase active:text-white/80 flex items-center gap-2"
-        style={{ top: "20px", left: "24px" }}
+        className="absolute z-20 text-white/40 text-xs tracking-widest uppercase active:text-white/70 flex items-center gap-1"
+        style={{ top: "calc(env(safe-area-inset-top) + 16px)", left: "20px" }}
       >
         <span>←</span>
         <span>Back</span>
@@ -1392,17 +1404,21 @@ function CrownCamera({
         </div>
       )}
 
-      {/* Frame container — approved PNG frame overlaid on camera, portrait 3:4 ratio */}
+      {/* ── FRAME STAGE: hero element, fills 72–84% of viewport height ── */}
       <div
-        className="relative overflow-hidden"
         style={{
-          width: "min(80vw, 360px)",
-          aspectRatio: "3/4",
-          backgroundColor: "#000",
-          borderRadius: 8,
+          // Responsive sizing: frame is the hero — occupies most of visible area
+          width: "min(min(82vw, 82vh), 980px)",
+          maxHeight: "84vh",
+          aspectRatio: "3 / 4",
+          position: "relative",
+          overflow: "hidden",
+          borderRadius: 6,
+          // Subtle glow behind frame for depth
+          boxShadow: `0 0 80px rgba(255,215,120,0.06), 0 0 160px rgba(0,0,0,0.8)`,
         }}
       >
-        {/* Live video — fills the entire frame area */}
+        {/* Live video — fills the entire frame area, object-cover no letterboxing */}
         {!photoDataUrl && (
           <video
             ref={videoRef}
@@ -1413,7 +1429,7 @@ function CrownCamera({
           />
         )}
 
-        {/* Captured photo with frame composited in — fills entire area */}
+        {/* Captured photo — fills entire area */}
         {photoDataUrl && (
           <img
             src={photoDataUrl}
@@ -1422,8 +1438,7 @@ function CrownCamera({
           />
         )}
 
-        {/* Approved frame PNG overlay — always on top, covers full area */}
-        {/* pointer-events: none so it doesn't block camera interactions */}
+        {/* Approved frame PNG overlay — always on top, full area, pointer-events none */}
         <img
           src={frame.frameImage}
           alt=""
@@ -1468,14 +1483,18 @@ function CrownCamera({
         )}
       </div>
 
-      {/* Action buttons — ONLY: camera shutter / retake + Send to My Email + Done */}
-      <div className="flex items-center gap-4 mt-5">
+      {/* ── ACTION BUTTONS: visually connected to frame, 24–32px below ── */}
+      <div className="flex items-center gap-4" style={{ marginTop: "24px" }}>
         {!photoDataUrl ? (
+          // Capture button — premium circular CTA with subtle glow
           <button
             onClick={startCountdown}
             disabled={!cameraReady || countdown !== null}
             className="w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
-            style={{ backgroundColor: frame.accentHex }}
+            style={{
+              backgroundColor: frame.accentHex,
+              boxShadow: `0 0 24px ${frame.accentHex}55, 0 4px 16px rgba(0,0,0,0.6)`,
+            }}
           >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
@@ -1494,7 +1513,11 @@ function CrownCamera({
             <button
               onClick={() => { setShowEmailModal(true); onActivity() }}
               className="px-7 py-3 rounded-full text-xs tracking-widest uppercase font-semibold transition-all active:scale-95"
-              style={{ backgroundColor: frame.accentHex, color: "#000" }}
+              style={{
+                backgroundColor: frame.accentHex,
+                color: "#000",
+                boxShadow: `0 0 20px ${frame.accentHex}44`,
+              }}
             >
               Send to My Email
             </button>
