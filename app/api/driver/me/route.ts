@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
-// GET /api/driver/me?code=YHV001 — Get driver data by driver_code
+// GET /api/driver/me?code=YHV001 — Get driver data + active offer + assigned ride
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "code is required" }, { status: 400 });
     }
 
+    // ── Load driver ──────────────────────────────────────────
     const rows = await sql`
       SELECT
         id,
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
 
     const driver = rows[0];
 
-    // Get stats
+    // ── Stats ────────────────────────────────────────────────
     const [clientStats] = await sql`
       SELECT
         COUNT(DISTINCT client_id) AS total_clients,
@@ -60,6 +61,111 @@ export async function GET(req: NextRequest) {
         AND status = 'pending'
     `;
 
+    // ── Active offer — booking awaiting THIS driver's response ─
+    // Checks both source_driver_id (awaiting_source_owner) and
+    // assigned_driver_id (awaiting_sln_member) with valid expiry
+    const activeOfferRows = await sql`
+      SELECT
+        id AS booking_id,
+        pickup_location,
+        dropoff_location,
+        pickup_datetime,
+        vehicle_type,
+        total_price,
+        dispatch_status,
+        offer_expires_at,
+        offer_stage
+      FROM bookings
+      WHERE (
+        (dispatch_status = 'awaiting_source_owner' AND source_driver_id = ${driver.id})
+        OR
+        (dispatch_status = 'awaiting_sln_member' AND assigned_driver_id = ${driver.id})
+      )
+      AND status NOT IN ('cancelled', 'completed', 'assigned')
+      AND (offer_expires_at IS NULL OR offer_expires_at > NOW())
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    let active_offer = null;
+    if (activeOfferRows.length > 0) {
+      const o = activeOfferRows[0];
+      // Try to get offer_id from dispatch_offers table if it exists
+      let offer_id = o.booking_id; // fallback to booking_id
+      try {
+        const offerRows = await sql`
+          SELECT id FROM dispatch_offers
+          WHERE booking_id = ${o.booking_id}
+            AND driver_id = ${driver.id}
+            AND status = 'pending'
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
+        if (offerRows.length > 0) offer_id = offerRows[0].id;
+      } catch {
+        // dispatch_offers table may not exist yet — use booking_id as offer_id
+      }
+
+      active_offer = {
+        offer_id,
+        booking_id: o.booking_id,
+        pickup_location: o.pickup_location ?? "TBD",
+        dropoff_location: o.dropoff_location ?? "TBD",
+        pickup_datetime: o.pickup_datetime,
+        vehicle_type: o.vehicle_type ?? "Sedan",
+        total_price: Number(o.total_price ?? 0),
+        expires_at: o.offer_expires_at,
+        dispatch_status: o.dispatch_status,
+      };
+    }
+
+    // ── Assigned ride — booking confirmed for this driver ────
+    const assignedRows = await sql`
+      SELECT
+        id AS booking_id,
+        pickup_location,
+        dropoff_location,
+        pickup_datetime,
+        vehicle_type,
+        total_price,
+        client_id
+      FROM bookings
+      WHERE assigned_driver_id = ${driver.id}
+        AND status = 'assigned'
+        AND pickup_datetime >= NOW() - INTERVAL '2 hours'
+      ORDER BY pickup_datetime ASC
+      LIMIT 1
+    `;
+
+    let assigned_ride = null;
+    if (assignedRows.length > 0) {
+      const r = assignedRows[0];
+      // Try to get client info
+      let client_name = null;
+      let client_phone = null;
+      if (r.client_id) {
+        try {
+          const clientRows = await sql`
+            SELECT full_name, phone FROM clients WHERE id = ${r.client_id} LIMIT 1
+          `;
+          if (clientRows.length > 0) {
+            client_name = clientRows[0].full_name;
+            client_phone = clientRows[0].phone;
+          }
+        } catch {}
+      }
+      assigned_ride = {
+        booking_id: r.booking_id,
+        pickup_location: r.pickup_location ?? "TBD",
+        dropoff_location: r.dropoff_location ?? "TBD",
+        pickup_datetime: r.pickup_datetime,
+        vehicle_type: r.vehicle_type ?? "Sedan",
+        total_price: Number(r.total_price ?? 0),
+        client_name,
+        client_phone,
+      };
+    }
+
     return NextResponse.json({
       driver: {
         ...driver,
@@ -70,6 +176,8 @@ export async function GET(req: NextRequest) {
           month_earnings: Number(monthStats?.month_earnings ?? 0),
           pending_offers: Number(pendingOffers?.count ?? 0),
         },
+        active_offer,
+        assigned_ride,
       },
     });
   } catch (err: any) {
