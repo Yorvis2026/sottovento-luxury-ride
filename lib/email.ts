@@ -148,6 +148,7 @@ export async function sendBookingConfirmation(opts: {
 export async function sendCrownMomentPhoto(opts: {
   toEmail: string
   photoBase64: string
+  photoUrl?: string        // Public CDN URL — preferred over cid: attachment
   frameName: string
 }) {
   const resend = getResend()
@@ -174,7 +175,7 @@ export async function sendCrownMomentPhoto(opts: {
 <!-- PHOTO -->
 <tr>
 <td align="center" style="padding:0 20px 20px;">
-  <img src="cid:crown-moment-photo" alt="Your Crown Moment"
+  <img src="${opts.photoUrl ?? 'cid:crown-moment-photo'}" alt="Your Crown Moment"
     style="width:100%;max-width:540px;border-radius:12px;border:3px solid #D4AF37;display:block;" />
 </td>
 </tr>
@@ -236,9 +237,19 @@ export async function sendCrownMomentPhoto(opts: {
 </html>
   `
 
-  // Convert base64 data URL to buffer
+  // If no public URL, fall back to base64 attachment (cid:)
   const base64Data = opts.photoBase64.replace(/^data:image\/\w+;base64,/, "")
   const imageBuffer = Buffer.from(base64Data, "base64")
+
+  // Only attach inline if no public URL is available
+  const attachments = opts.photoUrl
+    ? []
+    : [
+        {
+          filename: "sottovento-crown-moment.jpg",
+          content: imageBuffer,
+        },
+      ]
 
   try {
     await resend.emails.send({
@@ -246,12 +257,7 @@ export async function sendCrownMomentPhoto(opts: {
       to: [opts.toEmail],
       subject,
       html,
-      attachments: [
-        {
-          filename: "sottovento-crown-moment.jpg",
-          content: imageBuffer,
-        },
-      ],
+      attachments,
     })
     return { success: true }
   } catch (err) {
