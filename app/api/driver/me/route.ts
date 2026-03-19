@@ -67,9 +67,9 @@ export async function GET(req: NextRequest) {
     const activeOfferRows = await sql`
       SELECT
         id AS booking_id,
-        pickup_location,
-        dropoff_location,
-        pickup_datetime,
+        pickup_address,
+        dropoff_address,
+        pickup_at,
         vehicle_type,
         total_price,
         dispatch_status,
@@ -109,9 +109,9 @@ export async function GET(req: NextRequest) {
       active_offer = {
         offer_id,
         booking_id: o.booking_id,
-        pickup_location: o.pickup_location ?? "TBD",
-        dropoff_location: o.dropoff_location ?? "TBD",
-        pickup_datetime: o.pickup_datetime,
+        pickup_location: o.pickup_address ?? "TBD",
+        dropoff_location: o.dropoff_address ?? "TBD",
+        pickup_datetime: o.pickup_at,
         vehicle_type: o.vehicle_type ?? "Sedan",
         total_price: Number(o.total_price ?? 0),
         expires_at: o.offer_expires_at,
@@ -123,17 +123,17 @@ export async function GET(req: NextRequest) {
     const assignedRows = await sql`
       SELECT
         id AS booking_id,
-        pickup_location,
-        dropoff_location,
-        pickup_datetime,
+        pickup_address,
+        dropoff_address,
+        pickup_at,
         vehicle_type,
         total_price,
         client_id
       FROM bookings
       WHERE assigned_driver_id = ${driver.id}
         AND status = 'assigned'
-        AND pickup_datetime >= NOW() - INTERVAL '2 hours'
-      ORDER BY pickup_datetime ASC
+        AND pickup_at >= NOW() - INTERVAL '2 hours'
+      ORDER BY pickup_at ASC
       LIMIT 1
     `;
 
@@ -156,9 +156,9 @@ export async function GET(req: NextRequest) {
       }
       assigned_ride = {
         booking_id: r.booking_id,
-        pickup_location: r.pickup_location ?? "TBD",
-        dropoff_location: r.dropoff_location ?? "TBD",
-        pickup_datetime: r.pickup_datetime,
+        pickup_location: r.pickup_address ?? "TBD",
+        dropoff_location: r.dropoff_address ?? "TBD",
+        pickup_datetime: r.pickup_at,
         vehicle_type: r.vehicle_type ?? "Sedan",
         total_price: Number(r.total_price ?? 0),
         client_name,
