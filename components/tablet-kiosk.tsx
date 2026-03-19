@@ -1471,7 +1471,7 @@ function CrownCamera({
             src={frame.frameImage}
             alt=""
             className="absolute inset-0 w-full h-full"
-            style={{ objectFit: "cover", pointerEvents: "none", zIndex: 10 }}
+            style={{ objectFit: "contain", pointerEvents: "none", zIndex: 10 }}
           />
 
           {/* Camera error */}
