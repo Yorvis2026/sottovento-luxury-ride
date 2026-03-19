@@ -155,20 +155,85 @@ export async function sendCrownMomentPhoto(opts: {
 
   const subject = `Your Crown Moment — Sottovento Luxury Ride`
   const html = `
-    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;padding:32px;border-radius:12px;">
-      <div style="text-align:center;margin-bottom:24px;">
-        <p style="color:#b8960c;letter-spacing:0.3em;text-transform:uppercase;font-size:11px;margin:0;">Sottovento Luxury Ride</p>
-        <h1 style="font-size:28px;font-weight:300;margin:8px 0;color:#fff;">Your Crown Moment</h1>
-        <p style="color:#555;font-size:13px;margin:4px 0;">${opts.frameName}</p>
-      </div>
-      <div style="text-align:center;margin:24px 0;">
-        <img src="cid:crown-moment-photo" alt="Your Crown Moment" style="max-width:100%;border-radius:8px;border:2px solid #b8960c;" />
-      </div>
-      <div style="text-align:center;margin-top:24px;padding-top:16px;border-top:1px solid #222;">
-        <p style="color:#555;font-size:12px;margin:0;">Thank you for riding with Sottovento Luxury Ride</p>
-        <p style="color:#555;font-size:12px;margin:4px 0;"><a href="https://www.sottoventoluxuryride.com" style="color:#b8960c;">sottoventoluxuryride.com</a></p>
-      </div>
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#0b0b0d;font-family:Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:20px;">
+<tr><td align="center">
+<table width="600" style="background:#111;border-radius:16px;overflow:hidden;">
+
+<!-- HEADER -->
+<tr>
+<td align="center" style="padding:30px 30px 16px;">
+  <div style="color:#D4AF37;letter-spacing:3px;font-size:12px;text-transform:uppercase;">Sottovento Luxury Ride</div>
+  <h1 style="color:#fff;font-weight:300;font-size:28px;margin:8px 0;">Your Crown Moment</h1>
+  <p style="color:#888;font-size:14px;margin:4px 0;">${opts.frameName}</p>
+</td>
+</tr>
+
+<!-- PHOTO -->
+<tr>
+<td align="center" style="padding:0 20px 20px;">
+  <img src="cid:crown-moment-photo" alt="Your Crown Moment"
+    style="width:100%;max-width:540px;border-radius:12px;border:3px solid #D4AF37;display:block;" />
+</td>
+</tr>
+
+<!-- EXCLUSIVE OFFER -->
+<tr>
+<td align="center" style="padding:0 20px 20px;">
+  <div style="background:#1a1a1f;border-radius:12px;padding:24px;border:1px solid rgba(212,175,55,0.3);">
+    <h2 style="color:#FFD700;margin:0 0 8px;font-size:20px;">&#127873; Exclusive Gift for You</h2>
+    <p style="color:#ccc;margin:0 0 16px;font-size:15px;">Enjoy <strong>10% OFF</strong> your next ride with us</p>
+    <div style="background:#0b0b0d;border-radius:8px;padding:14px 24px;display:inline-block;margin-bottom:8px;">
+      <span style="font-size:22px;color:#fff;letter-spacing:3px;font-weight:bold;">CODE: CROWN10</span>
     </div>
+    <p style="color:#666;font-size:12px;margin:8px 0 0;">Valid for your next booking. One use per customer.</p>
+  </div>
+</td>
+</tr>
+
+<!-- BOOK CTA -->
+<tr>
+<td align="center" style="padding:0 20px 20px;">
+  <a href="https://www.sottoventoluxuryride.com/#booking"
+    style="display:inline-block;background:linear-gradient(145deg,#FFD700,#C9A646);color:#000;font-weight:bold;
+           font-size:15px;letter-spacing:2px;text-transform:uppercase;text-decoration:none;
+           padding:16px 40px;border-radius:50px;box-shadow:0 8px 25px rgba(255,215,120,0.35);">
+    Book Your Next Ride
+  </a>
+</td>
+</tr>
+
+<!-- REFER A FRIEND -->
+<tr>
+<td align="center" style="padding:0 20px 20px;">
+  <div style="background:#161618;border-radius:12px;padding:20px;border:1px solid rgba(255,255,255,0.06);">
+    <p style="color:#aaa;font-size:14px;margin:0 0 12px;">
+      &#128101; Share your experience and give a friend <strong style="color:#fff;">$10 OFF</strong> their first ride
+    </p>
+    <a href="https://www.sottoventoluxuryride.com"
+      style="display:inline-block;color:#D4AF37;font-size:13px;letter-spacing:1px;text-transform:uppercase;
+             text-decoration:none;border:1px solid rgba(212,175,55,0.4);padding:10px 28px;border-radius:50px;">
+      Invite a Friend
+    </a>
+  </div>
+</td>
+</tr>
+
+<!-- FOOTER -->
+<tr>
+<td align="center" style="padding:20px 20px 28px;border-top:1px solid #222;">
+  <p style="color:#555;font-size:12px;margin:0 0 6px;">Thank you for choosing Sottovento Luxury Ride</p>
+  <a href="https://www.sottoventoluxuryride.com" style="color:#D4AF37;font-size:12px;">sottoventoluxuryride.com</a>
+</td>
+</tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
   `
 
   // Convert base64 data URL to buffer
