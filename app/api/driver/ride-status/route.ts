@@ -27,6 +27,7 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // ============================================================
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
+  accepted:  ["en_route", "cancelled"],  // admin-assigned rides start as 'accepted'
   assigned:  ["en_route", "cancelled"],
   en_route:  ["arrived", "cancelled"],
   arrived:   ["in_trip", "no_show", "cancelled"],

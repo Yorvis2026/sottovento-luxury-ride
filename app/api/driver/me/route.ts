@@ -249,6 +249,69 @@ export async function GET(req: NextRequest) {
       console.error("[driver/me] assigned_ride error:", assignErr?.message);
     }
 
+    // ── Upcoming rides — future rides not yet in active window ──
+    let upcoming_rides: Record<string, unknown>[] = [];
+    try {
+      const upcomingRows = await sql`
+        SELECT
+          id AS booking_id,
+          status,
+          pickup_address,
+          dropoff_address,
+          pickup_at,
+          vehicle_type,
+          total_price,
+          COALESCE(ride_window_state, 'upcoming') AS ride_window_state
+        FROM bookings
+        WHERE assigned_driver_id = ${driver.id}
+          AND status IN ('accepted', 'assigned')
+          AND pickup_at > NOW() + INTERVAL '90 minutes'
+        ORDER BY pickup_at ASC
+        LIMIT 10
+      `;
+      upcoming_rides = upcomingRows.map((r) => ({
+        booking_id: r.booking_id,
+        status: r.status,
+        pickup_location: r.pickup_address ?? "TBD",
+        dropoff_location: r.dropoff_address ?? "TBD",
+        pickup_datetime: r.pickup_at,
+        vehicle_type: r.vehicle_type ?? "Sedan",
+        total_price: Number(r.total_price ?? 0),
+        ride_window_state: r.ride_window_state ?? "upcoming",
+      }));
+    } catch { /* upcoming_rides non-blocking */ }
+
+    // ── Completed rides — last 10 completed ──────────────────
+    let completed_rides: Record<string, unknown>[] = [];
+    try {
+      const completedRows = await sql`
+        SELECT
+          id AS booking_id,
+          status,
+          pickup_address,
+          dropoff_address,
+          pickup_at,
+          completed_at,
+          vehicle_type,
+          total_price
+        FROM bookings
+        WHERE assigned_driver_id = ${driver.id}
+          AND status IN ('completed', 'no_show')
+        ORDER BY completed_at DESC NULLS LAST
+        LIMIT 10
+      `;
+      completed_rides = completedRows.map((r) => ({
+        booking_id: r.booking_id,
+        status: r.status,
+        pickup_location: r.pickup_address ?? "TBD",
+        dropoff_location: r.dropoff_address ?? "TBD",
+        pickup_datetime: r.pickup_at,
+        completed_at: r.completed_at,
+        vehicle_type: r.vehicle_type ?? "Sedan",
+        total_price: Number(r.total_price ?? 0),
+      }));
+    } catch { /* completed_rides non-blocking */ }
+
     return NextResponse.json({
       driver: {
         ...driver,
@@ -261,6 +324,8 @@ export async function GET(req: NextRequest) {
         },
         active_offer,
         assigned_ride,
+        upcoming_rides,
+        completed_rides,
       },
     });
   } catch (err: any) {

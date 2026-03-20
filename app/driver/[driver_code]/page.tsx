@@ -30,6 +30,7 @@ const POLL_INTERVAL = 5000
 
 // ─── STATE THEME SYSTEM ───────────────────────────────────────
 const STATE_THEME: Record<string, { primary: string; bg: string; dot: string }> = {
+  accepted:  { primary: GOLD,      bg: "#0a0a00", dot: "#4ade80" },
   assigned:  { primary: GOLD,      bg: "#0a0a00", dot: "#4ade80" },
   en_route:  { primary: "#f59e0b", bg: "#0a0800", dot: "#f59e0b" },
   arrived:   { primary: "#4ade80", bg: "#001a0a", dot: "#4ade80" },
@@ -301,7 +302,7 @@ const T: Record<Lang, Record<string, string>> = {
 }
 
 // ─── TYPES ────────────────────────────────────────────────────
-type RideStatus = "assigned" | "en_route" | "arrived" | "in_trip" | "completed" | "cancelled" | "no_show"
+type RideStatus = "accepted" | "assigned" | "en_route" | "arrived" | "in_trip" | "completed" | "cancelled" | "no_show"
 
 interface ActiveOffer {
   offer_id: string
@@ -333,6 +334,28 @@ interface ActiveRide {
   bookings_count?: number
 }
 
+interface UpcomingRide {
+  booking_id: string
+  status: string
+  pickup_location: string
+  dropoff_location: string
+  pickup_datetime: string | null
+  vehicle_type: string
+  total_price: number
+  ride_window_state: string
+}
+
+interface CompletedRide {
+  booking_id: string
+  status: string
+  pickup_location: string
+  dropoff_location: string
+  pickup_datetime: string | null
+  completed_at: string | null
+  vehicle_type: string
+  total_price: number
+}
+
 interface DriverSummary {
   driver_id: string
   driver_name: string
@@ -344,6 +367,8 @@ interface DriverSummary {
   pending_offers: number
   active_offer: ActiveOffer | null
   assigned_ride: ActiveRide | null
+  upcoming_rides: UpcomingRide[]
+  completed_rides: CompletedRide[]
 }
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
@@ -476,6 +501,7 @@ export default function DriverDashboardByCode() {
   const [showCompleted, setShowCompleted] = useState(false)
   const [smsSending, setSmsSending] = useState(false)
   const [smsSent, setSmsSent] = useState(false)
+  const [dashTab, setDashTab] = useState<"overview" | "upcoming" | "completed" | "earnings">("overview")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
@@ -558,6 +584,8 @@ export default function DriverDashboardByCode() {
         pending_offers: d.stats?.pending_offers ?? 0,
         active_offer: d.active_offer ?? null,
         assigned_ride: activeRide,
+        upcoming_rides: d.upcoming_rides ?? [],
+        completed_rides: d.completed_rides ?? [],
       })
       setLoading(false)
     } catch {
@@ -774,8 +802,11 @@ export default function DriverDashboardByCode() {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // PRIORITY 3: CALM DASHBOARD
+  // PRIORITY 3: DASHBOARD (with tabs)
   // ══════════════════════════════════════════════════════════════
+  const upcomingCount = summary.upcoming_rides?.length ?? 0
+  const completedCount = summary.completed_rides?.length ?? 0
+
   return (
     <div className="min-h-screen bg-black text-white pb-8"
       style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
@@ -807,111 +838,267 @@ export default function DriverDashboardByCode() {
         <span className="text-sm text-white/70">{t.noOffer}</span>
       </div>
 
-      {/* Metrics */}
-      <div className="px-4 mt-4 grid grid-cols-2 gap-3">
-        {[
-          { label: t.totalClients, value: summary.total_clients, icon: "👥", color: GOLD },
-          { label: t.pendingOffers, value: summary.pending_offers, icon: "⏳", color: summary.pending_offers > 0 ? "#f87171" : "#6b7280" },
-          { label: t.monthEarnings, value: `$${summary.month_earnings.toFixed(2)}`, icon: "💰", color: GOLD },
-          { label: t.lifetimeEarnings, value: `$${summary.lifetime_earnings.toFixed(2)}`, icon: "📈", color: "#a78bfa" },
-        ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <div className="text-xl mb-1">{card.icon}</div>
-            <div className="text-xl font-light" style={{ color: card.color }}>{card.value}</div>
-            <div className="text-xs text-zinc-400 mt-1">{card.label}</div>
-          </div>
+      {/* ── TABS ── */}
+      <div className="flex border-b border-zinc-800 mt-4 px-4 gap-1">
+        {([
+          { key: "overview",  label: "Overview",  badge: null },
+          { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
+          { key: "completed", label: lang === "es" ? "Completados" : "Completed", badge: null },
+          { key: "earnings",  label: lang === "es" ? "Ganancias" : "Earnings",  badge: null },
+        ] as { key: "overview" | "upcoming" | "completed" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
+          <button key={tab.key}
+            onClick={() => setDashTab(tab.key)}
+            className="relative pb-2 pt-1 px-3 text-xs font-medium uppercase tracking-widest transition-all"
+            style={{ color: dashTab === tab.key ? GOLD : "#6b7280", borderBottom: dashTab === tab.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>
+            {tab.label}
+            {tab.badge !== null && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs font-bold"
+                style={{ backgroundColor: GOLD, color: "#000" }}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
         ))}
       </div>
 
-      {/* Tablet section */}
-      <div className="px-4 mt-5">
-        <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">{t.myTablet}</div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-          <div className="px-5 py-3 border-b border-zinc-800">
-            <div className="text-xs text-zinc-500 mb-1 uppercase tracking-widest">{t.tabletLink}</div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-mono flex-1 truncate" style={{ color: GOLD }}>
-                /tablet/{summary.driver_code}
-              </span>
-              <button onClick={copyLink}
-                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0">
-                {copied ? t.copied : t.copy}
-              </button>
-              <a href={tabletUrl} target="_blank" rel="noopener noreferrer"
-                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0">
-                {t.open}
-              </a>
-            </div>
+      {/* ── TAB: OVERVIEW ── */}
+      {dashTab === "overview" && (
+        <div>
+          {/* Metrics */}
+          <div className="px-4 mt-4 grid grid-cols-2 gap-3">
+            {[
+              { label: t.totalClients, value: summary.total_clients, icon: "👥", color: GOLD },
+              { label: t.pendingOffers, value: summary.pending_offers, icon: "⏳", color: summary.pending_offers > 0 ? "#f87171" : "#6b7280" },
+              { label: t.monthEarnings, value: `$${summary.month_earnings.toFixed(2)}`, icon: "💰", color: GOLD },
+              { label: t.lifetimeEarnings, value: `$${summary.lifetime_earnings.toFixed(2)}`, icon: "📈", color: "#a78bfa" },
+            ].map((card) => (
+              <div key={card.label} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                <div className="text-xl mb-1">{card.icon}</div>
+                <div className="text-xl font-light" style={{ color: card.color }}>{card.value}</div>
+                <div className="text-xs text-zinc-400 mt-1">{card.label}</div>
+              </div>
+            ))}
           </div>
-          <div className="px-5 py-3">
-            <button onClick={() => setShowQR(!showQR)} className="flex items-center justify-between w-full">
-              <span className="text-sm text-white">{t.qrPreview}</span>
-              <span className="text-zinc-500 text-sm">{showQR ? t.hide : t.show}</span>
-            </button>
-            {showQR && (
-              <div className="flex flex-col items-center gap-3 mt-4 pb-2">
-                <div className="p-3 rounded-xl bg-white">
-                  <QRCodeSVG value={tabletUrl} size={150} bgColor="#ffffff" fgColor="#000000" level="M" />
-                </div>
-                <div className="text-xs tracking-widest uppercase text-center" style={{ color: GOLD }}>
-                  {summary.driver_code}
+
+          {/* Tablet section */}
+          <div className="px-4 mt-5">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">{t.myTablet}</div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+              <div className="px-5 py-3 border-b border-zinc-800">
+                <div className="text-xs text-zinc-500 mb-1 uppercase tracking-widest">{t.tabletLink}</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-mono flex-1 truncate" style={{ color: GOLD }}>
+                    /tablet/{summary.driver_code}
+                  </span>
+                  <button onClick={copyLink}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0">
+                    {copied ? t.copied : t.copy}
+                  </button>
+                  <a href={tabletUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0">
+                    {t.open}
+                  </a>
                 </div>
               </div>
-            )}
+              <div className="px-5 py-3">
+                <button onClick={() => setShowQR(!showQR)} className="flex items-center justify-between w-full">
+                  <span className="text-sm text-white">{t.qrPreview}</span>
+                  <span className="text-zinc-500 text-sm">{showQR ? t.hide : t.show}</span>
+                </button>
+                {showQR && (
+                  <div className="flex flex-col items-center gap-3 mt-4 pb-2">
+                    <div className="p-3 rounded-xl bg-white">
+                      <QRCodeSVG value={tabletUrl} size={150} bgColor="#ffffff" fgColor="#000000" level="M" />
+                    </div>
+                    <div className="text-xs tracking-widest uppercase text-center" style={{ color: GOLD }}>
+                      {summary.driver_code}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
+                <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.tabletSetup}</div>
+                <ol className="space-y-1 text-xs text-zinc-400 list-decimal list-inside">
+                  <li>{t.tabletSetup1}</li>
+                  <li>{t.tabletSetup2}</li>
+                  <li>{t.tabletSetup3}</li>
+                  <li>{t.tabletSetup4}</li>
+                </ol>
+              </div>
+            </div>
           </div>
-          <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
-            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.tabletSetup}</div>
-            <ol className="space-y-1 text-xs text-zinc-400 list-decimal list-inside">
-              <li>{t.tabletSetup1}</li>
-              <li>{t.tabletSetup2}</li>
-              <li>{t.tabletSetup3}</li>
-              <li>{t.tabletSetup4}</li>
-            </ol>
+
+          {/* Quick access */}
+          <div className="px-4 mt-5 space-y-3">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">{t.quickAccess}</div>
+            <Link href={`/driver/${driverCode}/source-clients`}
+              className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
+              <div>
+                <div className="text-sm font-medium">{t.capturedClients}</div>
+                <div className="text-xs text-zinc-500 mt-0.5">{t.capturedClientsSub}</div>
+              </div>
+              <span className="text-zinc-400">→</span>
+            </Link>
+            <Link href={`/?ref=${summary.driver_code}`} target="_blank"
+              className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
+              <div>
+                <div className="text-sm font-medium">{t.referralLabel}</div>
+                <div className="text-xs text-zinc-500 mt-0.5">{t.referralSub}</div>
+              </div>
+              <span style={{ color: GOLD }}>↗</span>
+            </Link>
+          </div>
+
+          {/* Source ownership */}
+          <div className="mx-4 mt-5 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.sourceOwnership}</div>
+            <div className="space-y-2 text-xs text-zinc-400">
+              <p>{t.sourceOwnershipText1}</p>
+              <p>
+                {t.sourceOwnershipText2.split("15%")[0]}
+                <span style={{ color: GOLD }}>15%</span>
+                {t.sourceOwnershipText2.split("15%")[1]}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Quick access */}
-      <div className="px-4 mt-5 space-y-3">
-        <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">{t.quickAccess}</div>
-        <Link href={`/driver/${driverCode}/source-clients`}
-          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
-          <div>
-            <div className="text-sm font-medium">{t.capturedClients}</div>
-            <div className="text-xs text-zinc-500 mt-0.5">{t.capturedClientsSub}</div>
-          </div>
-          <span className="text-zinc-400">→</span>
-        </Link>
-        <Link href={`/driver/${driverCode}/earnings`}
-          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
-          <div>
-            <div className="text-sm font-medium">{t.earningsLabel}</div>
-            <div className="text-xs text-zinc-500 mt-0.5">{t.earningsSub}</div>
-          </div>
-          <span className="text-zinc-400">→</span>
-        </Link>
-        <Link href={`/?ref=${summary.driver_code}`} target="_blank"
-          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
-          <div>
-            <div className="text-sm font-medium">{t.referralLabel}</div>
-            <div className="text-xs text-zinc-500 mt-0.5">{t.referralSub}</div>
-          </div>
-          <span style={{ color: GOLD }}>↗</span>
-        </Link>
-      </div>
+      {/* ── TAB: UPCOMING ── */}
+      {dashTab === "upcoming" && (
+        <div className="px-4 mt-4">
+          {upcomingCount === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-4xl mb-3">📅</div>
+              <div className="text-zinc-500 text-sm">{lang === "es" ? "No hay viajes próximos" : "No upcoming rides"}</div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {summary.upcoming_rides.map((ride) => {
+                const pickupDate = ride.pickup_datetime
+                  ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""
+                const pickupTime = ride.pickup_datetime
+                  ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                const minutesUntil = ride.pickup_datetime
+                  ? Math.round((new Date(ride.pickup_datetime).getTime() - Date.now()) / 60000) : null
+                const isNearWindow = minutesUntil !== null && minutesUntil <= 120
 
-      {/* Source ownership */}
-      <div className="mx-4 mt-5 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-        <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.sourceOwnership}</div>
-        <div className="space-y-2 text-xs text-zinc-400">
-          <p>{t.sourceOwnershipText1}</p>
-          <p>
-            {t.sourceOwnershipText2.split("15%")[0]}
-            <span style={{ color: GOLD }}>15%</span>
-            {t.sourceOwnershipText2.split("15%")[1]}
-          </p>
+                return (
+                  <div key={ride.booking_id}
+                    className="rounded-xl border bg-zinc-900 overflow-hidden"
+                    style={{ borderColor: isNearWindow ? GOLD + "60" : "#27272a" }}>
+                    {isNearWindow && (
+                      <div className="px-4 py-2 text-xs font-semibold flex items-center gap-2"
+                        style={{ backgroundColor: GOLD + "15", color: GOLD }}>
+                        <span className="animate-pulse">●</span>
+                        {lang === "es" ? `Activación en ${minutesUntil} min` : `Activates in ${minutesUntil} min`}
+                      </div>
+                    )}
+                    <div className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
+                          <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
+                        </div>
+                        <div className="text-lg font-bold flex-shrink-0" style={{ color: GOLD }}>
+                          ${ride.total_price.toFixed(0)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 mt-2">
+                        <span className="text-xs text-zinc-400">{pickupDate}</span>
+                        <span className="text-xs font-medium text-white">{pickupTime}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type}</span>
+                        {minutesUntil !== null && (
+                          <span className="text-xs ml-auto" style={{ color: isNearWindow ? GOLD : "#6b7280" }}>
+                            {minutesUntil > 60 ? `${Math.floor(minutesUntil / 60)}h ${minutesUntil % 60}m` : `${minutesUntil}m`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* ── TAB: COMPLETED ── */}
+      {dashTab === "completed" && (
+        <div className="px-4 mt-4">
+          {completedCount === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-4xl mb-3">✅</div>
+              <div className="text-zinc-500 text-sm">{lang === "es" ? "No hay viajes completados" : "No completed rides yet"}</div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {summary.completed_rides.map((ride) => {
+                const pickupDate = ride.pickup_datetime
+                  ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""
+                const completedDate = ride.completed_at
+                  ? new Date(ride.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+
+                return (
+                  <div key={ride.booking_id}
+                    className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
+                        <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-base font-bold" style={{ color: ride.status === "no_show" ? "#f87171" : "#4ade80" }}>
+                          {ride.status === "no_show" ? "No Show" : `+$${ride.total_price.toFixed(0)}`}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="text-xs text-zinc-400">{pickupDate}</span>
+                      {completedDate && <span className="text-xs text-zinc-500">Completed {completedDate}</span>}
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: EARNINGS ── */}
+      {dashTab === "earnings" && (
+        <div className="px-4 mt-4">
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+              <div className="text-xl mb-1">💰</div>
+              <div className="text-xl font-light" style={{ color: GOLD }}>${summary.month_earnings.toFixed(2)}</div>
+              <div className="text-xs text-zinc-400 mt-1">{t.monthEarnings}</div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+              <div className="text-xl mb-1">📈</div>
+              <div className="text-xl font-light" style={{ color: "#a78bfa" }}>${summary.lifetime_earnings.toFixed(2)}</div>
+              <div className="text-xs text-zinc-400 mt-1">{t.lifetimeEarnings}</div>
+            </div>
+          </div>
+          <Link href={`/driver/${driverCode}/earnings`}
+            className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
+            <div>
+              <div className="text-sm font-medium">{t.earningsLabel}</div>
+              <div className="text-xs text-zinc-500 mt-0.5">{t.earningsSub}</div>
+            </div>
+            <span className="text-zinc-400">→</span>
+          </Link>
+          <Link href={`/driver/${driverCode}/source-clients`}
+            className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 mt-3 transition">
+            <div>
+              <div className="text-sm font-medium">{t.capturedClients}</div>
+              <div className="text-xs text-zinc-500 mt-0.5">{t.capturedClientsSub}</div>
+            </div>
+            <span className="text-zinc-400">→</span>
+          </Link>
+        </div>
+      )}
     </div>
   )
 }
@@ -1129,6 +1316,14 @@ function RideFlowScreen({
     showElapsed?: boolean
     smsType?: "arrived" | "en_route"
   }> = {
+    accepted: {
+      headerLabel: t.assignedRide,
+      primaryLabel: t.enRouteBtn,
+      primaryAction: "en_route",
+      showNavigate: true,
+      navigateUrl: mapsPickupUrl,
+      showContact: true,
+    },
     assigned: {
       headerLabel: t.assignedRide,
       primaryLabel: t.enRouteBtn,
@@ -1191,9 +1386,9 @@ function RideFlowScreen({
     },
   }
 
-  const cfg = stateConfig[ride.status] ?? stateConfig.assigned
-  const steps: RideStatus[] = ["assigned", "en_route", "arrived", "in_trip", "completed"]
-  const currentIdx = steps.indexOf(ride.status)
+  const cfg = stateConfig[ride.status] ?? stateConfig.accepted
+  const steps: RideStatus[] = ["accepted", "en_route", "arrived", "in_trip", "completed"]
+  const currentIdx = steps.indexOf(ride.status === "assigned" ? "accepted" : ride.status)
 
   return (
     <div className="fixed inset-0 flex flex-col"
