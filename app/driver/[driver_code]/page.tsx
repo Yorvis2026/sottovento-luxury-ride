@@ -6,22 +6,38 @@ import Link from "next/link"
 import { QRCodeSVG } from "qrcode.react"
 
 // ============================================================
-// /driver/[driver_code] — SLN Driver Panel v4
+// /driver/[driver_code] — SLN Driver Panel v5 (Master Block)
 //
-// PRIORITY ORDER (as per spec):
-//   1. OFFER    — active dispatch offer (full-screen, no dashboard)
-//   2. RIDE     — active ride in progress (full-screen, no dashboard)
+// PRIORITY ORDER:
+//   1. OFFER    — active dispatch offer (full-screen)
+//   2. RIDE     — active ride in progress (full-screen)
 //   3. CALM     — no active offer / ride (dashboard)
 //
 // RIDE FLOW STATES:
 //   assigned → en_route → arrived → in_trip → completed
 //
-// OPTIONAL TERMINAL:
-//   cancelled | no_show
+// v5 ADDITIONS:
+//   - Client Profile Strip (always visible in ride flow)
+//   - State Visual System (color theme per state)
+//   - Service Type Badge (AIRPORT / HOTEL / VIP)
+//   - Contact: Call + Text SMS (separate buttons)
+//   - Completion Feedback Overlay (+$amount, 2s)
+//   - Global status as single source of truth
 // ============================================================
 
 const GOLD = "#C8A96A"
-const POLL_INTERVAL = 5000 // 5 seconds
+const POLL_INTERVAL = 5000
+
+// ─── STATE THEME SYSTEM ───────────────────────────────────────
+const STATE_THEME: Record<string, { primary: string; bg: string; dot: string }> = {
+  assigned:  { primary: GOLD,      bg: "#0a0a00", dot: "#4ade80" },
+  en_route:  { primary: "#f59e0b", bg: "#0a0800", dot: "#f59e0b" },
+  arrived:   { primary: "#4ade80", bg: "#001a0a", dot: "#4ade80" },
+  in_trip:   { primary: "#a78bfa", bg: "#08000f", dot: "#a78bfa" },
+  completed: { primary: "#9ca3af", bg: "#0a0a0a", dot: "#9ca3af" },
+  cancelled: { primary: "#f87171", bg: "#0a0000", dot: "#f87171" },
+  no_show:   { primary: "#f87171", bg: "#0a0000", dot: "#f87171" },
+}
 
 // ─── TRANSLATIONS ─────────────────────────────────────────────
 type Lang = "en" | "es" | "ht"
@@ -36,24 +52,21 @@ const T: Record<Lang, Record<string, string>> = {
     timeRemaining: "Time remaining",
     accept: "ACCEPT",
     decline: "Decline",
-    // Ride flow states
     assignedRide: "Assigned Ride",
     enRoute: "En Route to Pickup",
     arrived: "Arrived at Pickup",
     inTrip: "Ride in Progress",
     completed: "Ride Completed",
-    // Primary actions
     startTrip: "Start Trip",
     enRouteBtn: "I'm On My Way",
     arrivedBtn: "I've Arrived",
     startRide: "Start Ride",
     completeRide: "Complete Ride",
     backToDashboard: "Back to Dashboard",
-    // Secondary actions
     navigate: "Navigate",
-    contact: "Contact Passenger",
+    call: "Call",
+    text: "Text",
     noShow: "No Show",
-    // Labels
     route: "Route",
     pickup: "Pickup",
     dropoff: "Dropoff",
@@ -62,7 +75,13 @@ const T: Record<Lang, Record<string, string>> = {
     passenger: "Passenger",
     elapsedTime: "Elapsed",
     bookingId: "Booking",
-    // Dashboard
+    repeatClient: "Repeat Client",
+    newClient: "New Client",
+    serviceAirport: "AIRPORT",
+    serviceHotel: "HOTEL",
+    serviceVip: "VIP",
+    rideCompletedTitle: "Ride Completed ✓",
+    rideCompletedSub: "Returning to dashboard...",
     myTablet: "My Passenger Tablet",
     tabletLink: "Tablet Link",
     copy: "Copy",
@@ -104,12 +123,10 @@ const T: Record<Lang, Record<string, string>> = {
     expiredSub: "Dispatching to next driver...",
     round: "Round",
     clientName: "Client",
-    clientPhone: "Phone",
     rideDetails: "Ride Details",
-    noClientInfo: "Client info unavailable",
-    rideCompletedTitle: "Ride Completed ✓",
-    rideCompletedSub: "Returning to dashboard...",
     transitioning: "Updating...",
+    sending: "Sending...",
+    sent: "Sent ✓",
   },
   es: {
     network: "Red Sottovento",
@@ -120,24 +137,21 @@ const T: Record<Lang, Record<string, string>> = {
     timeRemaining: "Tiempo restante",
     accept: "ACEPTAR",
     decline: "Rechazar",
-    // Ride flow
     assignedRide: "Servicio asignado",
     enRoute: "En camino al pasajero",
     arrived: "Llegué al punto de recogida",
     inTrip: "Viaje en progreso",
     completed: "Viaje completado",
-    // Primary actions
     startTrip: "Iniciar viaje",
     enRouteBtn: "Estoy en camino",
     arrivedBtn: "Llegué",
     startRide: "Iniciar viaje",
     completeRide: "Finalizar viaje",
     backToDashboard: "Volver al panel",
-    // Secondary
     navigate: "Navegar",
-    contact: "Contactar pasajero",
+    call: "Llamar",
+    text: "Mensaje",
     noShow: "No se presentó",
-    // Labels
     route: "Ruta",
     pickup: "Recogida",
     dropoff: "Destino",
@@ -146,7 +160,13 @@ const T: Record<Lang, Record<string, string>> = {
     passenger: "Pasajero",
     elapsedTime: "Tiempo",
     bookingId: "Reserva",
-    // Dashboard
+    repeatClient: "Cliente Frecuente",
+    newClient: "Cliente Nuevo",
+    serviceAirport: "AEROPUERTO",
+    serviceHotel: "HOTEL",
+    serviceVip: "VIP",
+    rideCompletedTitle: "Viaje Completado ✓",
+    rideCompletedSub: "Volviendo al panel...",
     myTablet: "Mi Tablet de Pasajero",
     tabletLink: "Enlace del Tablet",
     copy: "Copiar",
@@ -188,12 +208,10 @@ const T: Record<Lang, Record<string, string>> = {
     expiredSub: "Enviando al siguiente conductor...",
     round: "Ronda",
     clientName: "Cliente",
-    clientPhone: "Teléfono",
     rideDetails: "Detalles del Viaje",
-    noClientInfo: "Info del cliente no disponible",
-    rideCompletedTitle: "Viaje Completado ✓",
-    rideCompletedSub: "Volviendo al panel...",
     transitioning: "Actualizando...",
+    sending: "Enviando...",
+    sent: "Enviado ✓",
   },
   ht: {
     network: "Rezo Sottovento",
@@ -204,24 +222,21 @@ const T: Record<Lang, Record<string, string>> = {
     timeRemaining: "Tan ki rete",
     accept: "AKSEPTE",
     decline: "Refize",
-    // Ride flow
     assignedRide: "Sèvis asiyen",
     enRoute: "Sou wout pran pasaje",
     arrived: "Rive nan pwen pran",
     inTrip: "Vwayaj an pwogrè",
     completed: "Vwayaj fini",
-    // Primary actions
     startTrip: "Kòmanse vwayaj",
     enRouteBtn: "Mwen sou wout",
     arrivedBtn: "Mwen rive",
     startRide: "Kòmanse vwayaj",
     completeRide: "Fini vwayaj",
     backToDashboard: "Retounen nan panèl la",
-    // Secondary
     navigate: "Navige",
-    contact: "Kontakte pasaje",
+    call: "Rele",
+    text: "Mesaj",
     noShow: "Pa parèt",
-    // Labels
     route: "Wout",
     pickup: "Pran",
     dropoff: "Destinasyon",
@@ -230,7 +245,13 @@ const T: Record<Lang, Record<string, string>> = {
     passenger: "Pasaje",
     elapsedTime: "Tan",
     bookingId: "Rezèvasyon",
-    // Dashboard
+    repeatClient: "Kliyan Fidèl",
+    newClient: "Nouvo Kliyan",
+    serviceAirport: "AYEWOPÒ",
+    serviceHotel: "OTÈL",
+    serviceVip: "VIP",
+    rideCompletedTitle: "Vwayaj Fini ✓",
+    rideCompletedSub: "Retounen nan panèl...",
     myTablet: "Tablèt Pasaje Mwen",
     tabletLink: "Lyen Tablèt",
     copy: "Kopye",
@@ -272,12 +293,10 @@ const T: Record<Lang, Record<string, string>> = {
     expiredSub: "Voye bay pwochen chofè...",
     round: "Wòn",
     clientName: "Kliyan",
-    clientPhone: "Telefòn",
     rideDetails: "Detay Vwayaj",
-    noClientInfo: "Info kliyan pa disponib",
-    rideCompletedTitle: "Vwayaj Fini ✓",
-    rideCompletedSub: "Retounen nan panèl...",
     transitioning: "Ap mete ajou...",
+    sending: "Ap voye...",
+    sent: "Voye ✓",
   },
 }
 
@@ -296,6 +315,8 @@ interface ActiveOffer {
   dispatch_status: string
   is_source_offer?: boolean
   offer_round?: number
+  client_name?: string | null
+  bookings_count?: number
 }
 
 interface ActiveRide {
@@ -309,6 +330,7 @@ interface ActiveRide {
   client_name?: string | null
   client_phone?: string | null
   trip_started_at?: string | null
+  bookings_count?: number
 }
 
 interface DriverSummary {
@@ -326,9 +348,9 @@ interface DriverSummary {
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
 
-// ─── COUNTDOWN HOOK ───────────────────────────────────────────
+// ─── HOOKS ────────────────────────────────────────────────────
 function useCountdown(expiresAt: string | null) {
-  const [secondsLeft, setSecondsLeft] = useState<number>(0)
+  const [secondsLeft, setSecondsLeft] = useState<number>(999)
   useEffect(() => {
     if (!expiresAt) { setSecondsLeft(999); return }
     const calc = () => {
@@ -342,15 +364,11 @@ function useCountdown(expiresAt: string | null) {
   return secondsLeft
 }
 
-// ─── ELAPSED TIMER HOOK ───────────────────────────────────────
 function useElapsed(startedAt: string | null) {
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     if (!startedAt) return
-    const calc = () => {
-      const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
-      setElapsed(Math.max(0, diff))
-    }
+    const calc = () => setElapsed(Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)))
     calc()
     const id = setInterval(calc, 1000)
     return () => clearInterval(id)
@@ -360,24 +378,82 @@ function useElapsed(startedAt: string | null) {
   return `${mm}:${ss}`
 }
 
+// ─── HELPERS ──────────────────────────────────────────────────
+function getServiceBadge(pickup: string, dropoff: string, isRepeat: boolean): string | null {
+  const combined = (pickup + " " + dropoff).toLowerCase()
+  if (combined.includes("airport") || combined.includes("mco") || combined.includes("mia") || combined.includes("fll")) return "AIRPORT"
+  if (combined.includes("hotel") || combined.includes("resort") || combined.includes("marriott") || combined.includes("hilton") || combined.includes("ritz")) return "HOTEL"
+  if (isRepeat) return "VIP"
+  return null
+}
+
+function shortAddress(addr: string): string {
+  // Return first meaningful segment (before comma)
+  return addr.split(",")[0].trim()
+}
+
 // ─── LANG TOGGLE ─────────────────────────────────────────────
 function LangToggle({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {
   return (
     <div className="flex rounded-lg overflow-hidden border border-zinc-700">
       {(["en", "es", "ht"] as Lang[]).map((l) => (
-        <button
-          key={l}
-          onClick={() => onLang(l)}
+        <button key={l} onClick={() => onLang(l)}
           className="px-2 py-1 text-xs uppercase tracking-widest transition-all"
           style={{
             backgroundColor: lang === l ? GOLD : "transparent",
             color: lang === l ? "#000" : "#6b7280",
             fontWeight: lang === l ? 600 : 400,
-          }}
-        >
+          }}>
           {l}
         </button>
       ))}
+    </div>
+  )
+}
+
+// ─── CLIENT PROFILE STRIP ─────────────────────────────────────
+function ClientProfileStrip({
+  name, fare, pickup, dropoff, isRepeat, primaryColor, t,
+}: {
+  name: string | null | undefined
+  fare: number
+  pickup: string
+  dropoff: string
+  isRepeat: boolean
+  primaryColor: string
+  t: Record<string, string>
+}) {
+  const serviceBadge = getServiceBadge(pickup, dropoff, isRepeat)
+  return (
+    <div className="mx-4 mb-3 rounded-2xl border overflow-hidden"
+      style={{ borderColor: primaryColor + "40", backgroundColor: primaryColor + "10" }}>
+      <div className="px-4 py-3 flex items-center justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-base font-semibold text-white truncate">
+              {name ?? "Passenger"}
+            </span>
+            {isRepeat && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0"
+                style={{ backgroundColor: GOLD + "20", color: GOLD, border: `1px solid ${GOLD}60` }}>
+                ⭐ {t.repeatClient}
+              </span>
+            )}
+            {serviceBadge && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-bold flex-shrink-0"
+                style={{ backgroundColor: primaryColor + "20", color: primaryColor, border: `1px solid ${primaryColor}60` }}>
+                {serviceBadge}
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-zinc-400 mt-0.5 truncate">
+            {shortAddress(pickup)} → {shortAddress(dropoff)}
+          </div>
+        </div>
+        <div className="text-xl font-bold ml-3 flex-shrink-0" style={{ color: GOLD }}>
+          ${fare.toFixed(0)}
+        </div>
+      </div>
     </div>
   )
 }
@@ -396,7 +472,10 @@ export default function DriverDashboardByCode() {
   const [responding, setResponding] = useState(false)
   const [respondResult, setRespondResult] = useState<"accepted" | "declined" | "expired" | null>(null)
   const [transitioning, setTransitioning] = useState(false)
+  const [completedFare, setCompletedFare] = useState<number | null>(null)
   const [showCompleted, setShowCompleted] = useState(false)
+  const [smsSending, setSmsSending] = useState(false)
+  const [smsSent, setSmsSent] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const t = T[lang]
@@ -419,25 +498,16 @@ export default function DriverDashboardByCode() {
     try { localStorage.setItem("sln_driver_lang", l) } catch {}
   }
 
-  // ── Load driver data ─────────────────────────────────────────
   const loadData = useCallback(async () => {
     if (!driverCode) return
     try {
       const res = await fetch(`/api/driver/me?code=${encodeURIComponent(driverCode)}`)
       const data = await res.json()
-      if (data.error) {
-        setError(data.error)
-        setLoading(false)
-        return
-      }
+      if (data.error) { setError(data.error); setLoading(false); return }
       const d = data.driver
-      // Map assigned_ride — include status for ride flow
       let activeRide: ActiveRide | null = null
       if (d.assigned_ride) {
-        activeRide = {
-          ...d.assigned_ride,
-          status: d.assigned_ride.status ?? "assigned",
-        }
+        activeRide = { ...d.assigned_ride, status: d.assigned_ride.status ?? "assigned" }
       }
       setSummary({
         driver_id: d.id,
@@ -464,7 +534,6 @@ export default function DriverDashboardByCode() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadData])
 
-  // ── Respond to offer ─────────────────────────────────────────
   const respondOffer = async (response: "accepted" | "declined") => {
     if (!summary?.active_offer || responding) return
     setResponding(true)
@@ -481,34 +550,20 @@ export default function DriverDashboardByCode() {
       const data = await res.json()
       if (response === "accepted" && !data.error) {
         setRespondResult("accepted")
-        setTimeout(() => {
-          setRespondResult(null)
-          setResponding(false)
-          loadData()
-        }, 1500)
+        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 1500)
       } else {
         setRespondResult(response)
-        setTimeout(() => {
-          setRespondResult(null)
-          setResponding(false)
-          loadData()
-        }, 2000)
+        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
       }
-    } catch {
-      setResponding(false)
-    }
+    } catch { setResponding(false) }
   }
 
   const handleOfferExpired = useCallback(() => {
     if (respondResult) return
     setRespondResult("expired")
-    setTimeout(() => {
-      setRespondResult(null)
-      loadData()
-    }, 2500)
+    setTimeout(() => { setRespondResult(null); loadData() }, 2500)
   }, [respondResult, loadData])
 
-  // ── Transition ride status ────────────────────────────────────
   const transitionRide = async (newStatus: RideStatus) => {
     if (!summary?.assigned_ride || transitioning) return
     setTransitioning(true)
@@ -525,13 +580,10 @@ export default function DriverDashboardByCode() {
       const data = await res.json()
       if (!data.error) {
         if (newStatus === "completed") {
+          setCompletedFare(summary.assigned_ride.total_price)
           setShowCompleted(true)
-          setTimeout(() => {
-            setShowCompleted(false)
-            loadData()
-          }, 3000)
+          setTimeout(() => { setShowCompleted(false); setCompletedFare(null); loadData() }, 3000)
         } else {
-          // Optimistic update
           setSummary((prev) => {
             if (!prev || !prev.assigned_ride) return prev
             return {
@@ -547,6 +599,25 @@ export default function DriverDashboardByCode() {
       }
     } catch {}
     setTransitioning(false)
+  }
+
+  const sendSMS = async (messageType: "arrived" | "en_route") => {
+    if (!summary?.assigned_ride || smsSending) return
+    setSmsSending(true)
+    try {
+      await fetch("/api/driver/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: summary.assigned_ride.booking_id,
+          driver_id: summary.driver_id,
+          message_type: messageType,
+        }),
+      })
+      setSmsSent(true)
+      setTimeout(() => setSmsSent(false), 3000)
+    } catch {}
+    setSmsSending(false)
   }
 
   const copyLink = useCallback(async () => {
@@ -585,14 +656,19 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── COMPLETED OVERLAY ────────────────────────────────────────
+  // ── COMPLETION OVERLAY (v5 — shows +$amount) ─────────────────
   if (showCompleted) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950"
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
-        <div className="text-6xl mb-5">✅</div>
-        <div className="text-2xl font-light text-white mb-2">{t.rideCompletedTitle}</div>
-        <div className="text-sm text-zinc-400">{t.rideCompletedSub}</div>
+        <div className="text-7xl mb-5">✅</div>
+        <div className="text-3xl font-light text-white mb-2">{t.rideCompletedTitle}</div>
+        {completedFare !== null && (
+          <div className="text-4xl font-bold mt-2" style={{ color: GOLD }}>
+            +${completedFare.toFixed(0)}
+          </div>
+        )}
+        <div className="text-sm text-zinc-400 mt-3">{t.rideCompletedSub}</div>
       </div>
     )
   }
@@ -620,7 +696,7 @@ export default function DriverDashboardByCode() {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // PRIORITY 1: OFFER SCREEN — full screen, no dashboard
+  // PRIORITY 1: OFFER SCREEN
   // ══════════════════════════════════════════════════════════════
   if (summary.active_offer && !respondResult) {
     return (
@@ -639,7 +715,7 @@ export default function DriverDashboardByCode() {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // PRIORITY 2: RIDE FLOW SCREEN — full screen, no dashboard
+  // PRIORITY 2: RIDE FLOW SCREEN
   // ══════════════════════════════════════════════════════════════
   if (summary.assigned_ride) {
     return (
@@ -651,6 +727,9 @@ export default function DriverDashboardByCode() {
         onLang={setLangAndSave}
         onTransition={transitionRide}
         transitioning={transitioning}
+        onSendSMS={sendSMS}
+        smsSending={smsSending}
+        smsSent={smsSent}
         t={t}
       />
     )
@@ -838,6 +917,9 @@ function OfferScreen({
   const pickupTime = offer.pickup_datetime
     ? new Date(offer.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
 
+  const isRepeat = (offer.bookings_count ?? 0) > 1
+  const serviceBadge = getServiceBadge(offer.pickup_location, offer.dropoff_location, isRepeat)
+
   return (
     <div className="fixed inset-0 flex flex-col bg-black"
       style={{
@@ -847,7 +929,7 @@ function OfferScreen({
 
       {/* Top bar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
           <span className="text-xs uppercase tracking-widest font-semibold" style={{ color: GOLD }}>
             {t.newRideOffer}
@@ -856,6 +938,12 @@ function OfferScreen({
             <span className="text-xs px-2 py-0.5 rounded-full font-medium"
               style={{ backgroundColor: "#1c1400", color: GOLD, border: `1px solid ${GOLD}` }}>
               {t.sourceOffer}
+            </span>
+          )}
+          {serviceBadge && (
+            <span className="text-xs px-2 py-0.5 rounded-full font-bold"
+              style={{ backgroundColor: GOLD + "20", color: GOLD, border: `1px solid ${GOLD}60` }}>
+              {serviceBadge}
             </span>
           )}
           {offer.offer_round && offer.offer_round > 1 && (
@@ -867,6 +955,21 @@ function OfferScreen({
           <span className="text-xs text-zinc-500 hidden sm:block">{driverName}</span>
         </div>
       </div>
+
+      {/* Client strip (if name available) */}
+      {offer.client_name && (
+        <div className="px-5 pt-3 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white">{offer.client_name}</span>
+            {isRepeat && (
+              <span className="text-xs px-2 py-0.5 rounded-full"
+                style={{ backgroundColor: GOLD + "20", color: GOLD, border: `1px solid ${GOLD}60` }}>
+                ⭐ {t.repeatClient}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex flex-col px-5 py-4 overflow-hidden">
@@ -952,16 +1055,21 @@ function OfferScreen({
 }
 
 // ══════════════════════════════════════════════════════════════
-// RIDE FLOW SCREEN — 5 states, one primary action each
+// RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, t,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, t,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
-  transitioning: boolean; t: Record<string, string>
+  transitioning: boolean
+  onSendSMS: (type: "arrived" | "en_route") => void
+  smsSending: boolean; smsSent: boolean
+  t: Record<string, string>
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
+  const theme = STATE_THEME[ride.status] ?? STATE_THEME.assigned
+  const isRepeat = (ride.bookings_count ?? 0) > 1
 
   const pickupDate = ride.pickup_datetime
     ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""
@@ -971,64 +1079,49 @@ function RideFlowScreen({
   const mapsPickupUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.pickup_location)}`
   const mapsDropoffUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.dropoff_location)}`
   const contactUrl = ride.client_phone ? `tel:${ride.client_phone}` : null
-  const whatsappUrl = ride.client_phone
-    ? `https://wa.me/${ride.client_phone.replace(/\D/g, "")}` : null
 
-  // ── State-specific config ────────────────────────────────────
   const stateConfig: Record<RideStatus, {
     headerLabel: string
-    headerColor: string
-    dotColor: string
     primaryLabel: string
     primaryAction: RideStatus | null
-    primaryColor: string
     showNavigate: boolean
     navigateUrl: string
     showContact: boolean
     showNoShow?: boolean
     showElapsed?: boolean
+    smsType?: "arrived" | "en_route"
   }> = {
     assigned: {
       headerLabel: t.assignedRide,
-      headerColor: GOLD,
-      dotColor: "#4ade80",
       primaryLabel: t.enRouteBtn,
       primaryAction: "en_route",
-      primaryColor: GOLD,
       showNavigate: true,
       navigateUrl: mapsPickupUrl,
       showContact: true,
     },
     en_route: {
       headerLabel: t.enRoute,
-      headerColor: "#60a5fa",
-      dotColor: "#60a5fa",
       primaryLabel: t.arrivedBtn,
       primaryAction: "arrived",
-      primaryColor: "#60a5fa",
       showNavigate: true,
       navigateUrl: mapsPickupUrl,
       showContact: true,
+      smsType: "en_route",
     },
     arrived: {
       headerLabel: t.arrived,
-      headerColor: "#4ade80",
-      dotColor: "#4ade80",
       primaryLabel: t.startRide,
       primaryAction: "in_trip",
-      primaryColor: "#4ade80",
       showNavigate: false,
       navigateUrl: mapsPickupUrl,
       showContact: true,
       showNoShow: true,
+      smsType: "arrived",
     },
     in_trip: {
       headerLabel: t.inTrip,
-      headerColor: GOLD,
-      dotColor: GOLD,
       primaryLabel: t.completeRide,
       primaryAction: "completed",
-      primaryColor: GOLD,
       showNavigate: true,
       navigateUrl: mapsDropoffUrl,
       showContact: false,
@@ -1036,33 +1129,24 @@ function RideFlowScreen({
     },
     completed: {
       headerLabel: t.completed,
-      headerColor: "#4ade80",
-      dotColor: "#4ade80",
       primaryLabel: t.backToDashboard,
       primaryAction: null,
-      primaryColor: "#4ade80",
       showNavigate: false,
       navigateUrl: "",
       showContact: false,
     },
     cancelled: {
       headerLabel: "Cancelled",
-      headerColor: "#f87171",
-      dotColor: "#f87171",
       primaryLabel: t.backToDashboard,
       primaryAction: null,
-      primaryColor: "#f87171",
       showNavigate: false,
       navigateUrl: "",
       showContact: false,
     },
     no_show: {
       headerLabel: "No Show",
-      headerColor: "#f87171",
-      dotColor: "#f87171",
       primaryLabel: t.backToDashboard,
       primaryAction: null,
-      primaryColor: "#f87171",
       showNavigate: false,
       navigateUrl: "",
       showContact: false,
@@ -1070,25 +1154,25 @@ function RideFlowScreen({
   }
 
   const cfg = stateConfig[ride.status] ?? stateConfig.assigned
-
-  // ── Progress steps ───────────────────────────────────────────
   const steps: RideStatus[] = ["assigned", "en_route", "arrived", "in_trip", "completed"]
   const currentIdx = steps.indexOf(ride.status)
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-black"
+    <div className="fixed inset-0 flex flex-col"
       style={{
+        backgroundColor: theme.bg,
         paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
       }}>
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
+      <div className="flex items-center justify-between px-5 py-3 border-b flex-shrink-0"
+        style={{ borderColor: theme.primary + "30" }}>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ backgroundColor: cfg.dotColor }} />
+          <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ backgroundColor: theme.dot }} />
           <div>
             <div className="text-xs text-zinc-500 uppercase tracking-widest">Sottovento Network</div>
-            <div className="text-sm font-medium" style={{ color: cfg.headerColor }}>{cfg.headerLabel}</div>
+            <div className="text-sm font-semibold" style={{ color: theme.primary }}>{cfg.headerLabel}</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -1097,29 +1181,38 @@ function RideFlowScreen({
         </div>
       </div>
 
-      {/* ── Progress bar ── */}
+      {/* ── Progress bar (state-colored) ── */}
       <div className="flex items-center px-5 py-3 gap-1 flex-shrink-0">
         {steps.map((step, idx) => (
           <div key={step} className="flex items-center flex-1">
             <div className="h-1.5 flex-1 rounded-full transition-all duration-500"
-              style={{
-                backgroundColor: idx <= currentIdx ? cfg.dotColor : "#27272a",
-              }} />
+              style={{ backgroundColor: idx <= currentIdx ? theme.primary : "#27272a" }} />
             {idx < steps.length - 1 && (
               <div className="w-1.5 h-1.5 rounded-full mx-0.5 flex-shrink-0"
-                style={{ backgroundColor: idx < currentIdx ? cfg.dotColor : "#27272a" }} />
+                style={{ backgroundColor: idx < currentIdx ? theme.primary : "#27272a" }} />
             )}
           </div>
         ))}
       </div>
 
+      {/* ── Client Profile Strip (TOP PRIORITY — always visible) ── */}
+      <ClientProfileStrip
+        name={ride.client_name}
+        fare={ride.total_price}
+        pickup={ride.pickup_location}
+        dropoff={ride.dropoff_location}
+        isRepeat={isRepeat}
+        primaryColor={theme.primary}
+        t={t}
+      />
+
       {/* ── Main content ── */}
-      <div className="flex-1 overflow-y-auto px-5 py-2">
+      <div className="flex-1 overflow-y-auto px-4 pb-2">
 
         {/* Route card */}
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden mb-4">
+        <div className="rounded-2xl border overflow-hidden mb-4"
+          style={{ borderColor: theme.primary + "30", backgroundColor: "#0f0f0f" }}>
           <div className="px-5 py-4">
-            {/* Pickup */}
             <div className="mb-1">
               <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
@@ -1132,7 +1225,6 @@ function RideFlowScreen({
               <div className="text-zinc-600 text-sm">↓</div>
               <div className="h-px flex-1 bg-zinc-800" />
             </div>
-            {/* Dropoff */}
             <div>
               <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
@@ -1143,7 +1235,8 @@ function RideFlowScreen({
           </div>
 
           {/* Details grid */}
-          <div className="grid grid-cols-3 divide-x divide-zinc-800 border-t border-zinc-800">
+          <div className="grid grid-cols-3 divide-x border-t"
+            style={{ borderColor: theme.primary + "20", divideColor: theme.primary + "20" }}>
             <div className="px-4 py-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
               <div className="text-sm font-medium text-white">{pickupDate}</div>
@@ -1161,73 +1254,65 @@ function RideFlowScreen({
 
           {/* Elapsed time (in_trip only) */}
           {cfg.showElapsed && (
-            <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50 flex items-center justify-between">
+            <div className="px-5 py-3 border-t flex items-center justify-between"
+              style={{ borderColor: theme.primary + "30", backgroundColor: theme.primary + "08" }}>
               <div className="text-xs text-zinc-500 uppercase tracking-widest">{t.elapsedTime}</div>
-              <div className="text-xl font-mono font-bold tabular-nums" style={{ color: GOLD }}>{elapsed}</div>
-            </div>
-          )}
-
-          {/* Passenger info */}
-          {(ride.client_name || ride.client_phone) && (
-            <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
-              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.passenger}</div>
-              {ride.client_name && (
-                <div className="text-sm font-medium text-white">{ride.client_name}</div>
-              )}
-              {ride.client_phone && (
-                <div className="text-sm mt-0.5" style={{ color: GOLD }}>{ride.client_phone}</div>
-              )}
+              <div className="text-xl font-mono font-bold tabular-nums" style={{ color: theme.primary }}>{elapsed}</div>
             </div>
           )}
 
           {/* Booking ID */}
-          <div className="px-5 py-2 border-t border-zinc-800">
+          <div className="px-5 py-2 border-t border-zinc-800/50">
             <div className="text-xs text-zinc-600 font-mono truncate">
               {t.bookingId}: {ride.booking_id.slice(0, 8)}...
             </div>
           </div>
         </div>
 
-        {/* Secondary actions row */}
+        {/* Contact actions row: Navigate + Call + Text */}
         {(cfg.showNavigate || cfg.showContact) && (
-          <div className="flex gap-3 mb-4">
+          <div className="flex gap-2 mb-4">
             {cfg.showNavigate && (
               <a href={cfg.navigateUrl}
-                className="flex-1 py-3.5 rounded-2xl border border-zinc-700 text-center text-sm font-medium text-zinc-300 transition-all active:scale-95">
+                className="flex-1 py-3.5 rounded-2xl border text-center text-sm font-medium transition-all active:scale-95"
+                style={{ borderColor: theme.primary + "50", color: theme.primary }}>
                 {t.navigate}
               </a>
             )}
             {cfg.showContact && contactUrl && (
               <a href={contactUrl}
-                className="flex-1 py-3.5 rounded-2xl border border-zinc-700 text-center text-sm font-medium text-zinc-300 transition-all active:scale-95">
-                {t.contact}
+                className="flex-1 py-3.5 rounded-2xl border text-center text-sm font-medium text-zinc-300 transition-all active:scale-95"
+                style={{ borderColor: "#4b5563" }}>
+                {t.call}
               </a>
             )}
-            {cfg.showContact && whatsappUrl && !contactUrl && (
-              <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
-                className="flex-1 py-3.5 rounded-2xl border border-zinc-700 text-center text-sm font-medium text-zinc-300 transition-all active:scale-95">
-                WhatsApp
-              </a>
+            {cfg.showContact && cfg.smsType && (
+              <button
+                onClick={() => cfg.smsType && onSendSMS(cfg.smsType)}
+                disabled={smsSending || smsSent}
+                className="flex-1 py-3.5 rounded-2xl border text-center text-sm font-medium transition-all active:scale-95 disabled:opacity-60"
+                style={{ borderColor: "#4b5563", color: smsSent ? "#4ade80" : "#d1d5db" }}>
+                {smsSending ? t.sending : smsSent ? t.sent : t.text}
+              </button>
             )}
           </div>
         )}
       </div>
 
-      {/* ── Primary action ── */}
-      <div className="px-5 flex-shrink-0 space-y-3">
+      {/* ── Primary action (state-colored) ── */}
+      <div className="px-4 flex-shrink-0 space-y-3">
         {cfg.primaryAction ? (
           <button
             onClick={() => cfg.primaryAction && onTransition(cfg.primaryAction)}
             disabled={transitioning}
             className="w-full py-5 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-60"
-            style={{ backgroundColor: cfg.primaryColor, color: "#000" }}>
+            style={{ backgroundColor: theme.primary, color: theme.primary === "#f59e0b" || theme.primary === GOLD || theme.primary === "#4ade80" ? "#000" : "#fff" }}>
             {transitioning ? t.transitioning : cfg.primaryLabel}
           </button>
         ) : (
           <div className="text-center text-zinc-400 text-sm py-4">{cfg.primaryLabel}</div>
         )}
 
-        {/* No Show option (arrived state only) */}
         {cfg.showNoShow && (
           <button
             onClick={() => onTransition("no_show")}
