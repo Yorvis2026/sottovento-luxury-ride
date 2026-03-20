@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     let clientId: string | null = null
 
     try {
-      // Ensure columns exist
+      // Ensure extra columns exist (idempotent)
       await sql`
         ALTER TABLE bookings
           ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ,
@@ -64,9 +64,15 @@ export async function POST(req: NextRequest) {
           ADD COLUMN IF NOT EXISTS source_code VARCHAR(50),
           ADD COLUMN IF NOT EXISTS passengers INTEGER,
           ADD COLUMN IF NOT EXISTS luggage VARCHAR(100),
-          ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20)
+          ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20),
+          ADD COLUMN IF NOT EXISTS dispatch_status VARCHAR(50)
       `
     } catch { /* columns may already exist */ }
+
+    // Also ensure pickup_at allows NULL (in case schema has NOT NULL constraint)
+    try {
+      await sql`ALTER TABLE bookings ALTER COLUMN pickup_at DROP NOT NULL`
+    } catch { /* may already be nullable */ }
 
     // Upsert client
     if (email) {
@@ -95,7 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Build pickup datetime
-    const pickupAt = date && time ? `${date}T${time}:00` : null
+    const pickupAt = date && time ? `${date}T${time}:00+00` : null
 
     // Create pending booking
     try {
@@ -127,7 +133,7 @@ export async function POST(req: NextRequest) {
           'pending_payment',
           ${pickupAddr},
           ${dropoffAddr},
-          ${pickupAt ? pickupAt + '+00' : null}::timestamptz,
+          ${pickupAt}::timestamptz,
           ${vehicle},
           ${price},
           ${clientId ? clientId + '::uuid' : null},
