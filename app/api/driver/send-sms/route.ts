@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { sql } from "@/lib/db"
+import { neon } from "@neondatabase/serverless"
+
+const sql = neon(process.env.DATABASE_URL!)
 
 // POST /api/driver/send-sms
 // body: { booking_id, driver_id, message_type: "arrived" | "custom", custom_message?: string }
