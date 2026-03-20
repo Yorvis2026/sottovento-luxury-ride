@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
           ${pickupAt}::timestamptz,
           ${vehicle},
           ${price},
-          ${clientId ? clientId + '::uuid' : null},
+          ${clientId}::uuid,
           ${email ?? null},
           ${phone ?? null},
           ${flightNumber ?? null},
