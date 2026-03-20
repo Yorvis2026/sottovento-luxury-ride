@@ -224,7 +224,28 @@ function BookingInner() {
       const response = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ price, vehicle: effectiveVehicle, pickupZone: formData.pickupZone, dropoffZone: formData.dropoffZone, tripType: formData.tripType }),
+        body: JSON.stringify({
+          price,
+          vehicle: effectiveVehicle,
+          pickupZone: formData.pickupZone,
+          dropoffZone: formData.dropoffZone,
+          tripType: formData.tripType,
+          // Client info
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          // Ride details
+          date: formData.date,
+          time: formData.time,
+          pickupLocation: formData.pickupLocation,
+          dropoffLocation: formData.dropoffLocation,
+          flightNumber: formData.flightNumber,
+          notes: formData.notes,
+          passengers: formData.passengers,
+          luggage: formData.luggage,
+          // Source tracking
+          sourceCode: searchParams.get("ref") || searchParams.get("driver") || "",
+        }),
       })
       const data = await response.json()
       if (data.url) window.location.href = data.url
