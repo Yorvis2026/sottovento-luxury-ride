@@ -34,7 +34,7 @@ interface BookingData {
   completed_at: string | null
 }
 
-// ─── Status Config ─────────────────────────────────────────────────────────────
+// ─── Status Config — Premium Copy ─────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<
   string,
@@ -45,95 +45,100 @@ const STATUS_CONFIG: Record<
     color: string
     bgColor: string
     borderColor: string
+    pulse?: boolean
+    glow?: boolean
   }
 > = {
   pending: {
     icon: "⏳",
     title: "Booking Received",
-    subtitle: "We're preparing your ride",
+    subtitle: "We're preparing your private ride",
     color: "#9ca3af",
-    bgColor: "rgba(156,163,175,0.08)",
-    borderColor: "rgba(156,163,175,0.2)",
+    bgColor: "rgba(156,163,175,0.06)",
+    borderColor: "rgba(156,163,175,0.15)",
   },
   confirmed: {
     icon: "✅",
-    title: "Your ride is confirmed",
+    title: "Your private ride is confirmed",
     subtitle: "A driver will be assigned shortly",
     color: "#4ade80",
-    bgColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
+    bgColor: "rgba(74,222,128,0.06)",
+    borderColor: "rgba(74,222,128,0.18)",
   },
   offered: {
     icon: "✅",
-    title: "Your ride is confirmed",
-    subtitle: "Connecting you with a driver",
+    title: "Your private ride is confirmed",
+    subtitle: "Connecting you with your driver",
     color: "#4ade80",
-    bgColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
+    bgColor: "rgba(74,222,128,0.06)",
+    borderColor: "rgba(74,222,128,0.18)",
   },
   accepted: {
     icon: "✅",
-    title: "Your ride is confirmed",
-    subtitle: "Driver is preparing to depart",
+    title: "Your private ride is confirmed",
+    subtitle: "Your driver is preparing to depart",
     color: "#4ade80",
-    bgColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
+    bgColor: "rgba(74,222,128,0.06)",
+    borderColor: "rgba(74,222,128,0.18)",
   },
   assigned: {
     icon: "🚘",
-    title: "Your driver is on the way",
+    title: "Your private driver is on the way",
     subtitle: "Heading to your pickup location",
-    color: "#C8A96A",
-    bgColor: "rgba(200,169,106,0.08)",
-    borderColor: "rgba(200,169,106,0.2)",
+    color: "#f59e0b",
+    bgColor: "rgba(245,158,11,0.06)",
+    borderColor: "rgba(245,158,11,0.2)",
+    pulse: true,
   },
   en_route: {
     icon: "🚘",
-    title: "Your driver is on the way",
+    title: "Your private driver is on the way",
     subtitle: "Heading to your pickup location",
     color: "#f59e0b",
-    bgColor: "rgba(245,158,11,0.08)",
+    bgColor: "rgba(245,158,11,0.06)",
     borderColor: "rgba(245,158,11,0.2)",
+    pulse: true,
   },
   arrived: {
     icon: "📍",
-    title: "Your driver has arrived",
-    subtitle: "Please proceed to pickup location",
+    title: "Your driver has arrived at your pickup location",
+    subtitle: "Please proceed to your vehicle",
     color: "#4ade80",
     bgColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
+    borderColor: "rgba(74,222,128,0.3)",
+    glow: true,
   },
   in_progress: {
     icon: "🛣️",
-    title: "Ride in progress",
-    subtitle: "Enjoy your journey",
+    title: "You are on your way",
+    subtitle: "Sit back and enjoy the journey",
     color: "#a78bfa",
-    bgColor: "rgba(167,139,250,0.08)",
-    borderColor: "rgba(167,139,250,0.2)",
+    bgColor: "rgba(167,139,250,0.06)",
+    borderColor: "rgba(167,139,250,0.18)",
   },
   in_trip: {
     icon: "🛣️",
-    title: "Ride in progress",
-    subtitle: "Enjoy your journey",
+    title: "You are on your way",
+    subtitle: "Sit back and enjoy the journey",
     color: "#a78bfa",
-    bgColor: "rgba(167,139,250,0.08)",
-    borderColor: "rgba(167,139,250,0.2)",
+    bgColor: "rgba(167,139,250,0.06)",
+    borderColor: "rgba(167,139,250,0.18)",
   },
   completed: {
     icon: "✅",
-    title: "Ride completed",
-    subtitle: "Thank you for choosing Sottovento Luxury Ride",
-    color: "#4ade80",
-    bgColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
+    title: "Your ride has been completed",
+    subtitle: "Thank you for choosing Sottovento Luxury Ride.",
+    color: "#C8A96A",
+    bgColor: "rgba(200,169,106,0.06)",
+    borderColor: "rgba(200,169,106,0.2)",
   },
   cancelled: {
     icon: "❌",
     title: "Ride cancelled",
     subtitle: "Please contact us if you need assistance",
     color: "#ef4444",
-    bgColor: "rgba(239,68,68,0.08)",
-    borderColor: "rgba(239,68,68,0.2)",
+    bgColor: "rgba(239,68,68,0.06)",
+    borderColor: "rgba(239,68,68,0.18)",
   },
 }
 
@@ -161,7 +166,6 @@ function formatDate(iso: string | null): string {
 
 function shortenAddress(addr: string | null): string {
   if (!addr) return "—"
-  // Remove long zip codes and state abbreviations for cleaner display
   return addr.replace(/,?\s*(FL|GA|NY|CA|TX)\s+\d{5}(-\d{4})?/g, "").trim()
 }
 
@@ -175,6 +179,7 @@ export default function TrackPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [tripElapsed, setTripElapsed] = useState<number>(0)
 
   const fetchBooking = useCallback(async () => {
     if (!token) return
@@ -210,6 +215,16 @@ export default function TrackPage() {
     return () => clearInterval(interval)
   }, [fetchBooking])
 
+  // Trip elapsed timer
+  useEffect(() => {
+    if (!booking?.trip_started_at) return
+    const start = new Date(booking.trip_started_at).getTime()
+    const tick = () => setTripElapsed(Math.floor((Date.now() - start) / 1000))
+    tick()
+    const interval = setInterval(tick, 1000)
+    return () => clearInterval(interval)
+  }, [booking?.trip_started_at])
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const statusCfg = booking
@@ -223,7 +238,7 @@ export default function TrackPage() {
     )
 
   const showETA =
-    booking?.eta &&
+    booking?.eta != null && booking.eta > 0 &&
     ["assigned", "en_route"].includes(booking.status)
 
   const showCallDriver =
@@ -233,59 +248,87 @@ export default function TrackPage() {
     )
 
   const showRebook = booking?.status === "completed"
+  const isInTrip = booking?.status === "in_progress" || booking?.status === "in_trip"
+  const isArrived = booking?.status === "arrived"
+  const isEnRoute = booking?.status === "en_route" || booking?.status === "assigned"
 
   const brandName =
     booking?.branding?.display_brand_name || "Sottovento Luxury Ride"
+
+  const elapsedStr = (() => {
+    const m = Math.floor(tripElapsed / 60)
+    const s = tripElapsed % 60
+    return `${m}:${s.toString().padStart(2, "0")}`
+  })()
 
   return (
     <div
       style={{
         minHeight: "100dvh",
-        backgroundColor: "#0a0a0a",
+        backgroundColor: "#080808",
         color: "#ffffff",
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
         paddingTop: "calc(env(safe-area-inset-top) + 12px)",
-        paddingBottom: "calc(env(safe-area-inset-bottom) + 24px)",
-        paddingLeft: "16px",
-        paddingRight: "16px",
+        paddingBottom: "calc(env(safe-area-inset-bottom) + 32px)",
+        paddingLeft: "20px",
+        paddingRight: "20px",
         maxWidth: "480px",
         margin: "0 auto",
       }}
     >
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse-ring {
+          0% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
+          70% { box-shadow: 0 0 0 12px rgba(245,158,11,0); }
+          100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+        }
+        @keyframes glow-green {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0.5); }
+          50% { box-shadow: 0 0 20px 4px rgba(74,222,128,0.25); }
+        }
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .track-card { animation: fade-in 0.35s ease; }
+        .pulse-amber { animation: pulse-ring 2s ease-out infinite; }
+        .glow-green-anim { animation: glow-green 2.5s ease-in-out infinite; }
+      `}</style>
+
       {/* ── Header ── */}
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          paddingTop: "24px",
+          paddingTop: "20px",
           paddingBottom: "28px",
           gap: "6px",
         }}
       >
-        {/* Logo mark */}
         <div
           style={{
-            width: "48px",
-            height: "48px",
-            borderRadius: "12px",
-            background: "linear-gradient(135deg, #C8A96A 0%, #a07840 100%)",
+            width: "52px",
+            height: "52px",
+            borderRadius: "14px",
+            background: "linear-gradient(135deg, #C8A96A 0%, #8a6020 100%)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "22px",
-            marginBottom: "8px",
-            boxShadow: "0 4px 20px rgba(200,169,106,0.3)",
+            fontSize: "24px",
+            marginBottom: "10px",
+            boxShadow: "0 4px 24px rgba(200,169,106,0.35)",
           }}
         >
           🚘
         </div>
         <div
           style={{
-            fontSize: "13px",
-            fontWeight: 600,
-            letterSpacing: "0.12em",
+            fontSize: "14px",
+            fontWeight: 700,
+            letterSpacing: "0.14em",
             textTransform: "uppercase",
             color: "#C8A96A",
           }}
@@ -295,8 +338,9 @@ export default function TrackPage() {
         <div
           style={{
             fontSize: "11px",
-            color: "#4b5563",
-            letterSpacing: "0.05em",
+            color: "#374151",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
           }}
         >
           Ride Tracking
@@ -311,42 +355,40 @@ export default function TrackPage() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            paddingTop: "60px",
-            gap: "16px",
+            paddingTop: "80px",
+            gap: "20px",
           }}
         >
           <div
             style={{
-              width: "40px",
-              height: "40px",
-              border: "2px solid rgba(200,169,106,0.2)",
+              width: "44px",
+              height: "44px",
+              border: "2px solid rgba(200,169,106,0.15)",
               borderTopColor: "#C8A96A",
               borderRadius: "50%",
-              animation: "spin 1s linear infinite",
+              animation: "spin 0.9s linear infinite",
             }}
           />
-          <div style={{ color: "#6b7280", fontSize: "14px" }}>
+          <div style={{ color: "#4b5563", fontSize: "14px", letterSpacing: "0.04em" }}>
             Loading your ride...
           </div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
       {/* ── Error State ── */}
       {!loading && error && (
         <div
+          className="track-card"
           style={{
-            background: "rgba(239,68,68,0.08)",
-            border: "1px solid rgba(239,68,68,0.2)",
-            borderRadius: "16px",
-            padding: "24px",
+            background: "rgba(239,68,68,0.06)",
+            border: "1px solid rgba(239,68,68,0.18)",
+            borderRadius: "20px",
+            padding: "32px 24px",
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: "32px", marginBottom: "12px" }}>⚠️</div>
-          <div
-            style={{ color: "#ef4444", fontSize: "15px", fontWeight: 500 }}
-          >
+          <div style={{ fontSize: "36px", marginBottom: "14px" }}>⚠️</div>
+          <div style={{ color: "#ef4444", fontSize: "15px", fontWeight: 500 }}>
             {error}
           </div>
         </div>
@@ -354,27 +396,29 @@ export default function TrackPage() {
 
       {/* ── Booking Content ── */}
       {!loading && booking && statusCfg && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
           {/* ── Status Card (Main) ── */}
           <div
+            className={`track-card ${isEnRoute ? "pulse-amber" : ""} ${isArrived ? "glow-green-anim" : ""}`}
             style={{
               background: statusCfg.bgColor,
               border: `1px solid ${statusCfg.borderColor}`,
-              borderRadius: "20px",
-              padding: "24px 20px",
+              borderRadius: "22px",
+              padding: "28px 22px",
               textAlign: "center",
             }}
           >
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>
+            <div style={{ fontSize: "40px", marginBottom: "14px" }}>
               {statusCfg.icon}
             </div>
             <div
               style={{
                 fontSize: "20px",
                 fontWeight: 700,
-                color: statusCfg.color,
-                marginBottom: "6px",
-                letterSpacing: "-0.02em",
+                color: "#f9fafb",
+                marginBottom: "8px",
+                lineHeight: 1.3,
               }}
             >
               {statusCfg.title}
@@ -382,234 +426,145 @@ export default function TrackPage() {
             <div
               style={{
                 fontSize: "14px",
-                color: "#9ca3af",
-                lineHeight: 1.4,
+                color: "#6b7280",
+                lineHeight: 1.5,
               }}
             >
               {statusCfg.subtitle}
             </div>
 
-            {/* ETA Badge */}
+            {/* ETA badge */}
             {showETA && (
               <div
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "6px",
-                  marginTop: "14px",
+                  marginTop: "16px",
+                  padding: "8px 16px",
                   background: "rgba(245,158,11,0.12)",
                   border: "1px solid rgba(245,158,11,0.25)",
                   borderRadius: "100px",
-                  padding: "6px 14px",
-                  fontSize: "13px",
+                  fontSize: "14px",
                   fontWeight: 600,
                   color: "#f59e0b",
                 }}
               >
-                ⏱ ETA {booking.eta} min
+                ⏱ ETA: {booking.eta} min
+              </div>
+            )}
+
+            {/* In-trip elapsed timer */}
+            {isInTrip && booking.trip_started_at && (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  marginTop: "16px",
+                  padding: "8px 16px",
+                  background: "rgba(167,139,250,0.1)",
+                  border: "1px solid rgba(167,139,250,0.2)",
+                  borderRadius: "100px",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  color: "#a78bfa",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                🕐 {elapsedStr} in ride
               </div>
             )}
           </div>
 
-          {/* ── Ride Details ── */}
-          <div
-            style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.07)",
-              borderRadius: "16px",
-              padding: "20px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0",
-            }}
-          >
+          {/* ── Arrived — Strong Visual Confirmation ── */}
+          {isArrived && (
             <div
+              className="track-card"
               style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "#4b5563",
-                marginBottom: "14px",
-              }}
-            >
-              Ride Details
-            </div>
-
-            {/* Pickup */}
-            <div
-              style={{
+                background: "rgba(74,222,128,0.08)",
+                border: "1px solid rgba(74,222,128,0.3)",
+                borderRadius: "16px",
+                padding: "18px 20px",
                 display: "flex",
-                gap: "12px",
-                paddingBottom: "14px",
-                borderBottom: "1px solid rgba(255,255,255,0.05)",
-                marginBottom: "14px",
+                alignItems: "center",
+                gap: "14px",
               }}
             >
               <div
                 style={{
-                  width: "8px",
-                  height: "8px",
+                  width: "40px",
+                  height: "40px",
                   borderRadius: "50%",
-                  background: "#4ade80",
-                  marginTop: "4px",
+                  background: "rgba(74,222,128,0.15)",
+                  border: "2px solid #4ade80",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "18px",
                   flexShrink: 0,
                 }}
-              />
+              >
+                ✓
+              </div>
               <div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#4b5563",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  Pickup
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "#4ade80", marginBottom: "2px" }}>
+                  Your vehicle is waiting
                 </div>
-                <div
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: 500,
-                    color: "#f9fafb",
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {shortenAddress(booking.pickup)}
+                <div style={{ fontSize: "13px", color: "#6b7280" }}>
+                  Proceed to your pickup location
                 </div>
               </div>
             </div>
-
-            {/* Dropoff */}
-            <div
-              style={{
-                display: "flex",
-                gap: "12px",
-                paddingBottom: "14px",
-                borderBottom: "1px solid rgba(255,255,255,0.05)",
-                marginBottom: "14px",
-              }}
-            >
-              <div
-                style={{
-                  width: "8px",
-                  height: "8px",
-                  borderRadius: "50%",
-                  background: "#ef4444",
-                  marginTop: "4px",
-                  flexShrink: 0,
-                }}
-              />
-              <div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#4b5563",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  Dropoff
-                </div>
-                <div
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: 500,
-                    color: "#f9fafb",
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {shortenAddress(booking.dropoff)}
-                </div>
-              </div>
-            </div>
-
-            {/* Time */}
-            <div style={{ display: "flex", gap: "12px" }}>
-              <div
-                style={{
-                  width: "8px",
-                  height: "8px",
-                  borderRadius: "50%",
-                  background: "#C8A96A",
-                  marginTop: "4px",
-                  flexShrink: 0,
-                }}
-              />
-              <div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#4b5563",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  Pickup Time
-                </div>
-                <div
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: 600,
-                    color: "#C8A96A",
-                  }}
-                >
-                  {formatTime(booking.pickup_time)}
-                </div>
-                <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                  {formatDate(booking.pickup_time)}
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* ── Driver Card ── */}
           {showDriver && booking.driver && (
             <div
+              className="track-card"
               style={{
-                background: "rgba(200,169,106,0.06)",
-                border: "1px solid rgba(200,169,106,0.15)",
-                borderRadius: "16px",
-                padding: "20px",
+                background: "rgba(200,169,106,0.05)",
+                border: "1px solid rgba(200,169,106,0.18)",
+                borderRadius: "20px",
+                padding: "22px 20px",
               }}
             >
+              {/* Section label */}
               <div
                 style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  letterSpacing: "0.1em",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
                   textTransform: "uppercase",
                   color: "#4b5563",
-                  marginBottom: "14px",
+                  marginBottom: "16px",
                 }}
               >
-                Your Driver
+                Your driver
               </div>
 
+              {/* Driver info row */}
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "14px",
-                  marginBottom: "14px",
+                  gap: "16px",
+                  marginBottom: "18px",
                 }}
               >
-                {/* Driver Avatar */}
+                {/* Avatar */}
                 <div
                   style={{
-                    width: "52px",
-                    height: "52px",
+                    width: "58px",
+                    height: "58px",
                     borderRadius: "50%",
-                    background:
-                      "linear-gradient(135deg, #C8A96A 0%, #a07840 100%)",
+                    background: "linear-gradient(135deg, #C8A96A 0%, #7a5010 100%)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: "22px",
+                    fontSize: "26px",
                     flexShrink: 0,
+                    border: "2px solid rgba(200,169,106,0.3)",
                   }}
                 >
                   👤
@@ -617,10 +572,10 @@ export default function TrackPage() {
                 <div style={{ flex: 1 }}>
                   <div
                     style={{
-                      fontSize: "17px",
+                      fontSize: "18px",
                       fontWeight: 700,
                       color: "#f9fafb",
-                      marginBottom: "2px",
+                      marginBottom: "4px",
                     }}
                   >
                     {booking.driver.name}
@@ -629,11 +584,27 @@ export default function TrackPage() {
                     style={{
                       fontSize: "13px",
                       color: "#9ca3af",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
                     }}
                   >
-                    {booking.driver.vehicle || booking.vehicle}
+                    <span>🚘</span>
+                    <span>{booking.driver.vehicle || booking.vehicle}</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Concierge tone */}
+              <div
+                style={{
+                  fontSize: "13px",
+                  color: "#6b7280",
+                  marginBottom: "16px",
+                  fontStyle: "italic",
+                }}
+              >
+                Need anything? Contact your driver directly.
               </div>
 
               {/* Call Driver Button */}
@@ -644,17 +615,18 @@ export default function TrackPage() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: "8px",
+                    gap: "10px",
                     width: "100%",
-                    padding: "14px",
-                    background: "rgba(74,222,128,0.1)",
-                    border: "1px solid rgba(74,222,128,0.25)",
-                    borderRadius: "12px",
-                    color: "#4ade80",
+                    padding: "15px",
+                    background: "linear-gradient(135deg, #C8A96A 0%, #a07030 100%)",
+                    borderRadius: "14px",
+                    color: "#000000",
                     fontSize: "15px",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     textDecoration: "none",
                     boxSizing: "border-box",
+                    boxShadow: "0 4px 16px rgba(200,169,106,0.25)",
+                    letterSpacing: "0.02em",
                   }}
                 >
                   📞 Call Driver
@@ -663,90 +635,294 @@ export default function TrackPage() {
             </div>
           )}
 
-          {/* ── In Trip State — Route Summary ── */}
-          {(booking.status === "in_progress" ||
-            booking.status === "in_trip") && (
+          {/* ── Route Details Card ── */}
+          <div
+            className="track-card"
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: "20px",
+              padding: "22px 20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "18px",
+            }}
+          >
+            {/* Pickup */}
+            <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
+              <div
+                style={{
+                  width: "10px",
+                  height: "10px",
+                  borderRadius: "50%",
+                  background: "#4ade80",
+                  marginTop: "5px",
+                  flexShrink: 0,
+                  boxShadow: "0 0 6px rgba(74,222,128,0.5)",
+                }}
+              />
+              <div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "#374151",
+                    marginBottom: "3px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                    fontWeight: 600,
+                  }}
+                >
+                  Pickup
+                </div>
+                <div
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    color: "#f9fafb",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {shortenAddress(booking.pickup)}
+                </div>
+              </div>
+            </div>
+
+            {/* Divider line */}
             <div
               style={{
-                background: "rgba(167,139,250,0.06)",
-                border: "1px solid rgba(167,139,250,0.15)",
-                borderRadius: "16px",
-                padding: "20px",
+                marginLeft: "4px",
+                width: "2px",
+                height: "20px",
+                background: "linear-gradient(to bottom, #4ade80, #ef4444)",
+                borderRadius: "2px",
+                alignSelf: "flex-start",
+                marginTop: "-12px",
+                marginBottom: "-12px",
+              }}
+            />
+
+            {/* Dropoff */}
+            <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
+              <div
+                style={{
+                  width: "10px",
+                  height: "10px",
+                  borderRadius: "50%",
+                  background: "#ef4444",
+                  marginTop: "5px",
+                  flexShrink: 0,
+                  boxShadow: "0 0 6px rgba(239,68,68,0.5)",
+                }}
+              />
+              <div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "#374151",
+                    marginBottom: "3px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                    fontWeight: 600,
+                  }}
+                >
+                  Dropoff
+                </div>
+                <div
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    color: "#f9fafb",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {shortenAddress(booking.dropoff)}
+                </div>
+              </div>
+            </div>
+
+            {/* Pickup Time */}
+            <div
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.06)",
+                paddingTop: "16px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "#374151",
+                    marginBottom: "3px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                    fontWeight: 600,
+                  }}
+                >
+                  Pickup Time
+                </div>
+                <div
+                  style={{
+                    fontSize: "16px",
+                    fontWeight: 700,
+                    color: "#C8A96A",
+                  }}
+                >
+                  {formatTime(booking.pickup_time)}
+                </div>
+                <div style={{ fontSize: "12px", color: "#4b5563", marginTop: "2px" }}>
+                  {formatDate(booking.pickup_time)}
+                </div>
+              </div>
+              {booking.fare > 0 && (
+                <div style={{ textAlign: "right" }}>
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "#374151",
+                      marginBottom: "3px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Fare
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "18px",
+                      fontWeight: 700,
+                      color: "#C8A96A",
+                    }}
+                  >
+                    ${booking.fare}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Completion Screen ── */}
+          {showRebook && (
+            <div
+              className="track-card"
+              style={{
+                background: "rgba(200,169,106,0.06)",
+                border: "1px solid rgba(200,169,106,0.2)",
+                borderRadius: "20px",
+                padding: "28px 22px",
                 textAlign: "center",
               }}
             >
+              {/* Thank you message */}
               <div
                 style={{
-                  fontSize: "13px",
-                  color: "#a78bfa",
-                  fontWeight: 600,
-                  marginBottom: "8px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  color: "#f9fafb",
+                  marginBottom: "10px",
+                  lineHeight: 1.3,
                 }}
               >
-                Ride in Progress
+                ✅ Your ride has been completed
               </div>
               <div
                 style={{
                   fontSize: "14px",
                   color: "#9ca3af",
-                  lineHeight: 1.5,
+                  marginBottom: "24px",
+                  lineHeight: 1.6,
                 }}
               >
-                <span style={{ color: "#f9fafb" }}>
-                  {shortenAddress(booking.pickup)}
-                </span>
-                <span style={{ margin: "0 8px", color: "#4b5563" }}>→</span>
-                <span style={{ color: "#f9fafb" }}>
-                  {shortenAddress(booking.dropoff)}
-                </span>
+                Thank you for choosing Sottovento Luxury Ride
               </div>
-            </div>
-          )}
 
-          {/* ── Rebook Button (after completion) ── */}
-          {showRebook && booking.driver?.driver_code && (
-            <a
-              href={`/book?ref=${booking.driver.driver_code}`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                width: "100%",
-                padding: "16px",
-                background: "linear-gradient(135deg, #C8A96A 0%, #a07840 100%)",
-                borderRadius: "14px",
-                color: "#000000",
-                fontSize: "16px",
-                fontWeight: 700,
-                textDecoration: "none",
-                boxSizing: "border-box",
-                boxShadow: "0 4px 20px rgba(200,169,106,0.3)",
-              }}
-            >
-              🚘 Book Again
-            </a>
+              {/* Retention Hook */}
+              <div
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "14px",
+                  padding: "16px 18px",
+                  marginBottom: "20px",
+                  textAlign: "left",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#C8A96A",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Save this link for your next ride
+                </div>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#6b7280",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  You can use this same link anytime to request your next ride — no app, no login required.
+                </div>
+              </div>
+
+              {/* Rebook CTA */}
+              {booking.driver?.driver_code && (
+                <a
+                  href={`/book?ref=${booking.driver.driver_code}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "10px",
+                    width: "100%",
+                    padding: "17px",
+                    background: "linear-gradient(135deg, #C8A96A 0%, #a07030 100%)",
+                    borderRadius: "14px",
+                    color: "#000000",
+                    fontSize: "16px",
+                    fontWeight: 800,
+                    textDecoration: "none",
+                    boxSizing: "border-box",
+                    boxShadow: "0 6px 24px rgba(200,169,106,0.35)",
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  🚘 Book your next ride
+                </a>
+              )}
+            </div>
           )}
 
           {/* ── Footer ── */}
           <div
             style={{
               textAlign: "center",
-              paddingTop: "8px",
+              paddingTop: "4px",
               paddingBottom: "8px",
             }}
           >
             <div
               style={{
                 fontSize: "11px",
-                color: "#374151",
+                color: "#1f2937",
+                letterSpacing: "0.03em",
               }}
             >
-              Auto-updating every 5 seconds
+              Auto-updating
               {" · "}
-              Last updated {lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+              {lastUpdated.toLocaleTimeString("en-US", {
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
             </div>
           </div>
         </div>
