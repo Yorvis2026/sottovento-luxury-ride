@@ -332,6 +332,8 @@ interface ActiveRide {
   client_phone?: string | null
   trip_started_at?: string | null
   bookings_count?: number
+  ride_mode?: "active_window" | "live_flow" | "upcoming"
+  minutes_until_pickup?: number | null
 }
 
 interface UpcomingRide {
@@ -343,6 +345,7 @@ interface UpcomingRide {
   vehicle_type: string
   total_price: number
   ride_window_state: string
+  minutes_until_pickup?: number | null
 }
 
 interface CompletedRide {
@@ -365,6 +368,7 @@ interface DriverSummary {
   month_earnings: number
   lifetime_earnings: number
   pending_offers: number
+  completed_rides_count: number
   active_offer: ActiveOffer | null
   assigned_ride: ActiveRide | null
   upcoming_rides: UpcomingRide[]
@@ -502,6 +506,12 @@ export default function DriverDashboardByCode() {
   const [smsSending, setSmsSending] = useState(false)
   const [smsSent, setSmsSent] = useState(false)
   const [dashTab, setDashTab] = useState<"overview" | "upcoming" | "completed" | "earnings">("overview")
+  // ── Temporal guardrail modal ──────────────────────────────────
+  const [showEarlyStartModal, setShowEarlyStartModal] = useState(false)
+  const [pendingTransition, setPendingTransition] = useState<RideStatus | null>(null)
+  // ── GPS state ─────────────────────────────────────────────────
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [gpsError, setGpsError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
@@ -582,6 +592,7 @@ export default function DriverDashboardByCode() {
         month_earnings: d.stats?.month_earnings ?? 0,
         lifetime_earnings: d.stats?.lifetime_earnings ?? 0,
         pending_offers: d.stats?.pending_offers ?? 0,
+        completed_rides_count: d.stats?.completed_rides_count ?? 0,
         active_offer: d.active_offer ?? null,
         assigned_ride: activeRide,
         upcoming_rides: d.upcoming_rides ?? [],
@@ -630,9 +641,31 @@ export default function DriverDashboardByCode() {
     setTimeout(() => { setRespondResult(null); loadData() }, 2500)
   }, [respondResult, loadData])
 
-  const transitionRide = async (newStatus: RideStatus) => {
+  // ── GPS: get current position ──────────────────────────────────
+  const getGPS = useCallback((): Promise<{ lat: number; lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) { resolve(null); return }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setGpsCoords(coords)
+          setGpsError(null)
+          resolve(coords)
+        },
+        (err) => {
+          setGpsError(err.message)
+          resolve(null)
+        },
+        { timeout: 5000, maximumAge: 30000 }
+      )
+    })
+  }, [])
+
+  // ── Execute the actual ride transition ────────────────────────────
+  const executeTransition = async (newStatus: RideStatus, overrideType?: string) => {
     if (!summary?.assigned_ride || transitioning) return
     setTransitioning(true)
+    const coords = await getGPS()
     try {
       const res = await fetch("/api/driver/ride-status", {
         method: "POST",
@@ -641,6 +674,9 @@ export default function DriverDashboardByCode() {
           booking_id: summary.assigned_ride.booking_id,
           driver_id: summary.driver_id,
           new_status: newStatus,
+          override_type: overrideType ?? null,
+          gps_lat: coords?.lat ?? null,
+          gps_lng: coords?.lng ?? null,
         }),
       })
       const data = await res.json()
@@ -657,6 +693,7 @@ export default function DriverDashboardByCode() {
               assigned_ride: {
                 ...prev.assigned_ride,
                 status: newStatus,
+                ride_mode: ["en_route", "arrived", "in_trip"].includes(newStatus) ? "live_flow" : prev.assigned_ride.ride_mode,
                 trip_started_at: newStatus === "in_trip" ? new Date().toISOString() : prev.assigned_ride.trip_started_at,
               },
             }
@@ -665,6 +702,24 @@ export default function DriverDashboardByCode() {
       }
     } catch {}
     setTransitioning(false)
+  }
+
+  // ── Transition with temporal guardrail ──────────────────────────
+  const transitionRide = async (newStatus: RideStatus) => {
+    if (!summary?.assigned_ride || transitioning) return
+
+    // GUARDRAIL: if driver tries to start heading (en_route) but pickup is far away
+    if (newStatus === "en_route" && summary.assigned_ride.pickup_datetime) {
+      const minutesUntil = (new Date(summary.assigned_ride.pickup_datetime).getTime() - Date.now()) / 60000
+      // If more than 90 min away, show confirmation modal
+      if (minutesUntil > 90) {
+        setPendingTransition(newStatus)
+        setShowEarlyStartModal(true)
+        return
+      }
+    }
+
+    await executeTransition(newStatus)
   }
 
   const sendSMS = async (messageType: "arrived" | "en_route") => {
@@ -722,7 +777,84 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── COMPLETION OVERLAY (v5 — shows +$amount) ─────────────────
+  // ── EARLY START MODAL (temporal guardrail) ────────────────────────
+  if (showEarlyStartModal && summary?.assigned_ride) {
+    const pickupTime = summary.assigned_ride.pickup_datetime
+      ? new Date(summary.assigned_ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      : "scheduled time"
+    const pickupDate = summary.assigned_ride.pickup_datetime
+      ? new Date(summary.assigned_ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+      : ""
+    const minutesUntil = summary.assigned_ride.pickup_datetime
+      ? Math.round((new Date(summary.assigned_ride.pickup_datetime).getTime() - Date.now()) / 60000)
+      : null
+
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/90 px-6 z-50"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-amber-500/40 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+            <div className="text-2xl">⚠️</div>
+            <div>
+              <div className="text-sm font-semibold text-amber-400">
+                {lang === "es" ? "Inicio anticipado" : "Early Start Warning"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {lang === "es" ? "Este servicio aún no corresponde" : "This service is not yet scheduled"}
+              </div>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-5 py-4">
+            <div className="text-sm text-zinc-300 mb-3">
+              {lang === "es"
+                ? `Pickup programado para ${pickupDate} a las ${pickupTime}.`
+                : `Pickup scheduled for ${pickupDate} at ${pickupTime}.`}
+            </div>
+            {minutesUntil !== null && (
+              <div className="text-xs text-zinc-500 mb-4">
+                {lang === "es"
+                  ? `Faltan ${minutesUntil > 60 ? `${Math.floor(minutesUntil/60)}h ${minutesUntil%60}m` : `${minutesUntil} min`} para el pickup.`
+                  : `${minutesUntil > 60 ? `${Math.floor(minutesUntil/60)}h ${minutesUntil%60}m` : `${minutesUntil} min`} until pickup.`}
+              </div>
+            )}
+            <div className="text-xs text-amber-400/80 bg-amber-500/10 rounded-lg px-3 py-2 mb-4">
+              {lang === "es"
+                ? "El inicio anticipado quedará registrado en el historial de auditoría."
+                : "Early start will be logged in the audit history."}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="px-5 pb-5 space-y-2">
+            <button
+              onClick={() => {
+                setShowEarlyStartModal(false)
+                if (pendingTransition) {
+                  executeTransition(pendingTransition, "early_start")
+                  setPendingTransition(null)
+                }
+              }}
+              className="w-full py-3.5 rounded-xl text-sm font-semibold border border-amber-500/60 text-amber-400 transition-all active:scale-95">
+              {lang === "es" ? "Continuar manualmente" : "Continue Manually"}
+            </button>
+            <button
+              onClick={() => {
+                setShowEarlyStartModal(false)
+                setPendingTransition(null)
+              }}
+              className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm transition-all active:scale-95">
+              {lang === "es" ? "Cancelar" : "Cancel"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── COMPLETION OVERLAY (v5 — shows +$amount) ────────────────────────
   if (showCompleted) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950"
@@ -780,10 +912,12 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   // PRIORITY 2: RIDE FLOW SCREEN
-  // ══════════════════════════════════════════════════════════════
-  if (summary.assigned_ride) {
+  // Only show full-screen execution for LIVE_FLOW or ACTIVE_WINDOW rides
+  // UPCOMING rides (pickup > 90min away) stay in dashboard Upcoming tab
+  // ════════════════════════════════════════════════════════════
+  if (summary.assigned_ride && summary.assigned_ride.ride_mode !== "upcoming") {
     return (
       <RideFlowScreen
         ride={summary.assigned_ride}
@@ -796,12 +930,14 @@ export default function DriverDashboardByCode() {
         onSendSMS={sendSMS}
         smsSending={smsSending}
         smsSent={smsSent}
+        gpsCoords={gpsCoords}
+        gpsError={gpsError}
         t={t}
       />
     )
   }
 
-  // ══════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   // PRIORITY 3: DASHBOARD (with tabs)
   // ══════════════════════════════════════════════════════════════
   const upcomingCount = summary.upcoming_rides?.length ?? 0
@@ -1283,13 +1419,15 @@ function OfferScreen({
 // RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, t,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, t,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
   transitioning: boolean
   onSendSMS: (type: "arrived" | "en_route") => void
   smsSending: boolean; smsSent: boolean
+  gpsCoords: { lat: number; lng: number } | null
+  gpsError: string | null
   t: Record<string, string>
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
@@ -1428,7 +1566,53 @@ function RideFlowScreen({
         ))}
       </div>
 
-      {/* ── Client Profile Strip (TOP PRIORITY — always visible) ── */}
+      {/* ── Context Badges (Scheduled time, Ride window, GPS) ──────── */}
+      {(() => {
+        const minutesUntil = ride.pickup_datetime
+          ? Math.round((new Date(ride.pickup_datetime).getTime() - Date.now()) / 60000)
+          : null
+        const windowState = ride.ride_mode ?? (minutesUntil !== null
+          ? minutesUntil <= 0 ? "live_flow" : minutesUntil <= 90 ? "active_window" : "upcoming"
+          : "live_flow")
+        const windowColor = windowState === "live_flow" ? "#a78bfa" : windowState === "active_window" ? GOLD : "#6b7280"
+        const windowLabel = windowState === "live_flow"
+          ? (lang === "es" ? "En ejecución" : "Live")
+          : windowState === "active_window"
+          ? (lang === "es" ? "Ventana activa" : "Active Window")
+          : (lang === "es" ? "Próximo" : "Upcoming")
+        const gpsReady = !!gpsCoords && !gpsError
+        return (
+          <div className="flex items-center gap-2 px-4 py-2 flex-wrap">
+            {/* Scheduled time badge */}
+            {ride.pickup_datetime && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 text-xs text-zinc-300">
+                <span style={{ color: GOLD }}>🕐</span>
+                <span>{new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                {minutesUntil !== null && minutesUntil > 0 && (
+                  <span className="text-zinc-500">
+                    ({minutesUntil > 60 ? `${Math.floor(minutesUntil/60)}h ${minutesUntil%60}m` : `${minutesUntil}m`})
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Ride window status badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
+              style={{ backgroundColor: windowColor + "15", color: windowColor }}>
+              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: windowColor }} />
+              {windowLabel}
+            </div>
+            {/* GPS readiness badge */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs ${
+              gpsReady ? "bg-green-500/10 text-green-400" : "bg-zinc-800/80 text-zinc-500"
+            }`}>
+              <span>{gpsReady ? "📍" : "📍"}</span>
+              <span>{gpsReady ? (lang === "es" ? "GPS listo" : "GPS Ready") : (lang === "es" ? "Sin GPS" : "No GPS")}</span>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Client Profile Strip (TOP PRIORITY — always visible) ────── */}
       <ClientProfileStrip
         name={ride.client_name}
         fare={ride.total_price}

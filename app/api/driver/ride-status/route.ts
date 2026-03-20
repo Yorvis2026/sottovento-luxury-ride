@@ -178,6 +178,9 @@ export async function POST(req: NextRequest) {
 
     // ── Timeline log ─────────────────────────────────────────
     const auditEvent = AUDIT_EVENT[new_status] ?? new_status;
+    const override_type = body.override_type ?? null; // 'early_start', 'gps_bypass', etc.
+    const gps_lat = body.gps_lat ?? null;
+    const gps_lng = body.gps_lng ?? null;
     try {
       await sql`
         INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
@@ -191,6 +194,9 @@ export async function POST(req: NextRequest) {
             previous_status: currentStatus,
             new_status,
             timestamp: now,
+            override_type,
+            gps_lat,
+            gps_lng,
           })}::jsonb
         )
       `;
@@ -198,7 +204,7 @@ export async function POST(req: NextRequest) {
       // Audit log failure should not block the status update
     }
 
-    // ── On COMPLETED: confirm commissions + partner earnings ──
+    // ── On COMPLETED: confirm commissions + partner earnings + driver stats ──
     if (new_status === "completed") {
       // 1. Confirm existing commissions
       try {
@@ -211,6 +217,30 @@ export async function POST(req: NextRequest) {
         `;
       } catch {
         // Commission update failure is non-blocking
+      }
+
+      // 2. Update driver earnings stats (total_earned, month_earned, rides_completed)
+      try {
+        const fareAmount = Number(booking.total_price ?? 0);
+        if (fareAmount > 0 && booking.assigned_driver_id) {
+          // Ensure columns exist
+          await sql`
+            ALTER TABLE drivers
+              ADD COLUMN IF NOT EXISTS total_earned NUMERIC(10,2) DEFAULT 0,
+              ADD COLUMN IF NOT EXISTS month_earned NUMERIC(10,2) DEFAULT 0,
+              ADD COLUMN IF NOT EXISTS rides_completed INTEGER DEFAULT 0
+          `;
+          await sql`
+            UPDATE drivers
+            SET total_earned = COALESCE(total_earned, 0) + ${fareAmount},
+                month_earned = COALESCE(month_earned, 0) + ${fareAmount},
+                rides_completed = COALESCE(rides_completed, 0) + 1,
+                updated_at = NOW()
+            WHERE id = ${booking.assigned_driver_id}::uuid
+          `;
+        }
+      } catch {
+        // Driver stats update failure is non-blocking
       }
 
       // 2. Create partner earnings if booking has a ref_code
