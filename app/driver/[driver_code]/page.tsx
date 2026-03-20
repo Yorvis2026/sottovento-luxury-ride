@@ -1,19 +1,24 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { QRCodeSVG } from "qrcode.react"
 
 // ============================================================
-// /driver/[driver_code] — SLN Driver Panel
+// /driver/[driver_code] — SLN Driver Panel v3
 //
 // States:
-//   CALM    — no active offer, shows dashboard
-//   OFFER   — active offer dominates full screen
+//   CALM     — no active offer, shows dashboard
+//   OFFER    — active offer DOMINATES full screen (no dashboard)
 //   ASSIGNED — confirmed ride details
 //
-// Install URL: https://www.sottoventoluxuryride.com/driver/YHV001
+// Offer trigger: dispatch_offers.status = 'pending'
+//   OR bookings.dispatch_status IN (
+//     'awaiting_driver_response',
+//     'awaiting_source_owner',
+//     'awaiting_sln_member'
+//   )
 // ============================================================
 
 const GOLD = "#C8A96A"
@@ -30,23 +35,17 @@ const T: Record<Lang, Record<string, string>> = {
     youAreOffline: "You are offline",
     newRideOffer: "New Ride Offer",
     timeRemaining: "Time remaining",
-    accept: "Accept",
+    accept: "ACCEPT",
     decline: "Decline",
-    assignedRide: "Assigned Ride",
+    assignedRide: "Ride Assigned",
     route: "Route",
     pickup: "Pickup",
     vehicle: "Vehicle",
     fare: "Fare",
-    viewDetails: "View Details",
     navigate: "Navigate",
     contact: "Contact",
-    myClients: "My Captured Clients",
-    myEarnings: "My Earnings",
-    myReferral: "My Referral Link",
     myTablet: "My Passenger Tablet",
     tabletLink: "Tablet Link",
-    tabletOnline: "Tablet Online",
-    tabletOffline: "Tablet Offline",
     copy: "Copy",
     copied: "✓ Copied",
     open: "Open ↗",
@@ -56,7 +55,8 @@ const T: Record<Lang, Record<string, string>> = {
     sourceOwnership: "How Source Ownership Works",
     sourceOwnershipText1: "Every client you bring in through your QR code, referral link, or tablet is permanently attributed to you.",
     sourceOwnershipText2: "When they book again, you get the first offer — and earn a 15% source commission even if another driver executes the ride.",
-    offerExpired: "Offer expired",
+    offerExpired: "Offer Expired",
+    offerExpiredSub: "Dispatching to next driver...",
     noOffer: "Waiting for rides...",
     totalClients: "Total Clients",
     monthEarnings: "Month Earnings",
@@ -77,34 +77,38 @@ const T: Record<Lang, Record<string, string>> = {
     earningsSub: "Executor + Source earnings breakdown",
     referralLabel: "My Referral Link",
     referralSub: "Share to capture new clients",
-    lastSeen: "Last seen",
-    offerFor: "Offer for",
-    expires: "Expires",
+    sourceOffer: "Source Offer",
+    networkOffer: "Network Offer",
+    acceptedTitle: "Ride Assigned ✓",
+    acceptedSub: "Opening ride details...",
+    declinedTitle: "Offer Declined",
+    declinedSub: "Dispatching to next driver...",
+    expiredTitle: "Offer Expired",
+    expiredSub: "Dispatching to next driver...",
+    round: "Round",
+    clientName: "Client",
+    clientPhone: "Phone",
+    rideDetails: "Ride Details",
+    noClientInfo: "Client info unavailable",
   },
   es: {
     network: "Red Sottovento",
     driverDashboard: "Panel del Conductor",
     youAreOnline: "Estás en línea",
     youAreOffline: "Estás fuera de línea",
-    newRideOffer: "Nueva solicitud",
+    newRideOffer: "Nueva Solicitud",
     timeRemaining: "Tiempo restante",
-    accept: "Aceptar",
+    accept: "ACEPTAR",
     decline: "Rechazar",
-    assignedRide: "Viaje asignado",
+    assignedRide: "Viaje Asignado",
     route: "Ruta",
     pickup: "Recogida",
     vehicle: "Vehículo",
     fare: "Tarifa",
-    viewDetails: "Ver detalles",
     navigate: "Navegar",
     contact: "Contactar",
-    myClients: "Mis clientes capturados",
-    myEarnings: "Mis ganancias",
-    myReferral: "Mi enlace de referido",
-    myTablet: "Mi tablet de pasajero",
-    tabletLink: "Enlace del tablet",
-    tabletOnline: "Tablet en línea",
-    tabletOffline: "Tablet fuera de línea",
+    myTablet: "Mi Tablet de Pasajero",
+    tabletLink: "Enlace del Tablet",
     copy: "Copiar",
     copied: "✓ Copiado",
     open: "Abrir ↗",
@@ -114,55 +118,60 @@ const T: Record<Lang, Record<string, string>> = {
     sourceOwnership: "Cómo funciona la propiedad de fuente",
     sourceOwnershipText1: "Cada cliente que traes a través de tu código QR, enlace de referido o tablet queda permanentemente atribuido a ti.",
     sourceOwnershipText2: "Cuando vuelvan a reservar, recibes la primera oferta — y ganas un 15% de comisión de fuente aunque otro conductor ejecute el viaje.",
-    offerExpired: "Oferta expirada",
+    offerExpired: "Oferta Expirada",
+    offerExpiredSub: "Enviando al siguiente conductor...",
     noOffer: "Esperando viajes...",
-    totalClients: "Total de clientes",
-    monthEarnings: "Ganancias del mes",
-    lifetimeEarnings: "Ganancias totales",
-    pendingOffers: "Ofertas pendientes",
+    totalClients: "Total de Clientes",
+    monthEarnings: "Ganancias del Mes",
+    lifetimeEarnings: "Ganancias Totales",
+    pendingOffers: "Ofertas Pendientes",
     loading: "Cargando...",
     driverNotFound: "Conductor no encontrado",
     contactAdmin: "Contacta a tu administrador para obtener tu código de conductor.",
-    tabletSetup: "Configuración del tablet",
+    tabletSetup: "Configuración del Tablet",
     tabletSetup1: "Abre el enlace del tablet en Safari en el iPad",
     tabletSetup2: 'Toca Compartir → "Agregar a pantalla de inicio"',
     tabletSetup3: "Nómbralo Sottovento Ride",
     tabletSetup4: "Siempre ábrelo desde el ícono en la pantalla de inicio",
-    quickAccess: "Acceso rápido",
-    capturedClients: "Mis clientes capturados",
+    quickAccess: "Acceso Rápido",
+    capturedClients: "Mis Clientes Capturados",
     capturedClientsSub: "Ver tu lista completa de clientes",
-    earningsLabel: "Mis ganancias",
+    earningsLabel: "Mis Ganancias",
     earningsSub: "Desglose de ganancias de ejecución y fuente",
-    referralLabel: "Mi enlace de referido",
+    referralLabel: "Mi Enlace de Referido",
     referralSub: "Comparte para capturar nuevos clientes",
-    lastSeen: "Última vez",
-    offerFor: "Oferta para",
-    expires: "Expira",
+    sourceOffer: "Oferta de Fuente",
+    networkOffer: "Oferta de Red",
+    acceptedTitle: "Viaje Asignado ✓",
+    acceptedSub: "Abriendo detalles del viaje...",
+    declinedTitle: "Oferta Rechazada",
+    declinedSub: "Enviando al siguiente conductor...",
+    expiredTitle: "Oferta Expirada",
+    expiredSub: "Enviando al siguiente conductor...",
+    round: "Ronda",
+    clientName: "Cliente",
+    clientPhone: "Teléfono",
+    rideDetails: "Detalles del Viaje",
+    noClientInfo: "Info del cliente no disponible",
   },
   ht: {
     network: "Rezo Sottovento",
     driverDashboard: "Panèl Chofè",
     youAreOnline: "Ou anliy",
     youAreOffline: "Ou pa anliy",
-    newRideOffer: "Nouvo sèvis",
+    newRideOffer: "Nouvo Sèvis",
     timeRemaining: "Tan ki rete",
-    accept: "Aksepte",
+    accept: "AKSEPTE",
     decline: "Refize",
-    assignedRide: "Vwayaj asiyen",
+    assignedRide: "Vwayaj Asiyen",
     route: "Wout",
     pickup: "Pran",
     vehicle: "Machin",
     fare: "Pri",
-    viewDetails: "Wè detay",
     navigate: "Navige",
     contact: "Kontakte",
-    myClients: "Kliyan mwen yo",
-    myEarnings: "Lajan mwen",
-    myReferral: "Lyen referans mwen",
-    myTablet: "Tablèt pasaje mwen",
-    tabletLink: "Lyen tablèt",
-    tabletOnline: "Tablèt anliy",
-    tabletOffline: "Tablèt pa anliy",
+    myTablet: "Tablèt Pasaje Mwen",
+    tabletLink: "Lyen Tablèt",
     copy: "Kopye",
     copied: "✓ Kopye",
     open: "Ouvri ↗",
@@ -172,30 +181,41 @@ const T: Record<Lang, Record<string, string>> = {
     sourceOwnership: "Kijan pwopriyete sous travay",
     sourceOwnershipText1: "Chak kliyan ou mennen atravè kòd QR ou, lyen referans, oswa tablèt ou atribiye pou tout tan.",
     sourceOwnershipText2: "Lè yo rezève ankò, ou resevwa premye òf la — epi ou touche 15% komisyon sous menm si yon lòt chofè fè vwayaj la.",
-    offerExpired: "Òf ekspire",
+    offerExpired: "Òf Ekspire",
+    offerExpiredSub: "Voye bay pwochen chofè...",
     noOffer: "Ap tann vwayaj...",
-    totalClients: "Total kliyan",
-    monthEarnings: "Lajan mwa sa",
-    lifetimeEarnings: "Total lajan",
-    pendingOffers: "Òf annatant",
+    totalClients: "Total Kliyan",
+    monthEarnings: "Lajan Mwa Sa",
+    lifetimeEarnings: "Total Lajan",
+    pendingOffers: "Òf Annatant",
     loading: "Ap chaje...",
     driverNotFound: "Chofè pa jwenn",
     contactAdmin: "Kontakte administratè ou pou jwenn kòd chofè ou.",
-    tabletSetup: "Konfigirasyon tablèt",
+    tabletSetup: "Konfigirasyon Tablèt",
     tabletSetup1: "Ouvri lyen tablèt ou nan Safari sou iPad",
     tabletSetup2: 'Tape Pataje → "Ajoute nan Ekran Akèy"',
     tabletSetup3: "Rele l Sottovento Ride",
     tabletSetup4: "Toujou louvri l depi ikòn sou ekran akèy la",
-    quickAccess: "Aksè rapid",
-    capturedClients: "Kliyan mwen yo",
+    quickAccess: "Aksè Rapid",
+    capturedClients: "Kliyan Mwen Yo",
     capturedClientsSub: "Wè lis konplè kliyan ou yo",
-    earningsLabel: "Lajan mwen",
+    earningsLabel: "Lajan Mwen",
     earningsSub: "Dekonpozisyon lajan ekzekisyon ak sous",
-    referralLabel: "Lyen referans mwen",
+    referralLabel: "Lyen Referans Mwen",
     referralSub: "Pataje pou kaptire nouvo kliyan",
-    lastSeen: "Dènye fwa wè",
-    offerFor: "Òf pou",
-    expires: "Ekspire",
+    sourceOffer: "Òf Sous",
+    networkOffer: "Òf Rezo",
+    acceptedTitle: "Vwayaj Asiyen ✓",
+    acceptedSub: "Ap ouvri detay vwayaj...",
+    declinedTitle: "Òf Refize",
+    declinedSub: "Voye bay pwochen chofè...",
+    expiredTitle: "Òf Ekspire",
+    expiredSub: "Voye bay pwochen chofè...",
+    round: "Wòn",
+    clientName: "Kliyan",
+    clientPhone: "Telefòn",
+    rideDetails: "Detay Vwayaj",
+    noClientInfo: "Info kliyan pa disponib",
   },
 }
 
@@ -205,22 +225,24 @@ interface ActiveOffer {
   booking_id: string
   pickup_location: string
   dropoff_location: string
-  pickup_datetime: string
+  pickup_datetime: string | null
   vehicle_type: string
   total_price: number
-  expires_at: string
+  expires_at: string | null
   dispatch_status: string
+  is_source_offer?: boolean
+  offer_round?: number
 }
 
 interface AssignedRide {
   booking_id: string
   pickup_location: string
   dropoff_location: string
-  pickup_datetime: string
+  pickup_datetime: string | null
   vehicle_type: string
   total_price: number
-  client_name?: string
-  client_phone?: string
+  client_name?: string | null
+  client_phone?: string | null
 }
 
 interface DriverSummary {
@@ -243,7 +265,10 @@ function useCountdown(expiresAt: string | null) {
   const [secondsLeft, setSecondsLeft] = useState<number>(0)
 
   useEffect(() => {
-    if (!expiresAt) { setSecondsLeft(0); return }
+    if (!expiresAt) {
+      setSecondsLeft(999) // no expiry = show max
+      return
+    }
     const calc = () => {
       const diff = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000))
       setSecondsLeft(diff)
@@ -259,6 +284,7 @@ function useCountdown(expiresAt: string | null) {
 // ─── MAIN COMPONENT ───────────────────────────────────────────
 export default function DriverDashboardByCode() {
   const params = useParams()
+  const router = useRouter()
   const driverCode = (params?.driver_code as string)?.toUpperCase()
 
   const [lang, setLang] = useState<Lang>("en")
@@ -268,7 +294,7 @@ export default function DriverDashboardByCode() {
   const [copied, setCopied] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const [responding, setResponding] = useState(false)
-  const [respondResult, setRespondResult] = useState<"accepted" | "declined" | null>(null)
+  const [respondResult, setRespondResult] = useState<"accepted" | "declined" | "expired" | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const t = T[lang]
@@ -336,7 +362,7 @@ export default function DriverDashboardByCode() {
     if (!summary?.active_offer || responding) return
     setResponding(true)
     try {
-      await fetch("/api/dispatch/respond-offer", {
+      const res = await fetch("/api/dispatch/respond-offer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -345,15 +371,38 @@ export default function DriverDashboardByCode() {
           response,
         }),
       })
-      setRespondResult(response)
-      setTimeout(() => {
-        setRespondResult(null)
-        loadData()
-      }, 2000)
+      const data = await res.json()
+
+      if (response === "accepted" && !data.error) {
+        setRespondResult("accepted")
+        // Navigate to assigned ride screen after 1.5s
+        setTimeout(() => {
+          setRespondResult(null)
+          setResponding(false)
+          loadData()
+        }, 1500)
+      } else {
+        setRespondResult(response)
+        setTimeout(() => {
+          setRespondResult(null)
+          setResponding(false)
+          loadData()
+        }, 2000)
+      }
     } catch {
       setResponding(false)
     }
   }
+
+  // ── Handle offer expiry ──────────────────────────────────────
+  const handleOfferExpired = useCallback(() => {
+    if (respondResult) return // already responded
+    setRespondResult("expired")
+    setTimeout(() => {
+      setRespondResult(null)
+      loadData()
+    }, 2500)
+  }, [respondResult, loadData])
 
   const copyLink = useCallback(async () => {
     try {
@@ -372,7 +421,8 @@ export default function DriverDashboardByCode() {
       >
         <div className="text-center">
           <div className="text-zinc-500 text-sm mb-3">{t.loading}</div>
-          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: GOLD, borderTopColor: "transparent" }} />
+          <div className="w-6 h-6 border-2 rounded-full animate-spin mx-auto"
+            style={{ borderColor: GOLD, borderTopColor: "transparent" }} />
         </div>
       </div>
     )
@@ -395,31 +445,55 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  const hasOffer = !!summary.active_offer && !respondResult
-  const hasAssigned = !!summary.assigned_ride
-
-  // ── OFFER STATE — full screen dominant ───────────────────────
-  if (hasOffer) {
+  // ── OFFER STATE — full screen dominant, NO dashboard ─────────
+  if (summary.active_offer && !respondResult) {
     return (
       <OfferScreen
-        offer={summary.active_offer!}
+        offer={summary.active_offer}
         driverName={summary.driver_name}
         lang={lang}
         onLang={setLangAndSave}
         onAccept={() => respondOffer("accepted")}
         onDecline={() => respondOffer("declined")}
+        onExpired={handleOfferExpired}
         responding={responding}
-        respondResult={respondResult}
         t={t}
       />
     )
   }
 
+  // ── RESPOND RESULT OVERLAY ───────────────────────────────────
+  if (respondResult) {
+    const isAccepted = respondResult === "accepted"
+    const isDeclined = respondResult === "declined"
+    const isExpired = respondResult === "expired"
+    return (
+      <div
+        className="fixed inset-0 flex flex-col items-center justify-center"
+        style={{
+          backgroundColor: isAccepted ? "#052e16" : "#0a0a0a",
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}
+      >
+        <div className="text-6xl mb-5">
+          {isAccepted ? "✅" : isDeclined ? "✖️" : "⏰"}
+        </div>
+        <div className="text-2xl font-light text-white mb-2">
+          {isAccepted ? t.acceptedTitle : isDeclined ? t.declinedTitle : t.expiredTitle}
+        </div>
+        <div className="text-sm text-zinc-400">
+          {isAccepted ? t.acceptedSub : isDeclined ? t.declinedSub : t.expiredSub}
+        </div>
+      </div>
+    )
+  }
+
   // ── ASSIGNED STATE ───────────────────────────────────────────
-  if (hasAssigned) {
+  if (summary.assigned_ride) {
     return (
       <AssignedScreen
-        ride={summary.assigned_ride!}
+        ride={summary.assigned_ride}
         driverName={summary.driver_name}
         driverCode={summary.driver_code}
         lang={lang}
@@ -442,7 +516,6 @@ export default function DriverDashboardByCode() {
           <h1 className="text-base font-light tracking-wide">{t.driverDashboard}</h1>
         </div>
         <div className="flex items-center gap-3">
-          {/* Language toggle */}
           <div className="flex rounded-lg overflow-hidden border border-zinc-700">
             {(["en", "es", "ht"] as Lang[]).map((l) => (
               <button
@@ -608,6 +681,7 @@ export default function DriverDashboardByCode() {
 
 // ─────────────────────────────────────────────────────────────
 // OFFER SCREEN — full screen priority mode
+// No dashboard visible. Offer overrides entire UI.
 // ─────────────────────────────────────────────────────────────
 function OfferScreen({
   offer,
@@ -616,8 +690,8 @@ function OfferScreen({
   onLang,
   onAccept,
   onDecline,
+  onExpired,
   responding,
-  respondResult,
   t,
 }: {
   offer: ActiveOffer
@@ -626,13 +700,26 @@ function OfferScreen({
   onLang: (l: Lang) => void
   onAccept: () => void
   onDecline: () => void
+  onExpired: () => void
   responding: boolean
-  respondResult: "accepted" | "declined" | null
   t: Record<string, string>
 }) {
   const secondsLeft = useCountdown(offer.expires_at)
+  const hasExpiry = !!offer.expires_at
+  const expired = hasExpiry && secondsLeft === 0
 
+  // Auto-trigger expiry callback
+  const expiredRef = useRef(false)
+  useEffect(() => {
+    if (expired && !expiredRef.current && !responding) {
+      expiredRef.current = true
+      onExpired()
+    }
+  }, [expired, responding, onExpired])
+
+  // Dynamic timer color
   const timerColor =
+    !hasExpiry ? "#ffffff" :
     secondsLeft > 60 ? "#ffffff" :
     secondsLeft > 20 ? "#f59e0b" :
     "#ef4444"
@@ -640,6 +727,13 @@ function OfferScreen({
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0")
   const ss = String(secondsLeft % 60).padStart(2, "0")
 
+  // Max seconds for progress bar (default 90s)
+  const maxSeconds = hasExpiry
+    ? Math.max(90, Math.ceil((new Date(offer.expires_at!).getTime() - Date.now()) / 1000) + secondsLeft)
+    : 90
+  const progressPct = hasExpiry ? Math.min(100, (secondsLeft / maxSeconds) * 100) : 100
+
+  // Format pickup datetime
   const pickupDate = offer.pickup_datetime
     ? new Date(offer.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" })
     : ""
@@ -647,40 +741,34 @@ function OfferScreen({
     ? new Date(offer.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     : ""
 
-  if (respondResult) {
-    return (
-      <div
-        className="fixed inset-0 flex flex-col items-center justify-center"
-        style={{
-          backgroundColor: respondResult === "accepted" ? "#052e16" : "#1c1917",
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        }}
-      >
-        <div className="text-6xl mb-4">{respondResult === "accepted" ? "✅" : "✖️"}</div>
-        <div className="text-2xl font-light text-white">
-          {respondResult === "accepted" ? t.assignedRide : t.offerExpired}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div
-      className="fixed inset-0 flex flex-col"
+      className="fixed inset-0 flex flex-col bg-black"
       style={{
-        backgroundColor: "#0a0a0a",
         paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
       }}
     >
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
           <span className="text-xs uppercase tracking-widest font-semibold" style={{ color: GOLD }}>
             {t.newRideOffer}
           </span>
+          {offer.is_source_offer && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              style={{ backgroundColor: "#1c1400", color: GOLD, border: `1px solid ${GOLD}` }}
+            >
+              {t.sourceOffer}
+            </span>
+          )}
+          {offer.offer_round && offer.offer_round > 1 && (
+            <span className="text-xs text-zinc-500">
+              {t.round} {offer.offer_round}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {/* Language toggle */}
@@ -700,95 +788,112 @@ function OfferScreen({
               </button>
             ))}
           </div>
-          <span className="text-xs text-zinc-500">{driverName}</span>
+          <span className="text-xs text-zinc-500 hidden sm:block">{driverName}</span>
         </div>
       </div>
 
-      {/* Offer card — dominant */}
-      <div className="flex-1 flex flex-col justify-between px-5 py-5 overflow-hidden">
+      {/* ── Main content ── */}
+      <div className="flex-1 flex flex-col px-5 py-4 overflow-hidden">
 
         {/* Route — largest element */}
-        <div className="flex-1 flex flex-col justify-center">
-          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.route}</div>
-          <div className="text-3xl font-light text-white leading-tight mb-1">
-            {offer.pickup_location}
-          </div>
-          <div className="flex items-center gap-2 my-2">
-            <div className="h-px flex-1 bg-zinc-700" />
-            <div className="text-zinc-500 text-sm">→</div>
-            <div className="h-px flex-1 bg-zinc-700" />
-          </div>
-          <div className="text-3xl font-light text-white leading-tight">
-            {offer.dropoff_location}
+        <div className="flex-1 flex flex-col justify-center min-h-0">
+
+          {/* Pickup */}
+          <div className="mb-1">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+              {t.pickup}
+            </div>
+            <div className="text-2xl font-light text-white leading-tight">
+              {offer.pickup_location}
+            </div>
           </div>
 
-          {/* Details row */}
-          <div className="grid grid-cols-3 gap-3 mt-6">
+          {/* Arrow divider */}
+          <div className="flex items-center gap-3 my-3">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <div className="text-zinc-600 text-lg">↓</div>
+            <div className="h-px flex-1 bg-zinc-800" />
+          </div>
+
+          {/* Dropoff */}
+          <div className="mb-5">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+              {t.route}
+            </div>
+            <div className="text-2xl font-light text-white leading-tight">
+              {offer.dropoff_location}
+            </div>
+          </div>
+
+          {/* Details grid */}
+          <div className="grid grid-cols-3 gap-2">
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
-              <div className="text-sm font-medium text-white">{pickupDate}</div>
-              <div className="text-sm text-zinc-300">{pickupTime}</div>
+              <div className="text-sm font-medium text-white">{pickupDate || "—"}</div>
+              <div className="text-xs text-zinc-300">{pickupTime || "—"}</div>
             </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.vehicle}</div>
-              <div className="text-sm font-medium text-white">{offer.vehicle_type}</div>
+              <div className="text-sm font-medium text-white leading-tight">{offer.vehicle_type}</div>
             </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.fare}</div>
-              <div className="text-xl font-semibold" style={{ color: GOLD }}>
+              <div className="text-xl font-bold" style={{ color: GOLD }}>
                 ${offer.total_price.toFixed(0)}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Timer */}
-        <div className="flex flex-col items-center py-4">
-          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.timeRemaining}</div>
+        {/* ── Countdown timer ── */}
+        <div className="flex flex-col items-center py-4 flex-shrink-0">
+          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.timeRemaining}</div>
           <div
-            className="text-5xl font-mono font-bold transition-colors duration-500"
+            className="text-6xl font-mono font-bold tabular-nums transition-colors duration-300"
             style={{ color: timerColor }}
           >
-            {mm}:{ss}
+            {hasExpiry ? `${mm}:${ss}` : "—"}
           </div>
-          {/* Timer bar */}
-          <div className="w-full h-1.5 bg-zinc-800 rounded-full mt-3 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${Math.min(100, (secondsLeft / 90) * 100)}%`,
-                backgroundColor: timerColor,
-              }}
-            />
-          </div>
+          {/* Progress bar */}
+          {hasExpiry && (
+            <div className="w-full h-2 bg-zinc-800 rounded-full mt-3 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${progressPct}%`,
+                  backgroundColor: timerColor,
+                  boxShadow: `0 0 8px ${timerColor}60`,
+                }}
+              />
+            </div>
+          )}
         </div>
 
-        {/* Action buttons */}
+        {/* ── Action buttons ── */}
         <div className="flex gap-3 flex-shrink-0">
-          {/* Decline — secondary */}
+          {/* Decline — secondary, smaller */}
           <button
             onClick={onDecline}
-            disabled={responding}
-            className="flex-1 py-4 rounded-2xl text-base font-medium tracking-widest uppercase transition-all active:scale-95 disabled:opacity-50"
-            style={{
-              backgroundColor: "transparent",
-              border: "1.5px solid #3f3f46",
-              color: "#a1a1aa",
-            }}
+            disabled={responding || expired}
+            className="flex-none px-6 py-4 rounded-2xl border border-zinc-700 text-zinc-300 text-base font-medium transition-all active:scale-95 disabled:opacity-40"
+            style={{ minWidth: "100px" }}
           >
             {t.decline}
           </button>
-          {/* Accept — dominant */}
+
+          {/* Accept — primary, dominant */}
           <button
             onClick={onAccept}
-            disabled={responding || secondsLeft === 0}
-            className="flex-[2] py-4 rounded-2xl text-xl font-bold tracking-widest uppercase transition-all active:scale-95 disabled:opacity-50"
+            disabled={responding || expired}
+            className="flex-1 py-5 rounded-2xl text-black text-xl font-bold tracking-wide transition-all active:scale-95 disabled:opacity-40"
             style={{
-              backgroundColor: secondsLeft === 0 ? "#374151" : GOLD,
-              color: secondsLeft === 0 ? "#6b7280" : "#000",
+              backgroundColor: responding ? "#a08040" : GOLD,
+              boxShadow: responding ? "none" : `0 0 24px ${GOLD}60`,
             }}
           >
-            {t.accept}
+            {responding ? "..." : t.accept}
           </button>
         </div>
       </div>
@@ -797,7 +902,7 @@ function OfferScreen({
 }
 
 // ─────────────────────────────────────────────────────────────
-// ASSIGNED SCREEN
+// ASSIGNED SCREEN — confirmed ride details
 // ─────────────────────────────────────────────────────────────
 function AssignedScreen({
   ride,
@@ -815,7 +920,7 @@ function AssignedScreen({
   t: Record<string, string>
 }) {
   const pickupDate = ride.pickup_datetime
-    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
     : ""
   const pickupTime = ride.pickup_datetime
     ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
@@ -825,20 +930,17 @@ function AssignedScreen({
 
   return (
     <div
-      className="fixed inset-0 flex flex-col"
-      style={{
-        backgroundColor: "#0a0a0a",
-        paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
-        paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
-      }}
+      className="min-h-screen bg-black text-white pb-8"
+      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
     >
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-400" style={{ boxShadow: "0 0 6px #4ade80" }} />
-          <span className="text-xs uppercase tracking-widest font-semibold text-green-400">
+      {/* Header */}
+      <div className="border-b border-zinc-800 px-5 py-4 flex items-center justify-between">
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-0.5">Sottovento Network</div>
+          <h1 className="text-base font-light tracking-wide flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-400 inline-block" style={{ boxShadow: "0 0 6px #4ade80" }} />
             {t.assignedRide}
-          </span>
+          </h1>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex rounded-lg overflow-hidden border border-zinc-700">
@@ -857,60 +959,77 @@ function AssignedScreen({
               </button>
             ))}
           </div>
-          <span className="text-xs text-zinc-500">{driverName}</span>
+          <div className="text-sm font-medium" style={{ color: GOLD }}>{driverName}</div>
         </div>
       </div>
 
-      {/* Ride details */}
-      <div className="flex-1 flex flex-col justify-center px-5 py-5">
-        <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.route}</div>
-        <div className="text-3xl font-light text-white leading-tight mb-1">
-          {ride.pickup_location}
-        </div>
-        <div className="flex items-center gap-2 my-2">
-          <div className="h-px flex-1 bg-zinc-700" />
-          <div className="text-zinc-500 text-sm">→</div>
-          <div className="h-px flex-1 bg-zinc-700" />
-        </div>
-        <div className="text-3xl font-light text-white leading-tight">
-          {ride.dropoff_location}
+      {/* Ride details card */}
+      <div className="mx-4 mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+        <div className="px-5 py-4 border-b border-zinc-800">
+          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-3">{t.rideDetails}</div>
+
+          {/* Route */}
+          <div className="mb-1">
+            <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+              {t.pickup}
+            </div>
+            <div className="text-lg font-light text-white">{ride.pickup_location}</div>
+          </div>
+          <div className="flex items-center gap-3 my-2">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <div className="text-zinc-600 text-sm">↓</div>
+            <div className="h-px flex-1 bg-zinc-800" />
+          </div>
+          <div>
+            <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+              {t.route}
+            </div>
+            <div className="text-lg font-light text-white">{ride.dropoff_location}</div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mt-6">
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
+        {/* Details grid */}
+        <div className="grid grid-cols-3 divide-x divide-zinc-800">
+          <div className="px-4 py-3">
             <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
             <div className="text-sm font-medium text-white">{pickupDate}</div>
-            <div className="text-sm text-zinc-300">{pickupTime}</div>
+            <div className="text-xs text-zinc-300">{pickupTime}</div>
           </div>
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
+          <div className="px-4 py-3">
             <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.vehicle}</div>
             <div className="text-sm font-medium text-white">{ride.vehicle_type}</div>
           </div>
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
+          <div className="px-4 py-3">
             <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.fare}</div>
-            <div className="text-xl font-semibold" style={{ color: GOLD }}>
-              ${ride.total_price.toFixed(0)}
-            </div>
+            <div className="text-xl font-bold" style={{ color: GOLD }}>${ride.total_price.toFixed(0)}</div>
           </div>
         </div>
 
-        {/* Client info if available */}
-        {ride.client_name && (
-          <div className="mt-4 rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">Passenger</div>
-            <div className="text-sm font-medium text-white">{ride.client_name}</div>
+        {/* Client info */}
+        {(ride.client_name || ride.client_phone) && (
+          <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.clientName}</div>
+            {ride.client_name && <div className="text-sm font-medium text-white">{ride.client_name}</div>}
             {ride.client_phone && (
-              <div className="text-sm text-zinc-400 mt-0.5">{ride.client_phone}</div>
+              <a
+                href={`tel:${ride.client_phone}`}
+                className="text-sm mt-1 inline-block"
+                style={{ color: GOLD }}
+              >
+                {ride.client_phone}
+              </a>
             )}
           </div>
         )}
       </div>
 
       {/* Action buttons */}
-      <div className="flex gap-3 px-5 flex-shrink-0">
+      <div className="px-4 mt-4 flex gap-3">
         <a
           href={mapsUrl}
-          className="flex-1 py-4 rounded-2xl text-base font-medium tracking-widest uppercase text-center transition-all active:scale-95"
+          className="flex-1 py-4 rounded-2xl text-center text-base font-semibold transition-all active:scale-95"
           style={{ backgroundColor: GOLD, color: "#000" }}
         >
           {t.navigate}
@@ -918,8 +1037,7 @@ function AssignedScreen({
         {ride.client_phone && (
           <a
             href={`tel:${ride.client_phone}`}
-            className="flex-1 py-4 rounded-2xl text-base font-medium tracking-widest uppercase text-center transition-all active:scale-95"
-            style={{ backgroundColor: "#18181b", border: "1.5px solid #3f3f46", color: "#e4e4e7" }}
+            className="flex-none px-6 py-4 rounded-2xl border border-zinc-700 text-zinc-300 text-base font-medium transition-all active:scale-95"
           >
             {t.contact}
           </a>
