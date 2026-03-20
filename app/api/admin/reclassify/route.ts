@@ -6,12 +6,12 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 /**
  * POST /api/admin/reclassify
  *
- * Emergency fix: reclassify ALL bookings where dispatch_status = 'not_required'
- * but the booking is still active (not completed/cancelled/assigned).
+ * Emergency fix: reclassify ALL bookings where dispatch_status is inconsistent.
  *
- * BUSINESS RULE:
- * - not_required is ONLY valid for: assigned, completed, cancelled
- * - Any other booking status means the booking still needs dispatch attention
+ * BUSINESS RULES:
+ * - payment_status = paid AND status IN (pending, pending_dispatch) → must be in dispatch buckets
+ * - not_required is ONLY valid for: assigned, completed, cancelled, rejected, expired
+ * - pending (old) bookings with dispatch_status = 'pending' → reclassify to awaiting_sln_member
  *
  * This endpoint is idempotent — safe to run multiple times.
  */
@@ -21,7 +21,7 @@ export async function POST() {
   try {
     // Step 1: Show current state
     const before = await sql`
-      SELECT id, status, dispatch_status, pickup_at
+      SELECT id, status, dispatch_status, payment_status, pickup_at
       FROM bookings
       ORDER BY created_at DESC
     `;
@@ -30,9 +30,45 @@ export async function POST() {
       id: b.id?.slice(0, 8),
       status: b.status,
       dispatch_status: b.dispatch_status,
-    })))}`)
+      payment_status: b.payment_status,
+    })))}`);
 
-    // Step 2: Reclassify bookings that are DONE — these are the only ones where not_required is valid
+    // Step 2: Fix bookings that are paid but still have dispatch_status = 'pending' or 'not_required'
+    // These are the main issue: paid bookings not appearing in dispatch
+    const paidFix = await sql`
+      UPDATE bookings
+      SET
+        status = 'pending_dispatch',
+        dispatch_status = CASE
+          WHEN source_code IS NOT NULL AND source_driver_id IS NOT NULL THEN 'awaiting_source_owner'
+          ELSE 'awaiting_sln_member'
+        END,
+        offer_expires_at = CASE
+          WHEN source_code IS NOT NULL AND source_driver_id IS NOT NULL
+            THEN NOW() + INTERVAL '120 seconds'
+          ELSE NOW() + INTERVAL '60 seconds'
+        END,
+        offer_status = 'pending',
+        offer_stage = CASE
+          WHEN source_code IS NOT NULL AND source_driver_id IS NOT NULL THEN 'source_owner'
+          ELSE 'sln_member'
+        END,
+        updated_at = NOW()
+      WHERE payment_status = 'paid'
+        AND status IN ('pending', 'pending_payment', 'pending_dispatch')
+        AND dispatch_status IN ('pending', 'not_required', 'awaiting_payment')
+      RETURNING id, status, dispatch_status
+    `;
+    results.push(`✅ Fixed ${paidFix.length} paid bookings → dispatch buckets`);
+    if (paidFix.length > 0) {
+      results.push(`📋 Fixed: ${JSON.stringify(paidFix.map((b: any) => ({
+        id: b.id?.slice(0, 8),
+        status: b.status,
+        dispatch_status: b.dispatch_status,
+      })))}`);
+    }
+
+    // Step 3: Reclassify terminal states
     await sql`
       UPDATE bookings
       SET dispatch_status = 'assigned'
@@ -57,55 +93,57 @@ export async function POST() {
     `;
     results.push("✅ Mapped cancelled/rejected/expired → dispatch: cancelled");
 
-    // Step 3: CATCH-ALL — any booking still with not_required needs manual dispatch
-    // This covers ALL remaining status values: new, pending, confirmed, quote_sent, etc.
+    // Step 4: CATCH-ALL — any remaining not_required → manual_dispatch_required
     const catchAll = await sql`
       UPDATE bookings
       SET dispatch_status = 'manual_dispatch_required'
-      WHERE dispatch_status = 'not_required'
+      WHERE dispatch_status IN ('not_required', 'pending')
+        AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress')
       RETURNING id, status, dispatch_status
     `;
     results.push(`✅ Catch-all: ${catchAll.length} bookings → manual_dispatch_required`);
-    if (catchAll.length > 0) {
-      results.push(`📋 Reclassified: ${JSON.stringify(catchAll.map((b: any) => ({
+
+    // Step 5: Verify consistency
+    const inconsistent = await sql`
+      SELECT id, status, dispatch_status, payment_status
+      FROM bookings
+      WHERE (
+        -- Paid bookings not in any dispatch bucket
+        (payment_status = 'paid' AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress')
+          AND dispatch_status NOT IN ('awaiting_source_owner', 'awaiting_sln_member', 'manual_dispatch_required', 'assigned'))
+        OR
+        -- Active bookings with not_required
+        (dispatch_status = 'not_required' AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress'))
+      )
+    `;
+
+    if (inconsistent.length === 0) {
+      results.push("✅ CONSISTENCY CHECK PASSED: All paid bookings are in dispatch buckets");
+    } else {
+      results.push(`⚠️ WARNING: ${inconsistent.length} bookings still inconsistent`);
+      results.push(JSON.stringify(inconsistent.map((b: any) => ({
         id: b.id?.slice(0, 8),
         status: b.status,
-        new_dispatch: b.dispatch_status,
-      })))}`);
-    }
-
-    // Step 4: Refine — new/pending/quote_sent → awaiting_source_owner (more specific)
-    await sql`
-      UPDATE bookings
-      SET dispatch_status = 'awaiting_source_owner'
-      WHERE status IN ('new', 'pending', 'offered', 'quote_sent', 'awaiting_payment', 'confirmed')
-        AND dispatch_status = 'manual_dispatch_required'
-    `;
-    results.push("✅ Refined new/pending/confirmed → awaiting_source_owner");
-
-    // Step 5: Verify — no active booking should remain as not_required
-    const remaining = await sql`
-      SELECT id, status, dispatch_status
-      FROM bookings
-      WHERE dispatch_status = 'not_required'
-    `;
-    if (remaining.length === 0) {
-      results.push("✅ CONSISTENCY CHECK PASSED: Zero bookings with dispatch_status = not_required");
-    } else {
-      results.push(`⚠️ WARNING: ${remaining.length} bookings still have not_required — manual review needed`);
-      results.push(JSON.stringify(remaining.map((b: any) => ({ id: b.id?.slice(0, 8), status: b.status }))));
+        dispatch_status: b.dispatch_status,
+        payment_status: b.payment_status,
+      }))));
     }
 
     // Step 6: Final distribution
     const after = await sql`
-      SELECT dispatch_status, status, COUNT(*) as count
+      SELECT dispatch_status, status, payment_status, COUNT(*) as count
       FROM bookings
-      GROUP BY dispatch_status, status
+      GROUP BY dispatch_status, status, payment_status
       ORDER BY dispatch_status, status
     `;
     results.push(`📊 Final distribution: ${JSON.stringify(after)}`);
 
-    return NextResponse.json({ success: true, results, fixed: catchAll.length });
+    return NextResponse.json({
+      success: true,
+      results,
+      fixed: paidFix.length + catchAll.length,
+      paidFixed: paidFix.length,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message, results }, { status: 500 });
   }
@@ -115,17 +153,22 @@ export async function POST() {
 export async function GET() {
   try {
     const distribution = await sql`
-      SELECT dispatch_status, status, COUNT(*) as count
+      SELECT dispatch_status, status, payment_status, COUNT(*) as count
       FROM bookings
-      GROUP BY dispatch_status, status
+      GROUP BY dispatch_status, status, payment_status
       ORDER BY dispatch_status, status
     `;
 
     const inconsistent = await sql`
-      SELECT id, status, dispatch_status, pickup_at
+      SELECT id, status, dispatch_status, payment_status, pickup_at, created_at
       FROM bookings
-      WHERE dispatch_status = 'not_required'
-        AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress')
+      WHERE (
+        (payment_status = 'paid' AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress')
+          AND dispatch_status NOT IN ('awaiting_source_owner', 'awaiting_sln_member', 'manual_dispatch_required', 'assigned'))
+        OR
+        (dispatch_status IN ('not_required', 'pending') AND status NOT IN ('completed', 'cancelled', 'rejected', 'expired', 'assigned', 'in_progress'))
+      )
+      ORDER BY created_at DESC
     `;
 
     return NextResponse.json({

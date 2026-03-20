@@ -30,8 +30,8 @@ const S = {
   statCard: (color?: string) => ({ background: "#111", border: `1px solid ${color ?? "#222"}`, borderRadius: 12, padding: "18px 20px", flex: 1, minWidth: 140 } as React.CSSProperties),
 }
 
-const statusColor: Record<string, string> = { new: "#1e3a5f", offered: "#1e3a5f", accepted: "#14532d", in_progress: "#3b1f5e", completed: "#14532d", cancelled: "#3b0000", contacted: "#1e3a5f", booked: "#14532d", lost: "#3b0000" }
-const statusText: Record<string, string> = { new: "#60a5fa", offered: "#60a5fa", accepted: "#4ade80", in_progress: "#a78bfa", completed: "#4ade80", cancelled: "#f87171", contacted: "#60a5fa", booked: "#4ade80", lost: "#f87171" }
+const statusColor: Record<string, string> = { new: "#1e3a5f", offered: "#1e3a5f", accepted: "#14532d", in_progress: "#3b1f5e", completed: "#14532d", cancelled: "#3b0000", contacted: "#1e3a5f", booked: "#14532d", lost: "#3b0000", pending: "#1a2a1a", pending_payment: "#2a1a00", pending_dispatch: "#0c2340" }
+const statusText: Record<string, string> = { new: "#60a5fa", offered: "#60a5fa", accepted: "#4ade80", in_progress: "#a78bfa", completed: "#4ade80", cancelled: "#f87171", contacted: "#60a5fa", booked: "#4ade80", lost: "#f87171", pending: "#aaa", pending_payment: "#f59e0b", pending_dispatch: "#38bdf8" }
 const dispatchColor: Record<string, string> = { not_required: "#1a1a1a", awaiting_source_owner: "#1e3a5f", awaiting_sln_member: "#3b1f5e", manual_dispatch_required: "#3b1a00", assigned: "#14532d", expired: "#3b0000", cancelled: "#3b0000" }
 const dispatchText: Record<string, string> = { not_required: "#444", awaiting_source_owner: "#60a5fa", awaiting_sln_member: "#a78bfa", manual_dispatch_required: "#f59e0b", assigned: "#4ade80", expired: "#f87171", cancelled: "#f87171" }
 

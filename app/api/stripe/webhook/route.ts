@@ -10,20 +10,71 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 // ============================================================
 // POST /api/stripe/webhook
 //
-// Handles Stripe webhook events:
-//   - checkout.session.completed  → finalize booking + notify
-//   - payment_intent.succeeded    → backup handler
-//
-// IMPORTANT: This endpoint must be registered in Stripe Dashboard
-// Webhook URL: https://sottoventoluxuryride.com/api/stripe/webhook
-// Events: checkout.session.completed, payment_intent.succeeded
+// Post-payment pipeline (per spec):
+//   1. Verify Stripe signature
+//   2. Set payment_status = paid
+//   3. Set booking_status = pending_dispatch
+//   4. Classify dispatch_status (3 buckets)
+//   5. Enqueue booking into dispatch engine
+//   6. Trigger notifications (client + admin)
+//   7. Store audit logs for every step
 // ============================================================
 
-// Disable body parsing — Stripe requires raw body for signature verification
 export const config = {
   api: { bodyParser: false },
 }
 
+// ── Audit log helper ──────────────────────────────────────────
+async function auditLog(
+  bookingId: string,
+  action: string,
+  data: Record<string, unknown>
+) {
+  try {
+    await sql`
+      INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
+      VALUES (
+        'booking',
+        ${bookingId}::uuid,
+        ${action},
+        'system',
+        '00000000-0000-0000-0000-000000000000'::uuid,
+        ${JSON.stringify({ ...data, timestamp: new Date().toISOString() })}::jsonb
+      )
+    `
+  } catch { /* non-blocking */ }
+}
+
+// ── Dispatch log helper ───────────────────────────────────────
+async function dispatchLog(
+  bookingId: string,
+  prevStatus: string | null,
+  newStatus: string,
+  reason: string,
+  metadata: Record<string, unknown> = {}
+) {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS dispatch_log (
+        id SERIAL PRIMARY KEY,
+        booking_id TEXT NOT NULL,
+        previous_dispatch_status TEXT,
+        new_dispatch_status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+    await sql`
+      INSERT INTO dispatch_log (booking_id, previous_dispatch_status, new_dispatch_status, reason, metadata)
+      VALUES (${bookingId}, ${prevStatus}, ${newStatus}, ${reason}, ${JSON.stringify(metadata)}::jsonb)
+    `
+  } catch { /* non-blocking */ }
+}
+
+// ============================================================
+// MAIN ENTRY POINT
+// ============================================================
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const sig = req.headers.get("stripe-signature")
@@ -31,7 +82,6 @@ export async function POST(req: NextRequest) {
 
   let event: Stripe.Event
 
-  // ── Verify Stripe signature ───────────────────────────────
   if (webhookSecret && sig) {
     try {
       event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret)
@@ -40,7 +90,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 })
     }
   } else {
-    // No secret configured — parse without verification (dev only)
     try {
       event = JSON.parse(rawBody) as Stripe.Event
     } catch {
@@ -48,7 +97,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Route events ──────────────────────────────────────────
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session
     await handleCheckoutCompleted(session)
@@ -61,21 +109,24 @@ export async function POST(req: NextRequest) {
 }
 
 // ============================================================
-// MAIN HANDLER: checkout.session.completed
+// STEP 1-7: handleCheckoutCompleted
 // ============================================================
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const meta = session.metadata ?? {}
   const now = new Date().toISOString()
 
+  // ── Extract metadata ──────────────────────────────────────
   const bookingId       = meta.booking_id || null
   const clientName      = meta.client_name || session.customer_details?.name || "Guest"
   const clientEmail     = meta.client_email || session.customer_email || session.customer_details?.email || null
   const clientPhone     = meta.client_phone || session.customer_details?.phone || null
   const pickupLocation  = meta.pickup_location || meta.pickup_zone || "TBD"
   const dropoffLocation = meta.dropoff_location || meta.dropoff_zone || "TBD"
+  const pickupZone      = meta.pickup_zone || null
+  const dropoffZone     = meta.dropoff_zone || null
   const pickupDate      = meta.pickup_date || null
   const pickupTime      = meta.pickup_time || null
-  const vehicleType     = meta.vehicle_type || "Sedan"
+  const vehicleType     = meta.vehicle_type || "SUV"
   const fare            = Number(meta.fare || (session.amount_total ? session.amount_total / 100 : 0))
   const sourceCode      = meta.source_code || null
   const flightNumber    = meta.flight_number || null
@@ -85,8 +136,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const tripType        = meta.trip_type || "oneway"
   const stripeSessionId = session.id
   const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null
-
-  const pickupAt = pickupDate && pickupTime ? `${pickupDate}T${pickupTime}:00+00` : null
+  const pickupAt        = pickupDate && pickupTime ? `${pickupDate}T${pickupTime}:00+00` : null
 
   // ── Ensure schema columns exist ───────────────────────────
   try {
@@ -138,65 +188,110 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // ── Resolve source_driver_id from source_code ─────────────
   let sourceDriverId: string | null = null
+  let sourceDriverEligible = false
+
   if (sourceCode) {
     try {
       const driverRows = await sql`
-        SELECT id FROM drivers WHERE driver_code = ${sourceCode.toUpperCase()} LIMIT 1
+        SELECT id, status FROM drivers
+        WHERE driver_code = ${sourceCode.toUpperCase()}
+        LIMIT 1
       `
-      if (driverRows.length > 0) sourceDriverId = driverRows[0].id
+      if (driverRows.length > 0) {
+        sourceDriverId = driverRows[0].id
+        sourceDriverEligible = driverRows[0].status === "active"
+      }
     } catch { /* non-blocking */ }
   }
 
-  // ── Finalize booking ──────────────────────────────────────
+  // ── STEP 4: Classify dispatch_status ─────────────────────
+  // Rules:
+  //   - source_code present AND driver is active → awaiting_source_owner
+  //   - source_code present BUT driver not eligible → awaiting_sln_member
+  //   - no source_code → awaiting_sln_member
+  //   - corporate / hourly / manual → manual_dispatch_required
+  const serviceType = meta.service_type || "transfer"
+  let dispatchStatus: string
+  let dispatchReason: string
+
+  if (serviceType === "corporate" || serviceType === "hourly") {
+    dispatchStatus = "manual_dispatch_required"
+    dispatchReason = `service_type=${serviceType}`
+  } else if (sourceCode && sourceDriverId && sourceDriverEligible) {
+    dispatchStatus = "awaiting_source_owner"
+    dispatchReason = `source_code=${sourceCode}, driver_eligible=true`
+  } else if (sourceCode && sourceDriverId && !sourceDriverEligible) {
+    dispatchStatus = "awaiting_sln_member"
+    dispatchReason = `source_code=${sourceCode}, driver_eligible=false → fallback`
+  } else {
+    dispatchStatus = "awaiting_sln_member"
+    dispatchReason = "no_source_code"
+  }
+
+  // ── STEP 2+3: Finalize booking with correct states ────────
+  // payment_status = paid
+  // status (booking_status) = pending_dispatch
+  // dispatch_status = classified above
   let finalBookingId = bookingId
+
+  // Offer timer: 120s for source_owner, 60s for sln_member
+  const offerTimeoutSecs = dispatchStatus === "awaiting_source_owner" ? 120 : 60
+  const offerExpiresAt = new Date(Date.now() + offerTimeoutSecs * 1000).toISOString()
 
   try {
     if (bookingId) {
-      // Update the pre-created pending booking
       await sql`
         UPDATE bookings
-        SET status = 'pending',
-            dispatch_status = 'pending',
-            paid_at = ${now}::timestamptz,
-            stripe_session_id = ${stripeSessionId},
-            stripe_payment_intent = ${paymentIntentId},
-            client_id = ${clientId}::uuid,
-            client_email = ${clientEmail},
-            client_phone_raw = ${clientPhone},
-            flight_number = ${flightNumber},
-            notes = ${notes},
-            source_code = ${sourceCode},
-            source_driver_id = ${sourceDriverId}::uuid,
-            passengers = ${passengers},
-            luggage = ${luggage},
-            trip_type = ${tripType},
-            updated_at = NOW()
+        SET
+          payment_status = 'paid',
+          status = 'pending_dispatch',
+          dispatch_status = ${dispatchStatus},
+          paid_at = ${now}::timestamptz,
+          stripe_session_id = ${stripeSessionId},
+          stripe_payment_intent = ${paymentIntentId},
+          client_id = ${clientId}::uuid,
+          client_email = ${clientEmail},
+          client_phone_raw = ${clientPhone},
+          flight_number = ${flightNumber},
+          notes = ${notes},
+          source_code = ${sourceCode},
+          source_driver_id = ${sourceDriverId ? `${sourceDriverId}::uuid` : null},
+          passengers = ${passengers},
+          luggage = ${luggage},
+          trip_type = ${tripType},
+          offer_expires_at = ${offerExpiresAt}::timestamptz,
+          offer_stage = ${dispatchStatus === "awaiting_source_owner" ? "source_owner" : "sln_member"},
+          offer_status = 'pending',
+          updated_at = NOW()
         WHERE id = ${bookingId}::uuid
-          AND status IN ('pending_payment', 'pending')
+          AND status IN ('pending_payment', 'pending', 'pending_dispatch')
       `
     } else {
-      // No pre-created booking — create it now from webhook data
       const newBooking = await sql`
         INSERT INTO bookings (
-          status, dispatch_status,
-          pickup_address, dropoff_address, pickup_at,
+          payment_status, status, dispatch_status,
+          pickup_address, dropoff_address, pickup_zone, dropoff_zone, pickup_at,
           vehicle_type, total_price,
           client_id, client_email, client_phone_raw,
           flight_number, notes, source_code, source_driver_id,
           passengers, luggage, trip_type,
           paid_at, stripe_session_id, stripe_payment_intent,
+          offer_expires_at, offer_stage, offer_status,
           created_at, updated_at
         ) VALUES (
-          'pending', 'pending',
-          ${pickupLocation}, ${dropoffLocation},
+          'paid', 'pending_dispatch', ${dispatchStatus},
+          ${pickupLocation}, ${dropoffLocation}, ${pickupZone}, ${dropoffZone},
           ${pickupAt ? pickupAt : null}::timestamptz,
           ${vehicleType}, ${fare},
           ${clientId}::uuid,
           ${clientEmail}, ${clientPhone},
           ${flightNumber}, ${notes}, ${sourceCode},
-          ${sourceDriverId}::uuid,
+          ${sourceDriverId ? `${sourceDriverId}::uuid` : null},
           ${passengers}, ${luggage}, ${tripType},
           ${now}::timestamptz, ${stripeSessionId}, ${paymentIntentId},
+          ${offerExpiresAt}::timestamptz,
+          ${dispatchStatus === "awaiting_source_owner" ? "source_owner" : "sln_member"},
+          'pending',
           NOW(), NOW()
         )
         RETURNING id
@@ -205,39 +300,62 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     }
   } catch (err: any) {
     console.error("[webhook] CRITICAL: booking finalization failed:", err.message)
-    // Write critical error log
-    try {
-      await sql`
-        INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
-        VALUES (
-          'booking',
-          ${finalBookingId ?? '00000000-0000-0000-0000-000000000000'}::uuid,
-          'payment_finalization_failed',
-          'system',
-          '00000000-0000-0000-0000-000000000000'::uuid,
-          ${JSON.stringify({ stripe_session_id: stripeSessionId, error: err.message, client_email: clientEmail, fare, timestamp: now })}::jsonb
-        )
-      `
-    } catch { /* audit log failure */ }
+    await auditLog(
+      finalBookingId ?? "00000000-0000-0000-0000-000000000000",
+      "payment_finalization_failed",
+      { stripe_session_id: stripeSessionId, error: err.message, client_email: clientEmail, fare }
+    )
     return
   }
 
-  // ── Audit log: payment confirmed ──────────────────────────
-  try {
-    await sql`
-      INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
-      VALUES (
-        'booking',
-        ${finalBookingId ?? '00000000-0000-0000-0000-000000000000'}::uuid,
-        'payment_confirmed',
-        'system',
-        '00000000-0000-0000-0000-000000000000'::uuid,
-        ${JSON.stringify({ stripe_session_id: stripeSessionId, payment_intent: paymentIntentId, amount: fare, client_email: clientEmail, timestamp: now })}::jsonb
-      )
-    `
-  } catch { /* non-blocking */ }
+  // ── STEP 9: Audit log — payment_confirmed ─────────────────
+  await auditLog(finalBookingId!, "payment_confirmed", {
+    stripe_session_id: stripeSessionId,
+    payment_intent: paymentIntentId,
+    amount: fare,
+    client_email: clientEmail,
+  })
 
-  // ── Notifications ─────────────────────────────────────────
+  // ── STEP 9: Audit log — booking_persisted ─────────────────
+  await auditLog(finalBookingId!, "booking_persisted", {
+    booking_status: "pending_dispatch",
+    payment_status: "paid",
+  })
+
+  // ── STEP 9: Audit log — dispatch_status_assigned ──────────
+  await auditLog(finalBookingId!, "dispatch_status_assigned", {
+    dispatch_status: dispatchStatus,
+    reason: dispatchReason,
+    source_code: sourceCode,
+    source_driver_id: sourceDriverId,
+    source_driver_eligible: sourceDriverEligible,
+  })
+
+  await dispatchLog(
+    finalBookingId!,
+    "not_required",
+    dispatchStatus,
+    `payment_confirmed: ${dispatchReason}`,
+    { stripe_session_id: stripeSessionId, fare, source_code: sourceCode }
+  )
+
+  // ── STEP 5+7: Auto-dispatch — source-owner offer ──────────
+  if (dispatchStatus === "awaiting_source_owner" && sourceDriverId) {
+    await triggerSourceOwnerOffer({
+      bookingId: finalBookingId!,
+      sourceDriverId,
+      sourceCode: sourceCode!,
+      pickupLocation,
+      dropoffLocation,
+      pickupDate,
+      pickupTime,
+      vehicleType,
+      fare,
+      offerTimeoutSecs,
+    })
+  }
+
+  // ── STEP 8: Notifications ─────────────────────────────────
   await sendNotifications({
     bookingId: finalBookingId!,
     clientName,
@@ -251,6 +369,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     fare,
     flightNumber,
     notes,
+    dispatchStatus,
+    sourceCode,
   })
 }
 
@@ -258,32 +378,178 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 // BACKUP HANDLER: payment_intent.succeeded
 // ============================================================
 async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
-  // Check if there's a booking with this payment_intent that's still pending_payment
   try {
     const rows = await sql`
-      SELECT id, status FROM bookings
+      SELECT id, status, dispatch_status, source_code, source_driver_id
+      FROM bookings
       WHERE stripe_payment_intent = ${pi.id}
-        AND status = 'pending_payment'
+        AND status IN ('pending_payment', 'pending')
       LIMIT 1
     `
-    if (rows.length > 0) {
-      await sql`
-        UPDATE bookings
-        SET status = 'pending',
-            dispatch_status = 'pending',
-            paid_at = NOW(),
-            updated_at = NOW()
-        WHERE id = ${rows[0].id}::uuid
-      `
-      console.log("[webhook] payment_intent.succeeded: updated booking", rows[0].id)
-    }
+    if (rows.length === 0) return
+
+    const booking = rows[0]
+    const offerExpiresAt = new Date(Date.now() + 60_000).toISOString()
+
+    await sql`
+      UPDATE bookings
+      SET
+        payment_status = 'paid',
+        status = 'pending_dispatch',
+        dispatch_status = CASE
+          WHEN dispatch_status = 'not_required' OR dispatch_status = 'pending' THEN 'awaiting_sln_member'
+          ELSE dispatch_status
+        END,
+        paid_at = NOW(),
+        offer_expires_at = ${offerExpiresAt}::timestamptz,
+        offer_status = 'pending',
+        updated_at = NOW()
+      WHERE id = ${booking.id}::uuid
+    `
+
+    await auditLog(booking.id, "payment_confirmed_via_intent", {
+      payment_intent: pi.id,
+      previous_status: booking.status,
+    })
+
+    console.log("[webhook] payment_intent.succeeded: updated booking", booking.id)
   } catch (err: any) {
     console.error("[webhook] payment_intent.succeeded handler failed:", err.message)
   }
 }
 
 // ============================================================
-// NOTIFICATIONS
+// AUTO-DISPATCH: Source-Owner Offer (120s timer)
+// ============================================================
+async function triggerSourceOwnerOffer(params: {
+  bookingId: string
+  sourceDriverId: string
+  sourceCode: string
+  pickupLocation: string
+  dropoffLocation: string
+  pickupDate: string | null
+  pickupTime: string | null
+  vehicleType: string
+  fare: number
+  offerTimeoutSecs: number
+}) {
+  const {
+    bookingId, sourceDriverId, sourceCode,
+    pickupLocation, dropoffLocation, pickupDate, pickupTime,
+    vehicleType, fare, offerTimeoutSecs,
+  } = params
+
+  try {
+    // Get driver details for notification
+    const driverRows = await sql`
+      SELECT id, full_name, phone, email FROM drivers WHERE id = ${sourceDriverId}::uuid LIMIT 1
+    `
+    if (driverRows.length === 0) return
+
+    const driver = driverRows[0]
+    const pickupFormatted = pickupDate && pickupTime
+      ? `${pickupDate} at ${pickupTime}`
+      : pickupDate || "To be confirmed"
+
+    // Send SMS to source driver if Twilio is configured
+    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && driver.phone) {
+      try {
+        const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`
+        const smsBody = [
+          `🚗 SLN OFFER — Booking #${bookingId.slice(0, 8).toUpperCase()}`,
+          `Pickup: ${pickupLocation}`,
+          `Drop-off: ${dropoffLocation}`,
+          `Date: ${pickupFormatted}`,
+          `Vehicle: ${vehicleType}`,
+          `Fare: $${fare.toFixed(2)}`,
+          `⏱ You have ${offerTimeoutSecs}s to accept.`,
+          `Reply YES to accept or NO to decline.`,
+        ].join("\n")
+
+        const formData = new URLSearchParams({
+          From: process.env.TWILIO_PHONE_NUMBER ?? "",
+          To: driver.phone,
+          Body: smsBody,
+        })
+
+        const twilioRes = await fetch(twilioUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64")}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: formData.toString(),
+        })
+
+        if (twilioRes.ok) {
+          await auditLog(bookingId, "source_owner_offer_sent", {
+            driver_id: sourceDriverId,
+            driver_code: sourceCode,
+            driver_phone: driver.phone,
+            channel: "sms",
+            expires_in_secs: offerTimeoutSecs,
+          })
+        } else {
+          const errText = await twilioRes.text()
+          await auditLog(bookingId, "source_owner_offer_sms_failed", {
+            driver_id: sourceDriverId,
+            error: errText,
+          })
+        }
+      } catch (smsErr: any) {
+        console.error("[webhook] SMS offer failed:", smsErr.message)
+        await auditLog(bookingId, "source_owner_offer_sms_failed", {
+          driver_id: sourceDriverId,
+          error: smsErr.message,
+        })
+      }
+    } else {
+      // No SMS configured — log that offer was queued (driver will see it in driver panel)
+      await auditLog(bookingId, "source_owner_offer_queued", {
+        driver_id: sourceDriverId,
+        driver_code: sourceCode,
+        note: "SMS not configured — offer visible in driver panel",
+        expires_in_secs: offerTimeoutSecs,
+      })
+    }
+
+    // Send email offer to driver if email is available
+    if (driver.email) {
+      try {
+        await resend.emails.send({
+          from: "SLN Dispatch <bookings@sottoventoluxuryride.com>",
+          to: driver.email,
+          subject: `🚗 New Ride Offer — #${bookingId.slice(0, 8).toUpperCase()} | $${fare.toFixed(2)}`,
+          html: `
+            <div style="font-family: monospace; background: #0a0a0a; color: #e5e5e5; padding: 24px; max-width: 600px;">
+              <h2 style="color: #C9A84C; margin: 0 0 16px;">NEW RIDE OFFER</h2>
+              <p style="color: #aaa;">Hi ${driver.full_name ?? "Driver"},</p>
+              <p style="color: #aaa;">You have a new ride offer. You have <strong style="color: #C9A84C;">${offerTimeoutSecs} seconds</strong> to accept.</p>
+              <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+                <tr><td style="color: #666; padding: 6px 0;">Booking ID</td><td style="color: #fff;">#${bookingId.slice(0, 8).toUpperCase()}</td></tr>
+                <tr><td style="color: #666; padding: 6px 0;">Pickup</td><td style="color: #fff;">${pickupLocation}</td></tr>
+                <tr><td style="color: #666; padding: 6px 0;">Drop-off</td><td style="color: #fff;">${dropoffLocation}</td></tr>
+                <tr><td style="color: #666; padding: 6px 0;">Date & Time</td><td style="color: #fff;">${pickupFormatted}</td></tr>
+                <tr><td style="color: #666; padding: 6px 0;">Vehicle</td><td style="color: #fff;">${vehicleType}</td></tr>
+                <tr><td style="color: #666; padding: 6px 0;">Fare</td><td style="color: #C9A84C; font-size: 18px; font-weight: bold;">$${fare.toFixed(2)}</td></tr>
+              </table>
+              <div style="margin-top: 20px;">
+                <a href="https://sottoventoluxuryride.com/driver" style="background: #C9A84C; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">View in Driver Panel</a>
+              </div>
+            </div>
+          `,
+        })
+      } catch (emailErr: any) {
+        console.error("[webhook] driver offer email failed:", emailErr.message)
+      }
+    }
+  } catch (err: any) {
+    console.error("[webhook] triggerSourceOwnerOffer failed:", err.message)
+  }
+}
+
+// ============================================================
+// NOTIFICATIONS: Client + Admin
 // ============================================================
 async function sendNotifications(data: {
   bookingId: string
@@ -298,11 +564,14 @@ async function sendNotifications(data: {
   fare: number
   flightNumber: string | null
   notes: string | null
+  dispatchStatus: string
+  sourceCode: string | null
 }) {
   const {
     bookingId, clientName, clientEmail, clientPhone,
     pickupLocation, dropoffLocation, pickupDate, pickupTime,
     vehicleType, fare, flightNumber, notes,
+    dispatchStatus, sourceCode,
   } = data
 
   const pickupFormatted = pickupDate && pickupTime
@@ -369,12 +638,21 @@ async function sendNotifications(data: {
           </div>
         `,
       })
+
+      await auditLog(bookingId, "client_email_sent", { to: clientEmail })
     } catch (err: any) {
       console.error("[webhook] client email failed:", err.message)
+      await auditLog(bookingId, "client_email_failed", { to: clientEmail, error: err.message })
     }
   }
 
   // ── Admin alert email ─────────────────────────────────────
+  const dispatchBadge: Record<string, string> = {
+    awaiting_source_owner: "🟡 SOURCE OWNER",
+    awaiting_sln_member: "🟠 SLN MEMBER",
+    manual_dispatch_required: "🔴 MANUAL",
+  }
+
   try {
     await resend.emails.send({
       from: "SLN System <bookings@sottoventoluxuryride.com>",
@@ -382,7 +660,8 @@ async function sendNotifications(data: {
       subject: `🔔 NEW PAID BOOKING — ${clientName} | ${pickupLocation} → ${dropoffLocation} | $${fare}`,
       html: `
         <div style="font-family: monospace; background: #0a0a0a; color: #e5e5e5; padding: 24px; max-width: 600px;">
-          <h2 style="color: #C9A84C; margin: 0 0 20px;">NEW PAID BOOKING</h2>
+          <h2 style="color: #C9A84C; margin: 0 0 8px;">NEW PAID BOOKING</h2>
+          <p style="color: #888; margin: 0 0 20px;">Dispatch: <strong style="color: #fff;">${dispatchBadge[dispatchStatus] ?? dispatchStatus}</strong>${sourceCode ? ` | Source: <strong style="color: #C9A84C;">${sourceCode}</strong>` : ""}</p>
           <table style="width: 100%; border-collapse: collapse;">
             <tr><td style="color: #666; padding: 6px 0;">Booking ID</td><td style="color: #fff; padding: 6px 0;">${bookingId}</td></tr>
             <tr><td style="color: #666; padding: 6px 0;">Client</td><td style="color: #fff; padding: 6px 0;">${clientName}</td></tr>
@@ -396,13 +675,17 @@ async function sendNotifications(data: {
             ${notes ? `<tr><td style="color: #666; padding: 6px 0;">Notes</td><td style="color: #fff; padding: 6px 0;">${notes}</td></tr>` : ""}
             <tr><td style="color: #666; padding: 6px 0;">FARE</td><td style="color: #C9A84C; font-size: 18px; font-weight: bold; padding: 6px 0;">$${fare.toFixed(2)}</td></tr>
           </table>
-          <div style="margin-top: 20px;">
-            <a href="https://sottoventoluxuryride.com/admin" style="background: #C9A84C; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">View in Admin Panel</a>
+          <div style="margin-top: 20px; display: flex; gap: 12px;">
+            <a href="https://sottoventoluxuryride.com/admin" style="background: #C9A84C; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">View in Admin</a>
+            <a href="https://sottoventoluxuryride.com/admin/dispatch" style="background: #333; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Open Dispatch</a>
           </div>
         </div>
       `,
     })
+
+    await auditLog(bookingId, "admin_email_sent", { to: "contact@sottoventoluxuryride.com" })
   } catch (err: any) {
     console.error("[webhook] admin alert email failed:", err.message)
+    await auditLog(bookingId, "admin_email_failed", { error: err.message })
   }
 }
