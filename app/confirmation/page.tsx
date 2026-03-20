@@ -8,6 +8,7 @@ const GOLD = "#C9A84C"
 interface BookingData {
   booking_id?: string | null
   client_email?: string | null
+  client_email_sent?: boolean | null  // true = delivered, false = failed, null = pending/unknown
   pickup_location?: string
   dropoff_location?: string
   pickup_datetime?: string | null
@@ -201,8 +202,12 @@ function ConfirmationInner() {
         {/* Contact info */}
         <div className="text-center space-y-2">
           <p className="text-zinc-500 text-sm">
-            {booking?.client_email
+            {booking?.client_email_sent === true
               ? `A confirmation has been sent to ${booking.client_email}`
+              : booking?.client_email_sent === false
+              ? `We had trouble sending the confirmation to ${booking.client_email ?? "your email"}. Please contact us if you need a copy.`
+              : booking?.client_email
+              ? `A confirmation will be sent to ${booking.client_email} shortly.`
               : "A confirmation email will be sent to you shortly."}
           </p>
           <p className="text-zinc-600 text-xs">

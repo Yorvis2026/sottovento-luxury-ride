@@ -12,7 +12,7 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
 // persisted after Stripe payment.
 //
 // Returns:
-//   { verified: true, booking: {...} }
+//   { verified: true, booking: { ..., client_email_sent: boolean | null } }
 //   { verified: false, reason: "..." }
 // ============================================================
 
@@ -42,7 +42,8 @@ export async function GET(req: NextRequest) {
         id, status, pickup_address, dropoff_address,
         pickup_at, vehicle_type, total_price,
         client_email, client_phone_raw, paid_at,
-        stripe_session_id
+        stripe_session_id,
+        client_email_sent
       FROM bookings
       WHERE stripe_session_id = ${sessionId}
       LIMIT 1
@@ -55,7 +56,8 @@ export async function GET(req: NextRequest) {
           id, status, pickup_address, dropoff_address,
           pickup_at, vehicle_type, total_price,
           client_email, client_phone_raw, paid_at,
-          stripe_session_id
+          stripe_session_id,
+          client_email_sent
         FROM bookings
         WHERE id = ${session.metadata.booking_id}::uuid
         LIMIT 1
@@ -64,6 +66,7 @@ export async function GET(req: NextRequest) {
 
     if (bookingRows.length === 0) {
       // Webhook hasn't fired yet — return Stripe data as fallback
+      // client_email_sent is null because webhook hasn't run yet
       const meta = session.metadata ?? {}
       return NextResponse.json({
         verified: true,
@@ -72,6 +75,7 @@ export async function GET(req: NextRequest) {
           booking_id: meta.booking_id || null,
           client_name: meta.client_name || session.customer_details?.name || "Guest",
           client_email: meta.client_email || session.customer_email || null,
+          client_email_sent: null, // webhook hasn't fired yet
           pickup_location: meta.pickup_location || meta.pickup_zone || "TBD",
           dropoff_location: meta.dropoff_location || meta.dropoff_zone || "TBD",
           pickup_date: meta.pickup_date || null,
@@ -91,6 +95,7 @@ export async function GET(req: NextRequest) {
       booking: {
         booking_id: b.id,
         client_email: b.client_email,
+        client_email_sent: b.client_email_sent ?? null,
         pickup_location: b.pickup_address,
         dropoff_location: b.dropoff_address,
         pickup_datetime: b.pickup_at,

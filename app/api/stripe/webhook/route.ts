@@ -139,22 +139,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const pickupAt        = pickupDate && pickupTime ? `${pickupDate}T${pickupTime}:00+00` : null
 
   // ── Ensure schema columns exist ───────────────────────────
-  try {
-    await sql`
-      ALTER TABLE bookings
-        ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS stripe_session_id VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS stripe_payment_intent VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS client_email VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS client_phone_raw VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS flight_number VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS notes TEXT,
-        ADD COLUMN IF NOT EXISTS source_code VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS passengers INTEGER,
-        ADD COLUMN IF NOT EXISTS luggage VARCHAR(100),
-        ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20)
-    `
-  } catch { /* columns may already exist */ }
+  const extraCols = [
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_session_id VARCHAR(255)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_payment_intent VARCHAR(255)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS client_email VARCHAR(255)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS client_phone_raw VARCHAR(50)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS flight_number VARCHAR(50)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notes TEXT`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS source_code VARCHAR(50)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS passengers INTEGER`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS luggage VARCHAR(100)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20)`,
+    sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS client_email_sent BOOLEAN DEFAULT FALSE`,
+  ]
+  for (const stmt of extraCols) {
+    try { await stmt } catch { /* column may already exist */ }
+  }
 
   // ── Upsert client ─────────────────────────────────────────
   let clientId: string | null = meta.client_id || null
@@ -640,9 +641,12 @@ async function sendNotifications(data: {
       })
 
       await auditLog(bookingId, "client_email_sent", { to: clientEmail })
+      // Persist delivery status
+      await sql`UPDATE bookings SET client_email_sent = TRUE WHERE id = ${bookingId}::uuid`.catch(() => {})
     } catch (err: any) {
       console.error("[webhook] client email failed:", err.message)
       await auditLog(bookingId, "client_email_failed", { to: clientEmail, error: err.message })
+      await sql`UPDATE bookings SET client_email_sent = FALSE WHERE id = ${bookingId}::uuid`.catch(() => {})
     }
   }
 
