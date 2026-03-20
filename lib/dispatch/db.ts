@@ -148,7 +148,7 @@ export const bookings = {
         passengers, luggage, flight_number, notes,
         base_price, extras_price, total_price,
         stripe_session_id, payment_status, status,
-        offer_timeout_secs, created_at, updated_at
+        offer_timeout_secs, tracking_token, created_at, updated_at
       ) VALUES (
         ${data.client_id},
         ${data.source_driver_id ?? null},
@@ -170,6 +170,7 @@ export const bookings = {
         ${data.payment_status ?? "pending"},
         ${data.status ?? "pending"},
         ${data.offer_timeout_secs ?? 300},
+        encode(gen_random_bytes(24), 'hex'),
         NOW(), NOW()
       )
       RETURNING *
