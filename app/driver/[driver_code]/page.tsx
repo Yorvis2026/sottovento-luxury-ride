@@ -477,6 +477,8 @@ export default function DriverDashboardByCode() {
   const [smsSending, setSmsSending] = useState(false)
   const [smsSent, setSmsSent] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const prevRideIdRef = useRef<string | null>(null)
+  const prevOfferIdRef = useRef<string | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
@@ -498,6 +500,24 @@ export default function DriverDashboardByCode() {
     try { localStorage.setItem("sln_driver_lang", l) } catch {}
   }
 
+  const playAlert = useCallback(() => {
+    try {
+      // Web Audio API beep — works without audio file
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.setValueAtTime(880, ctx.currentTime)
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15)
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.30)
+      gain.gain.setValueAtTime(0.4, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.6)
+    } catch {}
+  }, [])
+
   const loadData = useCallback(async () => {
     if (!driverCode) return
     try {
@@ -509,6 +529,24 @@ export default function DriverDashboardByCode() {
       if (d.assigned_ride) {
         activeRide = { ...d.assigned_ride, status: d.assigned_ride.status ?? "assigned" }
       }
+
+      // ── Detect new ride or offer and play alert ──────────────
+      const newRideId = activeRide?.booking_id ?? null
+      const newOfferId = d.active_offer?.offer_id ?? null
+
+      const hadNoRide = prevRideIdRef.current === null
+      const hadNoOffer = prevOfferIdRef.current === null
+      const rideChanged = newRideId !== null && newRideId !== prevRideIdRef.current
+      const offerChanged = newOfferId !== null && newOfferId !== prevOfferIdRef.current
+
+      if ((rideChanged && hadNoRide) || (offerChanged && hadNoOffer)) {
+        playAlert()
+      }
+
+      prevRideIdRef.current = newRideId
+      prevOfferIdRef.current = newOfferId
+      // ────────────────────────────────────────────────────────
+
       setSummary({
         driver_id: d.id,
         driver_name: d.full_name,
@@ -526,7 +564,7 @@ export default function DriverDashboardByCode() {
       setError("Failed to load driver data")
       setLoading(false)
     }
-  }, [driverCode])
+  }, [driverCode, playAlert])
 
   useEffect(() => {
     loadData()

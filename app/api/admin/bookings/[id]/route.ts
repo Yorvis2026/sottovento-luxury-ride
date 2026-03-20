@@ -26,6 +26,93 @@ function inferDispatchStatus(bookingStatus: string): string {
   }
 }
 
+// ── Send driver notification email via Resend ────────────────
+async function sendDriverNotificationEmail(opts: {
+  driverEmail: string
+  driverName: string
+  bookingId: string
+  pickupAddress: string
+  dropoffAddress: string
+  pickupAt: string | null
+  totalPrice: number
+  clientName: string | null
+}) {
+  if (!process.env.RESEND_API_KEY) return;
+  const pickupTime = opts.pickupAt
+    ? new Date(opts.pickupAt).toLocaleString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit", timeZone: "America/New_York"
+      })
+    : "TBD";
+
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "Sottovento Dispatch <dispatch@sottoventoluxuryride.com>",
+        to: [opts.driverEmail],
+        subject: "🚗 New Ride Assigned — Sottovento",
+        html: `
+          <div style="font-family: Georgia, serif; background: #0a0a0a; color: #e5e5e5; padding: 40px; max-width: 600px; margin: 0 auto;">
+            <div style="text-align: center; margin-bottom: 32px;">
+              <p style="color: #C8A96A; letter-spacing: 4px; font-size: 11px; text-transform: uppercase; margin: 0 0 8px;">SOTTOVENTO LUXURY NETWORK</p>
+              <h1 style="color: #ffffff; font-size: 24px; margin: 0; font-weight: 300;">New Ride Assigned</h1>
+            </div>
+
+            <p style="color: #a0a0a0; line-height: 1.8; margin-bottom: 24px;">
+              Hi <strong style="color: #fff;">${opts.driverName}</strong>, you have a new ride assigned.
+            </p>
+
+            <div style="background: #1a1a1a; border: 1px solid #C8A96A33; border-radius: 8px; padding: 24px; margin-bottom: 24px;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="color: #888; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 8px 0; width: 120px;">Pickup</td>
+                  <td style="color: #fff; font-size: 14px; padding: 8px 0;">${opts.pickupAddress}</td>
+                </tr>
+                <tr>
+                  <td style="color: #888; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 8px 0;">Dropoff</td>
+                  <td style="color: #fff; font-size: 14px; padding: 8px 0;">${opts.dropoffAddress}</td>
+                </tr>
+                <tr>
+                  <td style="color: #888; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 8px 0;">Time</td>
+                  <td style="color: #C8A96A; font-size: 14px; font-weight: bold; padding: 8px 0;">${pickupTime}</td>
+                </tr>
+                ${opts.clientName ? `
+                <tr>
+                  <td style="color: #888; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 8px 0;">Client</td>
+                  <td style="color: #fff; font-size: 14px; padding: 8px 0;">${opts.clientName}</td>
+                </tr>` : ""}
+                <tr>
+                  <td style="color: #888; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding: 8px 0;">Fare</td>
+                  <td style="color: #4ade80; font-size: 18px; font-weight: bold; padding: 8px 0;">$${opts.totalPrice.toFixed(2)}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="https://www.sottoventoluxuryride.com/driver/${opts.driverName.replace(/\s+/g, "")}"
+                style="background: #C8A96A; color: #0a0a0a; padding: 16px 40px; text-decoration: none; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; display: inline-block; border-radius: 4px;">
+                Open Driver Panel →
+              </a>
+            </div>
+
+            <p style="color: #555; font-size: 11px; text-align: center; margin-top: 24px;">
+              Booking ID: ${opts.bookingId.substring(0, 8).toUpperCase()}<br/>
+              Sottovento Luxury Network — Premium Transportation
+            </p>
+          </div>
+        `,
+      }),
+    });
+  } catch (emailErr) {
+    console.error("Driver notification email error:", emailErr);
+  }
+}
+
 // PATCH /api/admin/bookings/[id] — Update booking status and/or dispatch_status
 export async function PATCH(
   req: NextRequest,
@@ -71,13 +158,47 @@ export async function PATCH(
       }
     }
 
-    // Assign driver
+    // Assign driver + send email notification
     if (assigned_driver_id !== undefined) {
       await sql`
         UPDATE bookings
         SET assigned_driver_id = ${assigned_driver_id}::uuid, updated_at = NOW()
         WHERE id = ${params.id}::uuid
       `;
+
+      // Send email notification to driver (non-blocking)
+      if (assigned_driver_id) {
+        try {
+          // Get driver email + booking details
+          const [driverRow] = await sql`
+            SELECT d.email, d.full_name, d.driver_code,
+                   b.pickup_address, b.dropoff_address, b.pickup_at,
+                   b.total_price, b.id AS booking_id,
+                   c.full_name AS client_name
+            FROM drivers d
+            JOIN bookings b ON b.id = ${params.id}::uuid
+            LEFT JOIN clients c ON b.client_id = c.id
+            WHERE d.id = ${assigned_driver_id}::uuid
+            LIMIT 1
+          `;
+
+          if (driverRow?.email) {
+            // Fire-and-forget email
+            sendDriverNotificationEmail({
+              driverEmail: driverRow.email,
+              driverName: driverRow.full_name ?? "Driver",
+              bookingId: driverRow.booking_id ?? params.id,
+              pickupAddress: driverRow.pickup_address ?? "TBD",
+              dropoffAddress: driverRow.dropoff_address ?? "TBD",
+              pickupAt: driverRow.pickup_at ?? null,
+              totalPrice: Number(driverRow.total_price ?? 0),
+              clientName: driverRow.client_name ?? null,
+            }).catch(() => null);
+          }
+        } catch {
+          // Email failure should never block the assignment
+        }
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -99,7 +220,8 @@ export async function GET(
         c.phone AS client_phone,
         c.email AS client_email,
         d.full_name AS driver_name,
-        d.driver_code AS driver_code
+        d.driver_code AS driver_code,
+        d.email AS driver_email
       FROM bookings b
       LEFT JOIN clients c ON b.client_id = c.id
       LEFT JOIN drivers d ON b.assigned_driver_id = d.id

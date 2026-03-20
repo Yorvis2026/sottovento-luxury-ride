@@ -178,9 +178,22 @@ export async function GET(req: NextRequest) {
           completed_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
-          AND status IN ('assigned', 'en_route', 'arrived', 'in_trip')
-          AND (pickup_at >= NOW() - INTERVAL '4 hours' OR status = 'in_trip')
-        ORDER BY pickup_at ASC
+          AND status IN ('accepted', 'assigned', 'en_route', 'arrived', 'in_trip')
+          AND (
+            pickup_at >= NOW() - INTERVAL '4 hours'
+            OR pickup_at IS NULL
+            OR status IN ('en_route', 'arrived', 'in_trip')
+          )
+        ORDER BY
+          CASE status
+            WHEN 'in_trip' THEN 1
+            WHEN 'arrived' THEN 2
+            WHEN 'en_route' THEN 3
+            WHEN 'assigned' THEN 4
+            WHEN 'accepted' THEN 5
+            ELSE 6
+          END,
+          pickup_at ASC
         LIMIT 1
       `;
 
