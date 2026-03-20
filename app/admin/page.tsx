@@ -10,7 +10,7 @@ import { type Lang, type TranslationKey, getTranslation, saveLang, loadLang } fr
 const ADMIN_PASSWORD = "Sottovento.20"
 const BASE_URL = "https://www.sottoventoluxuryride.com"
 
-type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "leads" | "crown" | "finance" | "settings"
+type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "leads" | "crown" | "finance" | "partners" | "settings"
 
 // ---- TYPES ----
 type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
@@ -81,6 +81,27 @@ export default function AdminPanel() {
   const [loadingFinance, setLoadingFinance] = useState(false)
   const [loadingCrown, setLoadingCrown] = useState(false)
 
+  // Partner System state
+  type PartnerTab = "list" | "companies" | "invites" | "earnings" | "compliance"
+  const [partnerTab, setPartnerTab] = useState<PartnerTab>("list")
+  const [partners, setPartners] = useState<any[]>([])
+  const [partnerCompanies, setPartnerCompanies] = useState<any[]>([])
+  const [partnerInvites, setPartnerInvites] = useState<any[]>([])
+  const [partnerEarnings, setPartnerEarnings] = useState<any[]>([])
+  const [partnerCompliance, setPartnerCompliance] = useState<any[]>([])
+  const [loadingPartners, setLoadingPartners] = useState(false)
+  const [partnerMigMsg, setPartnerMigMsg] = useState("")
+  const [runningPartnerMig, setRunningPartnerMig] = useState(false)
+  // Invite form
+  const [inviteForm, setInviteForm] = useState({ type: "individual", email: "", phone: "", commission_rate: "0.10", name: "", send_email: true })
+  const [inviteMsg, setInviteMsg] = useState("")
+  const [sendingInvite, setSendingInvite] = useState(false)
+  const [inviteLink, setInviteLink] = useState("")
+  // Company form
+  const [companyForm, setCompanyForm] = useState({ name: "", brand_name: "", commission_split_company: "0.10", commission_split_staff: "0.05" })
+  const [companyMsg, setCompanyMsg] = useState("")
+  const [addingCompany, setAddingCompany] = useState(false)
+
   const [showAddDriver, setShowAddDriver] = useState(false)
   const [newDriver, setNewDriver] = useState({ full_name: "", phone: "", email: "", driver_code: "" })
   const [addingDriver, setAddingDriver] = useState(false)
@@ -98,9 +119,15 @@ export default function AdminPanel() {
   const loadFinance = useCallback(async () => { setLoadingFinance(true); try { const r = await fetch("/api/admin/finance"); if (r.ok) setFinance(await r.json()) } catch { } finally { setLoadingFinance(false) } }, [])
   const loadCrown = useCallback(async () => { setLoadingCrown(true); try { const r = await fetch("/api/admin/crown-moment"); if (r.ok) setCrownData(await r.json()) } catch { } finally { setLoadingCrown(false) } }, [])
   const loadDispatch = useCallback(async () => { setLoadingDispatch(true); try { const r = await fetch("/api/admin/dispatch"); if (r.ok) setDispatchData(await r.json()) } catch { } finally { setLoadingDispatch(false) } }, [])
+  const loadPartners = useCallback(async () => { setLoadingPartners(true); try { const r = await fetch("/api/admin/partners"); if (r.ok) { const d = await r.json(); setPartners(d.partners ?? []) } } catch { } finally { setLoadingPartners(false) } }, [])
+  const loadPartnerCompanies = useCallback(async () => { try { const r = await fetch("/api/admin/partner-companies"); if (r.ok) { const d = await r.json(); setPartnerCompanies(d.companies ?? []) } } catch { } }, [])
+  const loadPartnerInvites = useCallback(async () => { try { const r = await fetch("/api/admin/partner-invites"); if (r.ok) { const d = await r.json(); setPartnerInvites(d.invites ?? []) } } catch { } }, [])
+  const loadPartnerEarnings = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings"); if (r.ok) { const d = await r.json(); setPartnerEarnings(d.earnings ?? []) } } catch { } }, [])
+  const loadPartnerCompliance = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings?compliance=true"); if (r.ok) { const d = await r.json(); setPartnerCompliance(d.compliance ?? []) } } catch { } }, [])
 
   useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings() } }, [authed, loadDashboard, loadDrivers, loadBookings])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") loadDispatch() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") loadDispatch(); if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() } }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadPartners, loadPartnerCompanies, loadPartnerInvites])
+  useEffect(() => { if (tab !== "partners") return; if (partnerTab === "earnings") loadPartnerEarnings(); if (partnerTab === "compliance") loadPartnerCompliance() }, [partnerTab, tab, loadPartnerEarnings, loadPartnerCompliance])
 
   // ---- ACTIONS ----
   const handleLogin = () => { if (pw === ADMIN_PASSWORD) { setAuthed(true); setPwError(false) } else setPwError(true) }
@@ -156,6 +183,39 @@ export default function AdminPanel() {
     try { await fetch(`/api/admin/leads/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }); loadLeads() } catch { }
   }
 
+  const handleRunPartnerMigration = async () => {
+    setRunningPartnerMig(true); setPartnerMigMsg("")
+    try {
+      const r = await fetch("/api/admin/migrate-partners")
+      const d = await r.json()
+      if (r.ok) { setPartnerMigMsg(`✅ ${d.message}. Tables: ${d.tables?.join(", ")}`); loadPartners(); loadPartnerCompanies() }
+      else setPartnerMigMsg(`❌ Error: ${d.error}`)
+    } catch (e: any) { setPartnerMigMsg(`❌ ${e.message}`) }
+    finally { setRunningPartnerMig(false) }
+  }
+
+  const handleSendInvite = async () => {
+    if (!inviteForm.type) return; setSendingInvite(true); setInviteMsg(""); setInviteLink("")
+    try {
+      const r = await fetch("/api/admin/partner-invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...inviteForm, commission_rate: parseFloat(inviteForm.commission_rate), prefilled_data: { name: inviteForm.name } }) })
+      const d = await r.json()
+      if (r.ok) { setInviteMsg("✅ Invite created" + (inviteForm.send_email && inviteForm.email ? " and email sent" : "")); setInviteLink(d.invite_link ?? ""); loadPartnerInvites() }
+      else setInviteMsg(`❌ ${d.error}`)
+    } catch (e: any) { setInviteMsg(`❌ ${e.message}`) }
+    finally { setSendingInvite(false) }
+  }
+
+  const handleAddCompany = async () => {
+    if (!companyForm.name || !companyForm.brand_name) return; setAddingCompany(true); setCompanyMsg("")
+    try {
+      const r = await fetch("/api/admin/partner-companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...companyForm, commission_split_company: parseFloat(companyForm.commission_split_company), commission_split_staff: parseFloat(companyForm.commission_split_staff) }) })
+      const d = await r.json()
+      if (r.ok) { setCompanyMsg(`✅ Company created: ${d.company?.brand_name} (${d.company?.master_ref_code})`); setCompanyForm({ name: "", brand_name: "", commission_split_company: "0.10", commission_split_staff: "0.05" }); loadPartnerCompanies() }
+      else setCompanyMsg(`❌ ${d.error}`)
+    } catch (e: any) { setCompanyMsg(`❌ ${e.message}`) }
+    finally { setAddingCompany(false) }
+  }
+
   const handleSendTestSMS = async () => {
     if (!smsPhone) return; setSmsSending(true); setSmsResult("")
     try {
@@ -205,6 +265,7 @@ export default function AdminPanel() {
     { id: "leads", label: t("tabLeads"), icon: "🎯" },
     { id: "crown", label: t("tabCrown"), icon: "👑" },
     { id: "finance", label: t("tabFinance"), icon: "💰" },
+    { id: "partners", label: "Partners", icon: "🤝" },
     { id: "settings", label: t("tabSettings"), icon: "⚙️" },
   ]
 
@@ -989,6 +1050,253 @@ export default function AdminPanel() {
                 <div>{t("settTollFree")} +1 (888) 997-5436: <span style={{ color: "#f59e0b" }}>In Review</span></div>
               </div>
             </div>
+          </div>
+        )}
+
+      </div>
+
+        {/* ======================================================
+            PARTNER SYSTEM
+        ====================================================== */}
+        {tab === "partners" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Partner Network</div>
+                <div style={{ color: "#555", fontSize: 13 }}>Hotels, Valets, Influencers, Airbnb, Staff</div>
+              </div>
+              <button onClick={() => { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }} style={S.btn()}>↺ Refresh</button>
+            </div>
+
+            {/* Partner Migration */}
+            <div style={{ ...S.card, marginBottom: 20, borderColor: "#c9a84c33" }}>
+              <div style={{ fontSize: 12, color: "#c9a84c", letterSpacing: 2, marginBottom: 8 }}>SETUP — RUN ONCE</div>
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 12 }}>Create Partner System tables in the database. Safe to run multiple times.</div>
+              <button onClick={handleRunPartnerMigration} disabled={runningPartnerMig} style={{ background: "#c9a84c", color: "#000", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: runningPartnerMig ? 0.5 : 1 }}>
+                {runningPartnerMig ? "⏳ Running..." : "▶️ Run Partner Migration"}
+              </button>
+              {partnerMigMsg && <div style={{ marginTop: 10, padding: "10px 14px", background: partnerMigMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 12, color: partnerMigMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{partnerMigMsg}</div>}
+            </div>
+
+            {/* Sub-tabs */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 20, overflowX: "auto" }}>
+              {(["list", "companies", "invites", "earnings", "compliance"] as const).map(pt => (
+                <button key={pt} onClick={() => setPartnerTab(pt)}
+                  style={{ background: partnerTab === pt ? "#c9a84c" : "#1a1a1a", color: partnerTab === pt ? "#000" : "#888", border: "1px solid #333", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "capitalize", whiteSpace: "nowrap" }}>
+                  {pt === "list" ? "👥 Partners" : pt === "companies" ? "🏢 Companies" : pt === "invites" ? "✉️ Invites" : pt === "earnings" ? "💵 Earnings" : "📋 Compliance"}
+                </button>
+              ))}
+            </div>
+
+            {/* PARTNERS LIST */}
+            {partnerTab === "list" && (
+              <div>
+                <div style={{ fontSize: 13, color: "#888", marginBottom: 12 }}>{partners.length} partners</div>
+                {loadingPartners ? <div style={{ color: "#555", textAlign: "center", padding: 40 }}>Loading...</div> : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {partners.length === 0 && <div style={{ ...S.card, color: "#555", textAlign: "center", padding: 40 }}>No partners yet. Run migration and create invites.</div>}
+                    {partners.map(p => (
+                      <div key={p.id} style={{ ...S.card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
+                          <div style={{ color: "#888", fontSize: 12 }}>{p.type?.toUpperCase()} · {p.email ?? p.phone ?? "—"}</div>
+                          {p.company_name && <div style={{ color: "#c9a84c", fontSize: 11 }}>🏢 {p.company_name}</div>}
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 11, color: "#888" }}>REF CODE</div>
+                          <div style={{ fontFamily: "monospace", color: "#c9a84c", fontWeight: 700, fontSize: 14 }}>{p.ref_code}</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 11, color: "#888" }}>COMMISSION</div>
+                          <div style={{ fontWeight: 700, color: "#4ade80" }}>{Math.round(Number(p.commission_rate) * 100)}%</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 11, color: "#888" }}>MTD EARNINGS</div>
+                          <div style={{ fontWeight: 700, color: "#c9a84c" }}>${Number(p.earnings_mtd ?? 0).toFixed(2)}</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 11, color: "#888" }}>BOOKINGS</div>
+                          <div style={{ fontWeight: 700 }}>{p.total_bookings ?? 0}</div>
+                        </div>
+                        <div>
+                          <span style={{ ...S.badge(p.status === "active" ? "#052e16" : p.status === "invited" ? "#1e3a5f" : "#3b0000"), color: p.status === "active" ? "#4ade80" : p.status === "invited" ? "#60a5fa" : "#f87171" }}>
+                            {p.status?.toUpperCase()}
+                          </span>
+                        </div>
+                        <a href={`https://www.sottoventoluxuryride.com/partner/${p.ref_code}`} target="_blank" rel="noreferrer"
+                          style={{ fontSize: 12, color: "#c9a84c", textDecoration: "none" }}>View Panel →</a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* COMPANIES */}
+            {partnerTab === "companies" && (
+              <div>
+                {/* Add Company Form */}
+                <div style={{ ...S.card, marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#c9a84c", marginBottom: 16 }}>Add Partner Company</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div><label style={S.label}>Legal Name</label><input value={companyForm.name} onChange={e => setCompanyForm(f => ({ ...f, name: e.target.value }))} placeholder="Marriott International Inc." style={S.input} /></div>
+                    <div><label style={S.label}>Brand Name</label><input value={companyForm.brand_name} onChange={e => setCompanyForm(f => ({ ...f, brand_name: e.target.value }))} placeholder="JW Marriott Orlando" style={S.input} /></div>
+                    <div><label style={S.label}>Company Commission</label><input type="number" step="0.01" value={companyForm.commission_split_company} onChange={e => setCompanyForm(f => ({ ...f, commission_split_company: e.target.value }))} placeholder="0.10" style={S.input} /></div>
+                    <div><label style={S.label}>Staff Commission</label><input type="number" step="0.01" value={companyForm.commission_split_staff} onChange={e => setCompanyForm(f => ({ ...f, commission_split_staff: e.target.value }))} placeholder="0.05" style={S.input} /></div>
+                  </div>
+                  <button onClick={handleAddCompany} disabled={addingCompany || !companyForm.name || !companyForm.brand_name} style={{ background: "#c9a84c", color: "#000", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: addingCompany ? 0.5 : 1 }}>
+                    {addingCompany ? "Adding..." : "+ Add Company"}
+                  </button>
+                  {companyMsg && <div style={{ marginTop: 10, padding: "10px 14px", background: companyMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 12, color: companyMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{companyMsg}</div>}
+                </div>
+
+                {/* Companies List */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {partnerCompanies.length === 0 && <div style={{ ...S.card, color: "#555", textAlign: "center", padding: 40 }}>No companies yet.</div>}
+                  {partnerCompanies.map(c => (
+                    <div key={c.id} style={{ ...S.card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{c.brand_name}</div>
+                        <div style={{ color: "#888", fontSize: 12 }}>{c.name}</div>
+                      </div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>MASTER CODE</div><div style={{ fontFamily: "monospace", color: "#c9a84c", fontWeight: 700 }}>{c.master_ref_code}</div></div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>STAFF</div><div style={{ fontWeight: 700 }}>{c.staff_count ?? 0}</div></div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>MTD</div><div style={{ fontWeight: 700, color: "#c9a84c" }}>${Number(c.earnings_mtd ?? 0).toFixed(2)}</div></div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>LIFETIME</div><div style={{ fontWeight: 700 }}>${Number(c.total_earnings ?? 0).toFixed(2)}</div></div>
+                      <span style={{ ...S.badge("#052e16"), color: "#4ade80" }}>{c.status?.toUpperCase()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* INVITES */}
+            {partnerTab === "invites" && (
+              <div>
+                {/* Send Invite Form */}
+                <div style={{ ...S.card, marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#c9a84c", marginBottom: 16 }}>Send Partner Invite</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <label style={S.label}>Partner Name</label>
+                      <input value={inviteForm.name} onChange={e => setInviteForm(f => ({ ...f, name: e.target.value }))} placeholder="John Smith" style={S.input} />
+                    </div>
+                    <div>
+                      <label style={S.label}>Type</label>
+                      <select value={inviteForm.type} onChange={e => setInviteForm(f => ({ ...f, type: e.target.value }))} style={{ ...S.input, color: "#fff" }}>
+                        <option value="hotel">Hotel</option>
+                        <option value="valet">Valet</option>
+                        <option value="airbnb">Airbnb Host</option>
+                        <option value="influencer">Influencer</option>
+                        <option value="staff">Staff</option>
+                        <option value="individual">Individual</option>
+                      </select>
+                    </div>
+                    <div><label style={S.label}>Email</label><input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} placeholder="partner@hotel.com" style={S.input} /></div>
+                    <div><label style={S.label}>Commission Rate</label><input type="number" step="0.01" min="0" max="1" value={inviteForm.commission_rate} onChange={e => setInviteForm(f => ({ ...f, commission_rate: e.target.value }))} placeholder="0.10" style={S.input} /></div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#888", cursor: "pointer" }}>
+                      <input type="checkbox" checked={inviteForm.send_email} onChange={e => setInviteForm(f => ({ ...f, send_email: e.target.checked }))} />
+                      Send email invitation
+                    </label>
+                  </div>
+                  <button onClick={handleSendInvite} disabled={sendingInvite || !inviteForm.type} style={{ background: "#c9a84c", color: "#000", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: sendingInvite ? 0.5 : 1 }}>
+                    {sendingInvite ? "Sending..." : "✉️ Send Invite"}
+                  </button>
+                  {inviteMsg && <div style={{ marginTop: 10, padding: "10px 14px", background: inviteMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 12, color: inviteMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{inviteMsg}</div>}
+                  {inviteLink && (
+                    <div style={{ marginTop: 12, padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #c9a84c33" }}>
+                      <div style={{ fontSize: 11, color: "#c9a84c", marginBottom: 6 }}>INVITE LINK — Share this with the partner:</div>
+                      <div style={{ fontFamily: "monospace", fontSize: 12, color: "#fff", wordBreak: "break-all" }}>{inviteLink}</div>
+                      <button onClick={() => navigator.clipboard.writeText(inviteLink)} style={{ marginTop: 8, background: "#333", border: "none", color: "#c9a84c", borderRadius: 6, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>Copy Link</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Invites List */}
+                <div style={{ fontSize: 13, color: "#888", marginBottom: 12 }}>{partnerInvites.length} invites</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {partnerInvites.length === 0 && <div style={{ ...S.card, color: "#555", textAlign: "center", padding: 40 }}>No invites yet.</div>}
+                  {partnerInvites.map(inv => (
+                    <div key={inv.id} style={{ ...S.card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{(inv.prefilled_data as any)?.name ?? inv.email ?? inv.phone ?? "Anonymous"}</div>
+                        <div style={{ color: "#888", fontSize: 12 }}>{inv.type?.toUpperCase()} · {inv.email ?? "—"}</div>
+                      </div>
+                      <div style={{ fontFamily: "monospace", fontSize: 11, color: "#555" }}>{inv.token?.substring(0, 16)}...</div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>COMMISSION</div><div style={{ fontWeight: 700, color: "#4ade80" }}>{Math.round(Number(inv.commission_rate) * 100)}%</div></div>
+                      <span style={{ ...S.badge(inv.status === "completed" ? "#052e16" : inv.status === "opened" ? "#1e3a5f" : inv.status === "expired" ? "#3b0000" : "#1a1a1a"), color: inv.status === "completed" ? "#4ade80" : inv.status === "opened" ? "#60a5fa" : inv.status === "expired" ? "#f87171" : "#888" }}>
+                        {inv.status?.toUpperCase()}
+                      </span>
+                      <button onClick={() => navigator.clipboard.writeText(`https://www.sottoventoluxuryride.com/partner/invite/${inv.token}`)} style={{ background: "#1a1a1a", border: "1px solid #333", color: "#c9a84c", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer" }}>Copy Link</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* EARNINGS */}
+            {partnerTab === "earnings" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, color: "#888" }}>{partnerEarnings.length} records</div>
+                  <a href="/api/admin/partner-earnings?export=csv" style={{ background: "#1a1a1a", border: "1px solid #333", color: "#c9a84c", borderRadius: 8, padding: "8px 16px", fontSize: 12, textDecoration: "none", fontWeight: 600 }}>⬇ Export CSV</a>
+                </div>
+                {partnerEarnings.length === 0 && <div style={{ ...S.card, color: "#555", textAlign: "center", padding: 40 }}>No earnings yet. Earnings are created when bookings are completed.</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {partnerEarnings.map(e => (
+                    <div key={e.id} style={{ ...S.card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{e.partner_name}</div>
+                        <div style={{ color: "#888", fontSize: 12 }}>{e.ref_code} · {e.pickup_address ?? "—"}</div>
+                      </div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>GROSS</div><div style={{ fontWeight: 700 }}>${Number(e.gross_amount).toFixed(2)}</div></div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>COMMISSION</div><div style={{ fontWeight: 700, color: "#c9a84c" }}>${Number(e.commission_amount).toFixed(2)}</div></div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>RATE</div><div style={{ fontWeight: 700 }}>{Math.round(Number(e.commission_rate) * 100)}%</div></div>
+                      <span style={{ ...S.badge(e.status === "paid" ? "#052e16" : e.status === "approved" ? "#1e3a5f" : e.status === "void" ? "#3b0000" : "#1a1a1a"), color: e.status === "paid" ? "#4ade80" : e.status === "approved" ? "#60a5fa" : e.status === "void" ? "#f87171" : "#888" }}>
+                        {e.status?.toUpperCase()}
+                      </span>
+                      <div style={{ fontSize: 11, color: "#555" }}>{fmtDate(e.created_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* COMPLIANCE (1099) */}
+            {partnerTab === "compliance" && (
+              <div>
+                <div style={{ ...S.card, marginBottom: 20, borderColor: "#f59e0b33" }}>
+                  <div style={{ fontSize: 12, color: "#f59e0b", letterSpacing: 2, marginBottom: 8 }}>1099 COMPLIANCE</div>
+                  <div style={{ fontSize: 13, color: "#888" }}>Partners with YTD earnings ≥ $600 require a W-9 before year-end. Track W-9 status below.</div>
+                </div>
+                {partnerCompliance.length === 0 && <div style={{ ...S.card, color: "#555", textAlign: "center", padding: 40 }}>No compliance data yet.</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {partnerCompliance.map(c => (
+                    <div key={c.id} style={{ ...S.card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", borderColor: c.requires_w9 && c.w9_status !== "verified" ? "#f59e0b44" : "#222" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+                        <div style={{ color: "#888", fontSize: 12 }}>{c.email ?? "—"} · {c.type?.toUpperCase()}</div>
+                        {c.legal_name && <div style={{ color: "#555", fontSize: 11 }}>Legal: {c.legal_name}</div>}
+                      </div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>YTD EARNINGS</div><div style={{ fontWeight: 700, color: Number(c.ytd_earnings) >= 600 ? "#f59e0b" : "#4ade80" }}>${Number(c.ytd_earnings).toFixed(2)}</div></div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>TAX ID TYPE</div><div style={{ fontWeight: 600 }}>{c.tax_id_type ?? "—"}</div></div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 11, color: "#888" }}>W-9 STATUS</div>
+                        <span style={{ ...S.badge(c.w9_status === "verified" ? "#052e16" : c.w9_status === "submitted" ? "#1e3a5f" : "#3b1a00"), color: c.w9_status === "verified" ? "#4ade80" : c.w9_status === "submitted" ? "#60a5fa" : "#f59e0b" }}>
+                          {(c.w9_status ?? "PENDING")?.toUpperCase()}
+                        </span>
+                      </div>
+                      {c.requires_w9 && c.w9_status !== "verified" && (
+                        <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>⚠ W-9 REQUIRED</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 

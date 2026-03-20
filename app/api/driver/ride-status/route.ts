@@ -197,8 +197,9 @@ export async function POST(req: NextRequest) {
       // Audit log failure should not block the status update
     }
 
-    // ── On COMPLETED: confirm commissions ────────────────────
+    // ── On COMPLETED: confirm commissions + partner earnings ──
     if (new_status === "completed") {
+      // 1. Confirm existing commissions
       try {
         await sql`
           UPDATE commissions
@@ -209,6 +210,41 @@ export async function POST(req: NextRequest) {
         `;
       } catch {
         // Commission update failure is non-blocking
+      }
+
+      // 2. Create partner earnings if booking has a ref_code
+      try {
+        const bookingRows = await sql`
+          SELECT id, total_price, ref_code FROM bookings WHERE id = ${booking_id}::uuid
+        `;
+        const booking = bookingRows[0];
+        if (booking?.ref_code) {
+          const partnerRows = await sql`
+            SELECT id, commission_rate FROM partners
+            WHERE ref_code = ${booking.ref_code.toUpperCase()}
+              AND status = 'active'
+          `;
+          if (partnerRows.length > 0) {
+            const partner = partnerRows[0];
+            const grossAmount = Number(booking.total_price ?? 0);
+            const commissionRate = Number(partner.commission_rate ?? 0.10);
+            const commissionAmount = grossAmount * commissionRate;
+            // Check if earning already exists
+            const existing = await sql`
+              SELECT id FROM partner_earnings WHERE booking_id = ${booking_id}::uuid
+            `;
+            if (existing.length === 0 && commissionAmount > 0) {
+              await sql`
+                INSERT INTO partner_earnings
+                  (partner_id, booking_id, gross_amount, commission_rate, commission_amount, status)
+                VALUES
+                  (${partner.id}::uuid, ${booking_id}::uuid, ${grossAmount}, ${commissionRate}, ${commissionAmount}, 'pending')
+              `;
+            }
+          }
+        }
+      } catch {
+        // Partner earnings failure is non-blocking
       }
     }
 
