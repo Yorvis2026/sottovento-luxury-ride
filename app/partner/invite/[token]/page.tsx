@@ -339,26 +339,69 @@ export default function PartnerOnboarding({ params }: { params: { token: string 
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Partner Agreement</div>
           <div style={{ color: "#888", fontSize: 13, marginBottom: 20 }}>Please read and accept the terms</div>
 
-          <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: 10, padding: "20px", marginBottom: 20, maxHeight: 280, overflowY: "auto" as const, fontSize: 12, color: "#888", lineHeight: 1.9 }}>
-            <strong style={{ color: "#C8A96A", display: "block", marginBottom: 12 }}>SOTTOVENTO LUXURY NETWORK — PARTNER REFERRAL AGREEMENT</strong>
+          <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: 10, padding: "20px", marginBottom: 20, maxHeight: 320, overflowY: "auto" as const, fontSize: 12, color: "#888", lineHeight: 1.9 }}>
+            <strong style={{ color: "#C8A96A", display: "block", marginBottom: 4, fontSize: 13 }}>SOTTOVENTO LUXURY NETWORK — PARTNER AGREEMENT</strong>
+            <div style={{ color: "#555", fontSize: 11, marginBottom: 16 }}>Effective Date: {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</div>
 
-            <strong style={{ color: "#fff" }}>1. Commission Structure</strong><br />
-            Partner will receive a commission of {Math.round(Number(invite?.commission_rate ?? 0.10) * 100)}% of the net fare for each completed booking generated through their unique referral link or code. Commissions are calculated on the net fare excluding taxes and fees.
+            <span style={{ color: "#aaa", fontSize: 12 }}>This Partner Agreement (&quot;Agreement&quot;) is entered into between Sottovento Luxury Network (&quot;Company&quot;) and the individual or entity registering as a Partner (&quot;Partner&quot;).</span>
             <br /><br />
-            <strong style={{ color: "#fff" }}>2. Payment Terms</strong><br />
-            Commissions are paid monthly for all bookings completed in the prior month. Minimum payout threshold is $50. Payments are made via ACH or check. Partner must maintain valid tax information on file.
+
+            <strong style={{ color: "#fff" }}>1. PURPOSE</strong><br />
+            The purpose of this Agreement is to establish a referral relationship in which the Partner introduces potential clients to Sottovento Luxury Network transportation services.
             <br /><br />
-            <strong style={{ color: "#fff" }}>3. Tax Compliance</strong><br />
-            Partner is responsible for reporting commission income. Sottovento Luxury Network will issue a 1099-NEC for annual earnings exceeding $600 as required by IRS regulations. Partner agrees to provide accurate tax information.
+
+            <strong style={{ color: "#fff" }}>2. INDEPENDENT CONTRACTOR STATUS</strong><br />
+            Partner is an independent contractor and not an employee, agent, or representative of Sottovento Luxury Network. Partner may not represent themselves as: an employee of Sottovento, a driver for Sottovento, or an official company representative.
             <br /><br />
-            <strong style={{ color: "#fff" }}>4. Code of Conduct</strong><br />
-            Partner agrees to represent Sottovento Luxury Network professionally. Partner may not make false claims about services, pricing, or availability. Partner may not engage in spam or unsolicited marketing.
+
+            <strong style={{ color: "#fff" }}>3. REFERRAL SYSTEM</strong><br />
+            Partner will receive a unique referral link and/or QR code. Clients referred through this link will be tracked and assigned within the system.
             <br /><br />
-            <strong style={{ color: "#fff" }}>5. Termination</strong><br />
-            Either party may terminate this agreement with 30 days written notice. Earned commissions for completed bookings will be paid upon termination. Commissions for bookings in progress at termination will be paid upon completion.
+
+            <strong style={{ color: "#fff" }}>4. CLIENT OWNERSHIP</strong><br />
+            Partner is granted a conditional commission right, not ownership of clients. Clients remain property of Sottovento Luxury Network. Partner may earn commissions from referred clients while active.
             <br /><br />
-            <strong style={{ color: "#fff" }}>6. Confidentiality</strong><br />
-            Partner agrees to keep client information confidential and not share, sell, or use client data for any purpose other than facilitating the referral.
+
+            <strong style={{ color: "#fff" }}>5. COMMISSIONS</strong><br />
+            Partner will receive a commission based on completed bookings generated through their referral. Commission rate: <strong style={{ color: "#C8A96A" }}>{Math.round(Number(invite?.commission_rate ?? 0.10) * 100)}%</strong> per completed and paid booking.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>6. CONDITIONS FOR COMMISSION</strong><br />
+            Commissions are valid only if: (a) Partner account is active, (b) Client booking occurs within Sottovento system, and (c) Booking is completed successfully.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>7. ACTIVITY REQUIREMENT</strong><br />
+            If Partner shows no activity for 90 days, commission may be reduced or paused. If inactive for an extended period, client assignment may be reassigned.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>8. TAX COMPLIANCE (1099)</strong><br />
+            If Partner earnings reach or exceed $600 USD annually, Partner must provide valid tax information (W-9) and Company may issue IRS Form 1099. Failure to provide tax information may result in withholding of payments or account suspension.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>9. PAYMENT TERMS</strong><br />
+            Payments may be issued periodically (weekly or monthly). Payments are subject to approval and verification.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>10. PROHIBITED CONDUCT</strong><br />
+            Partner agrees NOT to: misrepresent Sottovento services, offer unauthorized pricing, engage in fraudulent referrals, or violate hotel or property policies.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>11. BRAND USAGE</strong><br />
+            Partner may use Sottovento branding only as authorized (e.g., &quot;Official Transportation Partner&quot;). Unauthorized use of logos or misleading branding is prohibited.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>12. TERMINATION</strong><br />
+            Company reserves the right to suspend or terminate Partner account at any time, modify commission structure, and reassign client relationships if necessary.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>13. LIMITATION OF LIABILITY</strong><br />
+            Sottovento is not liable for Partner business losses, missed opportunities, or indirect damages.
+            <br /><br />
+
+            <strong style={{ color: "#fff" }}>14. AGREEMENT ACCEPTANCE</strong><br />
+            By registering and activating the Partner account, Partner agrees to all terms stated in this Agreement.
+            <br /><br />
+            <span style={{ color: "#555", fontSize: 11 }}>Sottovento Luxury Network — &quot;Premium Transportation. Elevated Experience.&quot;</span>
           </div>
 
           {/* Agreement Checkbox */}
@@ -370,7 +413,7 @@ export default function PartnerOnboarding({ params }: { params: { token: string 
               style={{ marginTop: 3, width: 18, height: 18, accentColor: "#C8A96A", cursor: "pointer" }}
             />
             <span style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7 }}>
-              I have read and agree to the Sottovento Partner Agreement. I understand the commission structure, payment terms, and tax obligations.
+              I have read, understood, and agree to the <strong style={{ color: "#C8A96A" }}>Sottovento Luxury Network Partner Agreement</strong>. I understand my status as an independent contractor, the commission structure, payment terms, tax obligations (1099), and all terms stated above. I agree that clients remain property of Sottovento Luxury Network.
             </span>
           </label>
 

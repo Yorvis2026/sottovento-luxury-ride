@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     } = body;
 
     if (!token) return NextResponse.json({ error: "token required" }, { status: 400 });
-    if (!agreement_accepted) return NextResponse.json({ error: "Agreement must be accepted" }, { status: 400 });
+    if (!agreement_accepted) return NextResponse.json({ error: "You must accept the Partner Agreement to activate your account" }, { status: 400 });
 
     // Validate invite
     const invites = await sql`
@@ -127,7 +127,28 @@ export async function POST(req: Request) {
         ${tax_id ? 'submitted' : 'pending'},
         NOW()
       )
+      ON CONFLICT (partner_id) DO UPDATE SET
+        legal_name = EXCLUDED.legal_name,
+        business_name = EXCLUDED.business_name,
+        entity_type = EXCLUDED.entity_type,
+        tax_id_type = EXCLUDED.tax_id_type,
+        tax_id_encrypted = EXCLUDED.tax_id_encrypted,
+        address = EXCLUDED.address,
+        w9_status = EXCLUDED.w9_status,
+        agreement_signed_at = NOW()
     `;
+
+    // Log agreement acceptance for audit trail
+    await sql`
+      INSERT INTO dispatch_log (booking_id, previous_dispatch_status, new_dispatch_status, reason, metadata)
+      VALUES (
+        ${partner.id},
+        'pending',
+        'agreement_accepted',
+        'Partner accepted SLN Master Partner Agreement v1.0',
+        ${JSON.stringify({ partner_name: name, partner_email: email ?? null, agreement_version: 'SLN-MPA-v1.0', accepted_at: new Date().toISOString() })}
+      )
+    `.catch(() => null); // Non-blocking — don't fail if dispatch_log doesn't exist yet
 
     // Mark invite as completed
     await sql`
