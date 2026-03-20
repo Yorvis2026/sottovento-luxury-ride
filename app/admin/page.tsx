@@ -111,6 +111,11 @@ export default function AdminPanel() {
   const [smsSending, setSmsSending] = useState(false)
   const [smsResult, setSmsResult] = useState("")
 
+  // Assign Driver Modal
+  const [assignModal, setAssignModal] = useState<{ bookingId: string; pickup: string; dropoff: string } | null>(null)
+  const [assigningDriver, setAssigningDriver] = useState(false)
+  const [assignMsg, setAssignMsg] = useState("")
+
   // ---- DATA LOADERS ----
   const loadDashboard = useCallback(async () => { setLoadingDash(true); try { const r = await fetch("/api/admin/dashboard"); if (r.ok) setDashboard(await r.json()) } catch { } finally { setLoadingDash(false) } }, [])
   const loadDrivers = useCallback(async () => { setLoadingDrivers(true); try { const r = await fetch("/api/admin/drivers"); if (r.ok) { const d = await r.json(); setDrivers(d.drivers ?? []) } } catch { } finally { setLoadingDrivers(false) } }, [])
@@ -151,6 +156,26 @@ export default function AdminPanel() {
 
   const handleBookingStatus = async (id: string, status: string, dispatch_status?: string) => {
     try { await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, dispatch_status }) }); loadBookings(); loadDispatch(); loadDashboard() } catch { }
+  }
+
+  const handleAssignDriver = async (bookingId: string, driverId: string) => {
+    setAssigningDriver(true); setAssignMsg("")
+    try {
+      const res = await fetch(`/api/admin/bookings/${bookingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "accepted", dispatch_status: "assigned", assigned_driver_id: driverId })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setAssignMsg("✅ Driver assigned successfully")
+        setTimeout(() => { setAssignModal(null); setAssignMsg("") }, 1200)
+        loadBookings(); loadDispatch(); loadDashboard()
+      } else {
+        setAssignMsg(`❌ Error: ${data.error ?? "Unknown error"}`)
+      }
+    } catch (e: any) { setAssignMsg(`❌ Network error: ${e.message}`) }
+    finally { setAssigningDriver(false) }
   }
 
   const handleDispatchStatus = async (id: string, dispatch_status: string) => {
@@ -609,7 +634,7 @@ export default function AdminPanel() {
                         <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
                       </div>
                       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                        <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#14532d", color: "#4ade80", border: "none" }}>✅ {t("assign")} Driver</button>
+                        <button onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#14532d", color: "#4ade80", border: "none" }}>✅ {t("assign")} Driver</button>
                         <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>
                         <button onClick={() => handleDispatchStatus(b.id, "awaiting_source_owner")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px" }}>↩ Back to Source</button>
                       </div>
@@ -1299,6 +1324,47 @@ export default function AdminPanel() {
         )}
 
       </div>
+
+      {/* ======================================================
+          ASSIGN DRIVER MODAL
+      ====================================================== */}
+      {assignModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: "#111", border: "1px solid #333", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Assign Driver</div>
+            <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>{assignModal.pickup} → {assignModal.dropoff}</div>
+
+            {assignMsg && (
+              <div style={{ padding: "10px 14px", background: assignMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 13, color: assignMsg.startsWith("✅") ? "#4ade80" : "#f87171", marginBottom: 16 }}>{assignMsg}</div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 320, overflowY: "auto" }}>
+              {drivers.filter(d => d.driver_status === "active").length === 0 && (
+                <div style={{ color: "#555", fontSize: 13, textAlign: "center", padding: 20 }}>No active drivers available</div>
+              )}
+              {drivers.filter(d => d.driver_status === "active").map(driver => (
+                <button
+                  key={driver.id}
+                  onClick={() => handleAssignDriver(assignModal.bookingId, driver.id)}
+                  disabled={assigningDriver}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", background: "#1a1a1a", border: "1px solid #333", borderRadius: 10, cursor: assigningDriver ? "not-allowed" : "pointer", opacity: assigningDriver ? 0.6 : 1, textAlign: "left" }}
+                >
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{driver.full_name}</div>
+                    <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{driver.driver_code} · {driver.phone}</div>
+                  </div>
+                  <span style={{ background: "#14532d", color: "#4ade80", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700 }}>ACTIVE</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={() => { setAssignModal(null); setAssignMsg("") }} style={{ ...S.btn(), flex: 1 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
