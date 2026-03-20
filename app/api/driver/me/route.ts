@@ -162,6 +162,7 @@ export async function GET(req: NextRequest) {
     // ── Assigned ride — booking confirmed for this driver ────
     let assigned_ride = null;
     try {
+      // Step 1: Get basic booking data (columns guaranteed to exist)
       const assignedRows = await sql`
         SELECT
           id AS booking_id,
@@ -171,11 +172,7 @@ export async function GET(req: NextRequest) {
           pickup_at,
           vehicle_type,
           total_price,
-          client_id,
-          en_route_at,
-          arrived_at,
-          trip_started_at,
-          completed_at
+          client_id
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
           AND status IN ('accepted', 'assigned', 'en_route', 'arrived', 'in_trip')
@@ -212,6 +209,25 @@ export async function GET(req: NextRequest) {
             }
           } catch {}
         }
+
+        // Step 2: Try to get optional trip timestamp columns
+        let en_route_at = null;
+        let arrived_at = null;
+        let trip_started_at = null;
+        let completed_at = null;
+        try {
+          const tsRows = await sql`
+            SELECT en_route_at, arrived_at, trip_started_at, completed_at
+            FROM bookings WHERE id = ${r.booking_id} LIMIT 1
+          `;
+          if (tsRows.length > 0) {
+            en_route_at = tsRows[0].en_route_at ?? null;
+            arrived_at = tsRows[0].arrived_at ?? null;
+            trip_started_at = tsRows[0].trip_started_at ?? null;
+            completed_at = tsRows[0].completed_at ?? null;
+          }
+        } catch { /* columns may not exist yet */ }
+
         assigned_ride = {
           booking_id: r.booking_id,
           status: r.status ?? "assigned",
@@ -222,14 +238,15 @@ export async function GET(req: NextRequest) {
           total_price: Number(r.total_price ?? 0),
           client_name,
           client_phone,
-          en_route_at: r.en_route_at ?? null,
-          arrived_at: r.arrived_at ?? null,
-          trip_started_at: r.trip_started_at ?? null,
-          completed_at: r.completed_at ?? null,
+          en_route_at,
+          arrived_at,
+          trip_started_at,
+          completed_at,
         };
       }
-    } catch {
-      // assigned_ride columns not yet migrated
+    } catch (assignErr: any) {
+      // Log error but don't fail the whole response
+      console.error("[driver/me] assigned_ride error:", assignErr?.message);
     }
 
     return NextResponse.json({
