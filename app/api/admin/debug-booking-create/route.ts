@@ -95,5 +95,53 @@ export async function GET(req: NextRequest) {
     results.test_with_email_error = err.message
   }
 
+  // 5. Try full client upsert + booking insert (like create-checkout-session does)
+  try {
+    const email = 'debugtest@test.com'
+    const name = 'Debug Test'
+    const phone = '+14073830647'
+
+    let clientId: string | null = null
+    const existingClient = await sql`
+      SELECT id FROM clients WHERE email = ${email.toLowerCase()} LIMIT 1
+    `
+    if (existingClient.length > 0) {
+      clientId = existingClient[0].id
+    } else {
+      const newClient = await sql`
+        INSERT INTO clients (full_name, email, phone, created_at, updated_at)
+        VALUES (${name}, ${email.toLowerCase()}, ${phone}, NOW(), NOW())
+        RETURNING id
+      `
+      clientId = newClient[0].id
+    }
+    results.client_upsert = { success: true, clientId }
+
+    // Now try the full booking insert
+    const newBooking = await sql`
+      INSERT INTO bookings (
+        status, dispatch_status,
+        pickup_address, dropoff_address,
+        pickup_at, vehicle_type, total_price,
+        client_id, client_email, client_phone_raw,
+        trip_type, created_at, updated_at
+      ) VALUES (
+        'pending_payment', 'pending_payment',
+        'MCO Airport', 'Oviedo',
+        '2026-03-25T14:00:00+00'::timestamptz,
+        'sedan', 95,
+        ${clientId}::uuid,
+        ${email}, ${phone},
+        'oneway', NOW(), NOW()
+      )
+      RETURNING id
+    `
+    results.full_booking_insert = { success: true, id: newBooking[0].id }
+    await sql`DELETE FROM bookings WHERE id = ${newBooking[0].id}::uuid`
+    await sql`DELETE FROM clients WHERE id = ${clientId}::uuid`
+  } catch (err: any) {
+    results.full_flow_error = err.message
+  }
+
   return NextResponse.json(results)
 }
