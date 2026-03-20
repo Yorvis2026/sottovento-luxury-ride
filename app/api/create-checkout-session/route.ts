@@ -45,36 +45,35 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 1. Pre-create a PENDING booking in the DB ─────────────
-    // This ensures the booking exists before Stripe processes payment.
-    // The webhook will update it to 'paid' on success.
     let bookingId: string | null = null
     let clientId: string | null = null
+    const preCreateErrors: string[] = []
 
-    try {
-      // Ensure extra columns exist (idempotent)
-      await sql`
-        ALTER TABLE bookings
-          ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ,
-          ADD COLUMN IF NOT EXISTS stripe_session_id VARCHAR(255),
-          ADD COLUMN IF NOT EXISTS stripe_payment_intent VARCHAR(255),
-          ADD COLUMN IF NOT EXISTS client_email VARCHAR(255),
-          ADD COLUMN IF NOT EXISTS client_phone_raw VARCHAR(50),
-          ADD COLUMN IF NOT EXISTS flight_number VARCHAR(50),
-          ADD COLUMN IF NOT EXISTS notes TEXT,
-          ADD COLUMN IF NOT EXISTS source_code VARCHAR(50),
-          ADD COLUMN IF NOT EXISTS passengers INTEGER,
-          ADD COLUMN IF NOT EXISTS luggage VARCHAR(100),
-          ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20),
-          ADD COLUMN IF NOT EXISTS dispatch_status VARCHAR(50)
-      `
-    } catch { /* columns may already exist */ }
+    // Step A: Ensure extra columns exist (run each separately to avoid partial failure)
+    const alterStatements = [
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_session_id VARCHAR(255)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_payment_intent VARCHAR(255)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS client_email VARCHAR(255)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS client_phone_raw VARCHAR(50)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS flight_number VARCHAR(50)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notes TEXT`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS source_code VARCHAR(50)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS passengers INTEGER`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS luggage VARCHAR(100)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dispatch_status VARCHAR(50)`,
+    ]
 
-    // Also ensure pickup_at allows NULL (in case schema has NOT NULL constraint)
+    for (const stmt of alterStatements) {
+      try { await stmt } catch { /* column may already exist */ }
+    }
+
+    // Also ensure pickup_at allows NULL
     try {
       await sql`ALTER TABLE bookings ALTER COLUMN pickup_at DROP NOT NULL`
     } catch { /* may already be nullable */ }
 
-    // Upsert client
+    // Step B: Upsert client
     if (email) {
       try {
         const existingClient = await sql`
@@ -97,13 +96,16 @@ export async function POST(req: NextRequest) {
           `
           clientId = newClient[0].id
         }
-      } catch { /* client upsert failure is non-blocking */ }
+      } catch (err: any) {
+        preCreateErrors.push(`client_upsert: ${err.message}`)
+        console.error("[create-checkout-session] client upsert failed:", err.message)
+      }
     }
 
     // Build pickup datetime
     const pickupAt = date && time ? `${date}T${time}:00+00` : null
 
-    // Create pending booking
+    // Step C: Create pending booking
     try {
       const pickupAddr = pickupLocation || pickupZone
       const dropoffAddr = dropoffLocation || dropoffZone
@@ -152,6 +154,7 @@ export async function POST(req: NextRequest) {
       `
       bookingId = newBooking[0].id
     } catch (bookingErr: any) {
+      preCreateErrors.push(`booking_insert: ${bookingErr?.message}`)
       console.error("[create-checkout-session] booking pre-create failed:", bookingErr?.message)
       // Continue to Stripe even if pre-create fails — webhook will handle it
     }
@@ -215,7 +218,11 @@ export async function POST(req: NextRequest) {
       } catch { /* non-blocking */ }
     }
 
-    return NextResponse.json({ url: session.url, booking_id: bookingId })
+    return NextResponse.json({
+      url: session.url,
+      booking_id: bookingId,
+      ...(preCreateErrors.length > 0 ? { pre_create_errors: preCreateErrors } : {}),
+    })
   } catch (error: any) {
     console.error("[create-checkout-session]", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
