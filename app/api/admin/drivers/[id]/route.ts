@@ -6,10 +6,10 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // PATCH /api/admin/drivers/[id] — Update driver status
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const body = await req.json();
     const { driver_status } = body;
 

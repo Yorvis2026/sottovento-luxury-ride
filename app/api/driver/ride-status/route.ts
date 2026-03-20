@@ -304,7 +304,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Get timeline events
-    let timeline = [];
+    let timeline: Record<string, unknown>[] = [];
     try {
       timeline = await sql`
         SELECT action, new_data, created_at

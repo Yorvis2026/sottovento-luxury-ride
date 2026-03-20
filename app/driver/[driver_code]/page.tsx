@@ -1236,7 +1236,7 @@ function RideFlowScreen({
 
           {/* Details grid */}
           <div className="grid grid-cols-3 divide-x border-t"
-            style={{ borderColor: theme.primary + "20", divideColor: theme.primary + "20" }}>
+            style={{ borderColor: theme.primary + "20" }}>
             <div className="px-4 py-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
               <div className="text-sm font-medium text-white">{pickupDate}</div>

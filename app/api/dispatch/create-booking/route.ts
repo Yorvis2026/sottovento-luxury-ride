@@ -84,9 +84,9 @@ export async function POST(req: NextRequest) {
       );
 
       const newClient = await db.clients.create({
-        full_name: body.client_name ?? null,
-        phone: body.client_phone ?? null,
-        email: body.client_email ?? null,
+        full_name: body.client_name ?? undefined,
+        phone: body.client_phone ?? undefined,
+        email: body.client_email ?? undefined,
         source_driver_id: resolvedSourceDriverId,
         source_type: attribution.source_type,
         ref_code: attribution.ref_code,
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
       dropoff_zone: body.dropoff_zone ?? null,
       pickup_at: body.pickup_at,
       passengers: body.passengers ?? null,
-      luggage: body.luggage ?? null,
+      luggage: body.luggage != null ? Number(body.luggage) : null,
       flight_number: body.flight_number ?? null,
       notes: body.notes ?? null,
       base_price: body.base_price ?? body.total_price,
