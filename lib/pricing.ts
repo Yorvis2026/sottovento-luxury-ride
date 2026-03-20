@@ -5,9 +5,21 @@ export type ServiceType = "oneway" | "roundtrip";
 export type WaitTime = "none" | "2h" | "4h" | "fullday";
 export type ExtraStop = "none" | "quick" | "short" | "extended";
 
+// ─── Price resolution result ──────────────────────────────────
+export type PriceResolution =
+  | { type: "exact_route";  price: number }
+  | { type: "zone_to_zone"; price: number }
+  | { type: "intra_zone";   price: number }
+  | { type: "fallback";     price: number }
+  | { type: "out_of_area";  price: null  };
+
 type PriceByVehicle = { Sedan: number; SUV: number };
 
 const key = (a: ZoneId, b: ZoneId) => `${a}->${b}` as const;
+
+// ============================================================
+// LEVEL 1 — EXACT ROUTE LOOKUP (predefined zone-pair prices)
+// ============================================================
 
 /** One-way prices */
 const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
@@ -17,6 +29,7 @@ const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
   [key("MCO", "DOWNTOWN")]:          { Sedan: 90,  SUV: 110 },
   [key("MCO", "KISSIMMEE")]:         { Sedan: 95,  SUV: 120 },
   [key("MCO", "NORTH_ORLANDO")]:     { Sedan: 100, SUV: 130 },
+  [key("MCO", "LAKE_NONA")]:         { Sedan: 65,  SUV: 85  },
 
   // SFB ↔ zones
   [key("SFB", "DOWNTOWN")]:          { Sedan: 90,  SUV: 115 },
@@ -24,6 +37,7 @@ const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
   [key("SFB", "MCO")]:               { Sedan: 110, SUV: 140 },
   [key("SFB", "DISNEY")]:            { Sedan: 110, SUV: 140 },
   [key("SFB", "UNIVERSAL_IDRIVE")]:  { Sedan: 110, SUV: 140 },
+  [key("SFB", "LAKE_NONA")]:         { Sedan: 95,  SUV: 120 },
 
   // Port Canaveral
   [key("MCO", "PORT_CANAVERAL")]:              { Sedan: 145, SUV: 180 },
@@ -32,6 +46,7 @@ const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
   [key("DOWNTOWN", "PORT_CANAVERAL")]:         { Sedan: 145, SUV: 180 },
   [key("KISSIMMEE", "PORT_CANAVERAL")]:        { Sedan: 155, SUV: 195 },
   [key("SFB", "PORT_CANAVERAL")]:              { Sedan: 165, SUV: 205 },
+  [key("NORTH_ORLANDO", "PORT_CANAVERAL")]:    { Sedan: 155, SUV: 195 },
 
   // Between Tourist Zones
   [key("DISNEY", "UNIVERSAL_IDRIVE")]:   { Sedan: 75,  SUV: 100 },
@@ -39,6 +54,15 @@ const PRICES_ONEWAY: Record<string, PriceByVehicle> = {
   [key("UNIVERSAL_IDRIVE", "DOWNTOWN")]: { Sedan: 65,  SUV: 90  },
   [key("DISNEY", "KISSIMMEE")]:          { Sedan: 60,  SUV: 85  },
   [key("UNIVERSAL_IDRIVE", "KISSIMMEE")]:{ Sedan: 75,  SUV: 100 },
+  [key("DOWNTOWN", "KISSIMMEE")]:        { Sedan: 65,  SUV: 90  },
+  [key("DOWNTOWN", "NORTH_ORLANDO")]:    { Sedan: 65,  SUV: 90  },
+  [key("DOWNTOWN", "LAKE_NONA")]:        { Sedan: 65,  SUV: 85  },
+  [key("NORTH_ORLANDO", "UNIVERSAL_IDRIVE")]: { Sedan: 75, SUV: 100 },
+  [key("NORTH_ORLANDO", "DISNEY")]:      { Sedan: 85,  SUV: 110 },
+  [key("NORTH_ORLANDO", "KISSIMMEE")]:   { Sedan: 85,  SUV: 110 },
+  [key("LAKE_NONA", "DISNEY")]:          { Sedan: 75,  SUV: 100 },
+  [key("LAKE_NONA", "KISSIMMEE")]:       { Sedan: 65,  SUV: 85  },
+  [key("LAKE_NONA", "UNIVERSAL_IDRIVE")]:{ Sedan: 85,  SUV: 110 },
 
   // Kennedy Space Center
   [key("MCO", "KENNEDY")]:              { Sedan: 165, SUV: 210 },
@@ -90,11 +114,92 @@ const ROUNDTRIP_EXPLICIT: Record<string, PriceByVehicle> = {
   [key("MCO", "MIAMI")]:             { Sedan: 1140, SUV: 1450 },
 };
 
-/** Minimum fares per vehicle */
-export const MINIMUM_FARE: Record<VehicleType, number> = {
+// ============================================================
+// LEVEL 2 — ZONE-TO-ZONE PRICING (inter-zone fares)
+// These cover short urban inter-zone routes not in exact table
+// ============================================================
+
+const ZONE_TO_ZONE_FARES: Record<string, PriceByVehicle> = {
+  // Downtown ↔ neighbors
+  [key("DOWNTOWN", "UNIVERSAL_IDRIVE")]: { Sedan: 75,  SUV: 100 },
+  [key("DOWNTOWN", "NORTH_ORLANDO")]:    { Sedan: 65,  SUV: 90  },
+  [key("DOWNTOWN", "LAKE_NONA")]:        { Sedan: 65,  SUV: 85  },
+  [key("DOWNTOWN", "KISSIMMEE")]:        { Sedan: 65,  SUV: 90  },
+  [key("DOWNTOWN", "DISNEY")]:           { Sedan: 75,  SUV: 100 },
+  [key("DOWNTOWN", "MCO")]:              { Sedan: 90,  SUV: 110 },
+
+  // North Orlando ↔ neighbors
+  [key("NORTH_ORLANDO", "MCO")]:         { Sedan: 100, SUV: 130 },
+  [key("NORTH_ORLANDO", "DOWNTOWN")]:    { Sedan: 65,  SUV: 90  },
+  [key("NORTH_ORLANDO", "UNIVERSAL_IDRIVE")]: { Sedan: 75, SUV: 100 },
+  [key("NORTH_ORLANDO", "DISNEY")]:      { Sedan: 85,  SUV: 110 },
+  [key("NORTH_ORLANDO", "KISSIMMEE")]:   { Sedan: 85,  SUV: 110 },
+
+  // Lake Nona ↔ neighbors
+  [key("LAKE_NONA", "MCO")]:             { Sedan: 65,  SUV: 85  },
+  [key("LAKE_NONA", "DOWNTOWN")]:        { Sedan: 65,  SUV: 85  },
+  [key("LAKE_NONA", "DISNEY")]:          { Sedan: 75,  SUV: 100 },
+  [key("LAKE_NONA", "KISSIMMEE")]:       { Sedan: 65,  SUV: 85  },
+  [key("LAKE_NONA", "UNIVERSAL_IDRIVE")]:{ Sedan: 85,  SUV: 110 },
+  [key("LAKE_NONA", "NORTH_ORLANDO")]:   { Sedan: 80,  SUV: 105 },
+
+  // Kissimmee ↔ neighbors
+  [key("KISSIMMEE", "DISNEY")]:          { Sedan: 60,  SUV: 85  },
+  [key("KISSIMMEE", "UNIVERSAL_IDRIVE")]:{ Sedan: 75,  SUV: 100 },
+  [key("KISSIMMEE", "DOWNTOWN")]:        { Sedan: 65,  SUV: 90  },
+  [key("KISSIMMEE", "MCO")]:             { Sedan: 95,  SUV: 120 },
+
+  // Universal/IDrive ↔ neighbors
+  [key("UNIVERSAL_IDRIVE", "DISNEY")]:   { Sedan: 75,  SUV: 100 },
+  [key("UNIVERSAL_IDRIVE", "DOWNTOWN")]: { Sedan: 65,  SUV: 90  },
+  [key("UNIVERSAL_IDRIVE", "KISSIMMEE")]:{ Sedan: 75,  SUV: 100 },
+  [key("UNIVERSAL_IDRIVE", "MCO")]:      { Sedan: 95,  SUV: 120 },
+};
+
+// ============================================================
+// LEVEL 3 — INTRA-ZONE / SAME-ZONE PRICING
+// ============================================================
+
+export const INTRA_ZONE_FARE: Record<VehicleType, number> = {
+  Sedan: 45,
+  SUV:   65,
+};
+
+// ============================================================
+// LEVEL 4 — GLOBAL FALLBACK (serviceable but no exact match)
+// ============================================================
+
+export const FALLBACK_FARE: Record<VehicleType, number> = {
   Sedan: 95,
   SUV:   120,
 };
+
+// ============================================================
+// SERVICE AREA — zones we can service
+// ============================================================
+
+const SERVICE_AREA_ZONES = new Set<ZoneId>([
+  "MCO", "DISNEY", "UNIVERSAL_IDRIVE", "DOWNTOWN", "KISSIMMEE",
+  "NORTH_ORLANDO", "SFB", "PORT_CANAVERAL", "KENNEDY",
+  "TAMPA", "CLEARWATER", "MIAMI", "LAKE_NONA",
+]);
+
+export function isInServiceArea(zone: ZoneId): boolean {
+  return SERVICE_AREA_ZONES.has(zone);
+}
+
+// ============================================================
+// MINIMUM FARES (applied as floor after add-ons)
+// ============================================================
+
+export const MINIMUM_FARE: Record<VehicleType, number> = {
+  Sedan: 45,
+  SUV:   65,
+};
+
+// ============================================================
+// ADD-ONS
+// ============================================================
 
 /** Waiting time add-ons */
 export const WAIT_ADDONS: Record<WaitTime, number> = {
@@ -131,27 +236,86 @@ export const HOURLY_PACKAGES = [
 
 export const HOURLY_RATE = 95; // per hour
 
-function getPricePair(pickup: ZoneId, dropoff: ZoneId): PriceByVehicle | null {
-  const direct = PRICES_ONEWAY[key(pickup, dropoff)];
+// ============================================================
+// INTERNAL HELPERS
+// ============================================================
+
+function getExactPair(pickup: ZoneId, dropoff: ZoneId, table: Record<string, PriceByVehicle>): PriceByVehicle | null {
+  const direct = table[key(pickup, dropoff)];
   if (direct) return direct;
-  const reverse = PRICES_ONEWAY[key(dropoff, pickup)];
+  const reverse = table[key(dropoff, pickup)];
   if (reverse) return reverse;
   return null;
 }
 
-function getRoundTripPair(pickup: ZoneId, dropoff: ZoneId): PriceByVehicle | null {
-  const direct = ROUNDTRIP_EXPLICIT[key(pickup, dropoff)];
-  if (direct) return direct;
-  const reverse = ROUNDTRIP_EXPLICIT[key(dropoff, pickup)];
-  if (reverse) return reverse;
-  // Fallback: 1.85x one-way
-  const ow = getPricePair(pickup, dropoff);
-  if (!ow) return null;
-  return {
-    Sedan: Math.round(ow.Sedan * 1.85 / 5) * 5,
-    SUV:   Math.round(ow.SUV   * 1.85 / 5) * 5,
-  };
+// ============================================================
+// CORE: HIERARCHICAL PRICE RESOLUTION
+// ============================================================
+
+/**
+ * Resolves a price using the 4-level hierarchy:
+ *   1. Exact route lookup
+ *   2. Zone-to-zone pricing
+ *   3. Intra-zone / same-zone pricing
+ *   4. Global fallback (if both zones are in service area)
+ *
+ * Returns a PriceResolution with type and price (or null if out of area).
+ */
+export function resolvePrice(args: {
+  pickupZone: ZoneId;
+  dropoffZone: ZoneId;
+  vehicle: VehicleType;
+  serviceType?: ServiceType;
+}): PriceResolution {
+  const { pickupZone, dropoffZone, vehicle, serviceType = "oneway" } = args;
+
+  // ── Service area check ───────────────────────────────────
+  if (!isInServiceArea(pickupZone) || !isInServiceArea(dropoffZone)) {
+    return { type: "out_of_area", price: null };
+  }
+
+  // ── Level 1: Exact route ─────────────────────────────────
+  if (serviceType === "roundtrip") {
+    const rtPair = getExactPair(pickupZone, dropoffZone, ROUNDTRIP_EXPLICIT);
+    if (rtPair) return { type: "exact_route", price: rtPair[vehicle] };
+    // Fallback: 1.85x one-way
+    const owPair = getExactPair(pickupZone, dropoffZone, PRICES_ONEWAY);
+    if (owPair) {
+      const rtPrice = Math.round(owPair[vehicle] * 1.85 / 5) * 5;
+      return { type: "exact_route", price: rtPrice };
+    }
+  } else {
+    const owPair = getExactPair(pickupZone, dropoffZone, PRICES_ONEWAY);
+    if (owPair) return { type: "exact_route", price: owPair[vehicle] };
+  }
+
+  // ── Level 2: Zone-to-zone ────────────────────────────────
+  const z2zPair = getExactPair(pickupZone, dropoffZone, ZONE_TO_ZONE_FARES);
+  if (z2zPair) {
+    const price = serviceType === "roundtrip"
+      ? Math.round(z2zPair[vehicle] * 1.85 / 5) * 5
+      : z2zPair[vehicle];
+    return { type: "zone_to_zone", price };
+  }
+
+  // ── Level 3: Intra-zone (same zone) ─────────────────────
+  if (pickupZone === dropoffZone) {
+    const price = serviceType === "roundtrip"
+      ? Math.round(INTRA_ZONE_FARE[vehicle] * 1.85 / 5) * 5
+      : INTRA_ZONE_FARE[vehicle];
+    return { type: "intra_zone", price };
+  }
+
+  // ── Level 4: Global fallback ─────────────────────────────
+  const price = serviceType === "roundtrip"
+    ? Math.round(FALLBACK_FARE[vehicle] * 1.85 / 5) * 5
+    : FALLBACK_FARE[vehicle];
+  return { type: "fallback", price };
 }
+
+// ============================================================
+// PUBLIC API: getGuaranteedPrice (backward-compatible)
+// ============================================================
 
 export function getGuaranteedPrice(args: {
   pickupZone: ZoneId;
@@ -175,16 +339,10 @@ export function getGuaranteedPrice(args: {
   // Effective vehicle after upgrade
   const effectiveVehicle: VehicleType = upgrade && vehicle === "Sedan" ? "SUV" : vehicle;
 
-  let pair: PriceByVehicle | null;
-  if (serviceType === "roundtrip") {
-    pair = getRoundTripPair(pickupZone, dropoffZone);
-  } else {
-    pair = getPricePair(pickupZone, dropoffZone);
-  }
+  const resolution = resolvePrice({ pickupZone, dropoffZone, vehicle: effectiveVehicle, serviceType });
+  if (resolution.price === null) return null;
 
-  if (!pair) return null;
-
-  const base = pair[effectiveVehicle];
+  const base = resolution.price;
   const waitAddon = WAIT_ADDONS[waitTime] ?? 0;
   const stopAddon = EXTRA_STOP_ADDONS[extraStop] ?? 0;
   const upgradeAddon = upgrade && vehicle === "Sedan" ? UPGRADE_ADDON : 0;
@@ -194,4 +352,45 @@ export function getGuaranteedPrice(args: {
   // Apply minimum fare
   const minFare = MINIMUM_FARE[effectiveVehicle];
   return Math.max(total, minFare);
+}
+
+// ============================================================
+// PUBLIC API: getPriceResolutionWithAddons
+// Returns both the resolution type and the final price
+// ============================================================
+
+export function getPriceResolutionWithAddons(args: {
+  pickupZone: ZoneId;
+  dropoffZone: ZoneId;
+  vehicle: VehicleType;
+  serviceType?: ServiceType;
+  waitTime?: WaitTime;
+  extraStop?: ExtraStop;
+  upgrade?: boolean;
+}): { resolution: PriceResolution; finalPrice: number | null } {
+  const {
+    pickupZone,
+    dropoffZone,
+    vehicle,
+    serviceType = "oneway",
+    waitTime = "none",
+    extraStop = "none",
+    upgrade = false,
+  } = args;
+
+  const effectiveVehicle: VehicleType = upgrade && vehicle === "Sedan" ? "SUV" : vehicle;
+  const resolution = resolvePrice({ pickupZone, dropoffZone, vehicle: effectiveVehicle, serviceType });
+
+  if (resolution.price === null) {
+    return { resolution, finalPrice: null };
+  }
+
+  const waitAddon = WAIT_ADDONS[waitTime] ?? 0;
+  const stopAddon = EXTRA_STOP_ADDONS[extraStop] ?? 0;
+  const upgradeAddon = upgrade && vehicle === "Sedan" ? UPGRADE_ADDON : 0;
+  const total = resolution.price + waitAddon + stopAddon + upgradeAddon;
+  const minFare = MINIMUM_FARE[effectiveVehicle];
+  const finalPrice = Math.max(total, minFare);
+
+  return { resolution, finalPrice };
 }

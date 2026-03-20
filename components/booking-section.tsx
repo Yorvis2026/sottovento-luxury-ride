@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { ZONES, PACKAGE_TO_ZONE, type ZoneId } from "@/lib/zones"
 import {
   getGuaranteedPrice,
+  getPriceResolutionWithAddons,
   WAIT_ADDONS,
   EXTRA_STOP_ADDONS,
   EXTRA_STOP_LABELS,
@@ -150,20 +151,25 @@ function BookingInner() {
     return null
   })()
 
-  const transferPrice =
-    !isHourly && formData.pickupZone && formData.dropoffZone && formData.vehicleType
-      ? getGuaranteedPrice({
-          pickupZone: formData.pickupZone as ZoneId,
-          dropoffZone: formData.dropoffZone as ZoneId,
-          vehicle: formData.vehicleType as VehicleType,
-          serviceType: formData.tripType as ServiceType,
-          waitTime: formData.waitTime,
-          extraStop: formData.extraStop,
-          upgrade: formData.upgradeVehicle,
-        })
-      : null
+  const priceResolution = !isHourly && formData.pickupZone && formData.dropoffZone && formData.vehicleType
+    ? getPriceResolutionWithAddons({
+        pickupZone: formData.pickupZone as ZoneId,
+        dropoffZone: formData.dropoffZone as ZoneId,
+        vehicle: formData.vehicleType as VehicleType,
+        serviceType: formData.tripType as ServiceType,
+        waitTime: formData.waitTime,
+        extraStop: formData.extraStop,
+        upgrade: formData.upgradeVehicle,
+      })
+    : null
+
+  const transferPrice = priceResolution?.finalPrice ?? null
+  const isOutOfArea = priceResolution?.resolution?.type === "out_of_area"
+  const priceResolutionType = priceResolution?.resolution?.type ?? null
 
   const price = isHourly ? hourlyPrice : transferPrice
+  // canPay: true only when we have a valid price (not null, not out-of-area)
+  const canPay = !isHourly && price !== null && !isOutOfArea
   const effectiveVehicle = formData.upgradeVehicle && formData.vehicleType === "Sedan" ? "SUV" : formData.vehicleType
 
   const priceBreakdown = (() => {
@@ -522,9 +528,10 @@ function BookingInner() {
               </h3>
               <div className="space-y-4">
                 {VEHICLES.map((v) => {
-                  const vPrice = !isHourly && formData.pickupZone && formData.dropoffZone
-                    ? getGuaranteedPrice({ pickupZone: formData.pickupZone as ZoneId, dropoffZone: formData.dropoffZone as ZoneId, vehicle: v.type, serviceType: formData.tripType as ServiceType, waitTime: formData.waitTime, extraStop: formData.extraStop, upgrade: false })
+                  const vPriceRes = !isHourly && formData.pickupZone && formData.dropoffZone
+                    ? getPriceResolutionWithAddons({ pickupZone: formData.pickupZone as ZoneId, dropoffZone: formData.dropoffZone as ZoneId, vehicle: v.type, serviceType: formData.tripType as ServiceType, waitTime: formData.waitTime, extraStop: formData.extraStop, upgrade: false })
                     : null
+                  const vPrice = vPriceRes?.finalPrice ?? null
                   const selected = formData.vehicleType === v.type
                   return (
                     <button
@@ -544,9 +551,11 @@ function BookingInner() {
                           <p className="text-white/50 mt-1" style={{ fontSize: 15 }}>👥 {v.cap}</p>
                         </div>
                         <div className="text-right">
-                          {vPrice !== null && (
+                          {vPrice !== null ? (
                             <p className="text-white font-light" style={{ fontSize: 26 }}>${vPrice}</p>
-                          )}
+                          ) : (formData.pickupZone && formData.dropoffZone && !isHourly) ? (
+                            <p style={{ color: GOLD, fontSize: 14 }}>Request Quote</p>
+                          ) : null}
                           {selected && (
                             <div className="mt-2 w-6 h-6 rounded-full flex items-center justify-center ml-auto" style={{ backgroundColor: GOLD }}>
                               <span style={{ color: "#000", fontSize: 14 }}>✓</span>
@@ -784,9 +793,9 @@ function BookingInner() {
                   <span className="text-white/50" style={{ fontSize: 15 }}>Passenger</span>
                   <span className="text-white" style={{ fontSize: 16 }}>{formData.name}</span>
                 </div>
-                {price !== null && (
+                <div className="border-t my-2" style={{ borderColor: `${GOLD}30` }} />
+                {price !== null && !isOutOfArea ? (
                   <>
-                    <div className="border-t my-2" style={{ borderColor: `${GOLD}30` }} />
                     <div className="flex justify-between items-center">
                       <span style={{ color: GOLD, fontSize: 16 }}>Estimated Price</span>
                       <span className="text-white font-light" style={{ fontSize: 28 }}>${price}</span>
@@ -796,11 +805,16 @@ function BookingInner() {
                     )}
                     <p className="text-white/30 text-xs text-right">Guaranteed price. No surprises.</p>
                   </>
+                ) : (
+                  <div className="flex justify-between items-center">
+                    <span style={{ color: GOLD, fontSize: 16 }}>Price</span>
+                    <span style={{ color: GOLD, fontSize: 18 }}>To be confirmed</span>
+                  </div>
                 )}
               </div>
 
-              {/* Payment button */}
-              {!isHourly && (
+              {/* Payment button — only show when price is available */}
+              {!isHourly && canPay && (
                 <button
                   type="button"
                   onClick={handlePayment}
@@ -808,8 +822,25 @@ function BookingInner() {
                   className="w-full py-5 rounded-xl font-medium tracking-widest uppercase transition disabled:opacity-50"
                   style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}
                 >
-                  {paying ? "Redirecting..." : price ? `Confirm & Pay — $${price}` : "Confirm & Pay Securely"}
+                  {paying ? "Redirecting..." : `Confirm & Pay — $${price}`}
                 </button>
+              )}
+
+              {/* Request Quote — shown when no price is available */}
+              {!isHourly && !canPay && (
+                <div className="space-y-3">
+                  {isOutOfArea ? (
+                    <div className="rounded-xl border p-4 text-center" style={{ borderColor: "rgba(255,165,0,0.3)", backgroundColor: "rgba(255,165,0,0.05)" }}>
+                      <p style={{ color: "rgba(255,200,100,0.9)", fontSize: 15 }}>This route may be outside our standard service area.</p>
+                      <p className="text-white/40 mt-1" style={{ fontSize: 14 }}>Send your request below and we'll confirm availability.</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border p-4 text-center" style={{ borderColor: `${GOLD}40`, backgroundColor: `${GOLD}08` }}>
+                      <p style={{ color: GOLD, fontSize: 15 }}>Custom route — price to be confirmed</p>
+                      <p className="text-white/40 mt-1" style={{ fontSize: 14 }}>Send your request and we'll reply with a guaranteed quote.</p>
+                    </div>
+                  )}
+                </div>
               )}
 
               {payError && <p className="text-red-400 text-sm text-center">{payError}</p>}
