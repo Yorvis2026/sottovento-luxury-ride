@@ -165,16 +165,21 @@ export async function GET(req: NextRequest) {
       const assignedRows = await sql`
         SELECT
           id AS booking_id,
+          status,
           pickup_address,
           dropoff_address,
           pickup_at,
           vehicle_type,
           total_price,
-          client_id
+          client_id,
+          en_route_at,
+          arrived_at,
+          trip_started_at,
+          completed_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
-          AND status = 'assigned'
-          AND pickup_at >= NOW() - INTERVAL '2 hours'
+          AND status IN ('assigned', 'en_route', 'arrived', 'in_trip')
+          AND (pickup_at >= NOW() - INTERVAL '4 hours' OR status = 'in_trip')
         ORDER BY pickup_at ASC
         LIMIT 1
       `;
@@ -196,6 +201,7 @@ export async function GET(req: NextRequest) {
         }
         assigned_ride = {
           booking_id: r.booking_id,
+          status: r.status ?? "assigned",
           pickup_location: r.pickup_address ?? "TBD",
           dropoff_location: r.dropoff_address ?? "TBD",
           pickup_datetime: r.pickup_at,
@@ -203,6 +209,10 @@ export async function GET(req: NextRequest) {
           total_price: Number(r.total_price ?? 0),
           client_name,
           client_phone,
+          en_route_at: r.en_route_at ?? null,
+          arrived_at: r.arrived_at ?? null,
+          trip_started_at: r.trip_started_at ?? null,
+          completed_at: r.completed_at ?? null,
         };
       }
     } catch {

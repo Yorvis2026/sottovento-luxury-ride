@@ -1,24 +1,23 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import Link from "next/link"
 import { QRCodeSVG } from "qrcode.react"
 
 // ============================================================
-// /driver/[driver_code] — SLN Driver Panel v3
+// /driver/[driver_code] — SLN Driver Panel v4
 //
-// States:
-//   CALM     — no active offer, shows dashboard
-//   OFFER    — active offer DOMINATES full screen (no dashboard)
-//   ASSIGNED — confirmed ride details
+// PRIORITY ORDER (as per spec):
+//   1. OFFER    — active dispatch offer (full-screen, no dashboard)
+//   2. RIDE     — active ride in progress (full-screen, no dashboard)
+//   3. CALM     — no active offer / ride (dashboard)
 //
-// Offer trigger: dispatch_offers.status = 'pending'
-//   OR bookings.dispatch_status IN (
-//     'awaiting_driver_response',
-//     'awaiting_source_owner',
-//     'awaiting_sln_member'
-//   )
+// RIDE FLOW STATES:
+//   assigned → en_route → arrived → in_trip → completed
+//
+// OPTIONAL TERMINAL:
+//   cancelled | no_show
 // ============================================================
 
 const GOLD = "#C8A96A"
@@ -37,13 +36,33 @@ const T: Record<Lang, Record<string, string>> = {
     timeRemaining: "Time remaining",
     accept: "ACCEPT",
     decline: "Decline",
-    assignedRide: "Ride Assigned",
+    // Ride flow states
+    assignedRide: "Assigned Ride",
+    enRoute: "En Route to Pickup",
+    arrived: "Arrived at Pickup",
+    inTrip: "Ride in Progress",
+    completed: "Ride Completed",
+    // Primary actions
+    startTrip: "Start Trip",
+    enRouteBtn: "I'm On My Way",
+    arrivedBtn: "I've Arrived",
+    startRide: "Start Ride",
+    completeRide: "Complete Ride",
+    backToDashboard: "Back to Dashboard",
+    // Secondary actions
+    navigate: "Navigate",
+    contact: "Contact Passenger",
+    noShow: "No Show",
+    // Labels
     route: "Route",
     pickup: "Pickup",
+    dropoff: "Dropoff",
     vehicle: "Vehicle",
     fare: "Fare",
-    navigate: "Navigate",
-    contact: "Contact",
+    passenger: "Passenger",
+    elapsedTime: "Elapsed",
+    bookingId: "Booking",
+    // Dashboard
     myTablet: "My Passenger Tablet",
     tabletLink: "Tablet Link",
     copy: "Copy",
@@ -55,8 +74,6 @@ const T: Record<Lang, Record<string, string>> = {
     sourceOwnership: "How Source Ownership Works",
     sourceOwnershipText1: "Every client you bring in through your QR code, referral link, or tablet is permanently attributed to you.",
     sourceOwnershipText2: "When they book again, you get the first offer — and earn a 15% source commission even if another driver executes the ride.",
-    offerExpired: "Offer Expired",
-    offerExpiredSub: "Dispatching to next driver...",
     noOffer: "Waiting for rides...",
     totalClients: "Total Clients",
     monthEarnings: "Month Earnings",
@@ -90,6 +107,9 @@ const T: Record<Lang, Record<string, string>> = {
     clientPhone: "Phone",
     rideDetails: "Ride Details",
     noClientInfo: "Client info unavailable",
+    rideCompletedTitle: "Ride Completed ✓",
+    rideCompletedSub: "Returning to dashboard...",
+    transitioning: "Updating...",
   },
   es: {
     network: "Red Sottovento",
@@ -100,13 +120,33 @@ const T: Record<Lang, Record<string, string>> = {
     timeRemaining: "Tiempo restante",
     accept: "ACEPTAR",
     decline: "Rechazar",
-    assignedRide: "Viaje Asignado",
+    // Ride flow
+    assignedRide: "Servicio asignado",
+    enRoute: "En camino al pasajero",
+    arrived: "Llegué al punto de recogida",
+    inTrip: "Viaje en progreso",
+    completed: "Viaje completado",
+    // Primary actions
+    startTrip: "Iniciar viaje",
+    enRouteBtn: "Estoy en camino",
+    arrivedBtn: "Llegué",
+    startRide: "Iniciar viaje",
+    completeRide: "Finalizar viaje",
+    backToDashboard: "Volver al panel",
+    // Secondary
+    navigate: "Navegar",
+    contact: "Contactar pasajero",
+    noShow: "No se presentó",
+    // Labels
     route: "Ruta",
     pickup: "Recogida",
+    dropoff: "Destino",
     vehicle: "Vehículo",
     fare: "Tarifa",
-    navigate: "Navegar",
-    contact: "Contactar",
+    passenger: "Pasajero",
+    elapsedTime: "Tiempo",
+    bookingId: "Reserva",
+    // Dashboard
     myTablet: "Mi Tablet de Pasajero",
     tabletLink: "Enlace del Tablet",
     copy: "Copiar",
@@ -118,8 +158,6 @@ const T: Record<Lang, Record<string, string>> = {
     sourceOwnership: "Cómo funciona la propiedad de fuente",
     sourceOwnershipText1: "Cada cliente que traes a través de tu código QR, enlace de referido o tablet queda permanentemente atribuido a ti.",
     sourceOwnershipText2: "Cuando vuelvan a reservar, recibes la primera oferta — y ganas un 15% de comisión de fuente aunque otro conductor ejecute el viaje.",
-    offerExpired: "Oferta Expirada",
-    offerExpiredSub: "Enviando al siguiente conductor...",
     noOffer: "Esperando viajes...",
     totalClients: "Total de Clientes",
     monthEarnings: "Ganancias del Mes",
@@ -153,6 +191,9 @@ const T: Record<Lang, Record<string, string>> = {
     clientPhone: "Teléfono",
     rideDetails: "Detalles del Viaje",
     noClientInfo: "Info del cliente no disponible",
+    rideCompletedTitle: "Viaje Completado ✓",
+    rideCompletedSub: "Volviendo al panel...",
+    transitioning: "Actualizando...",
   },
   ht: {
     network: "Rezo Sottovento",
@@ -163,13 +204,33 @@ const T: Record<Lang, Record<string, string>> = {
     timeRemaining: "Tan ki rete",
     accept: "AKSEPTE",
     decline: "Refize",
-    assignedRide: "Vwayaj Asiyen",
+    // Ride flow
+    assignedRide: "Sèvis asiyen",
+    enRoute: "Sou wout pran pasaje",
+    arrived: "Rive nan pwen pran",
+    inTrip: "Vwayaj an pwogrè",
+    completed: "Vwayaj fini",
+    // Primary actions
+    startTrip: "Kòmanse vwayaj",
+    enRouteBtn: "Mwen sou wout",
+    arrivedBtn: "Mwen rive",
+    startRide: "Kòmanse vwayaj",
+    completeRide: "Fini vwayaj",
+    backToDashboard: "Retounen nan panèl la",
+    // Secondary
+    navigate: "Navige",
+    contact: "Kontakte pasaje",
+    noShow: "Pa parèt",
+    // Labels
     route: "Wout",
     pickup: "Pran",
+    dropoff: "Destinasyon",
     vehicle: "Machin",
     fare: "Pri",
-    navigate: "Navige",
-    contact: "Kontakte",
+    passenger: "Pasaje",
+    elapsedTime: "Tan",
+    bookingId: "Rezèvasyon",
+    // Dashboard
     myTablet: "Tablèt Pasaje Mwen",
     tabletLink: "Lyen Tablèt",
     copy: "Kopye",
@@ -181,8 +242,6 @@ const T: Record<Lang, Record<string, string>> = {
     sourceOwnership: "Kijan pwopriyete sous travay",
     sourceOwnershipText1: "Chak kliyan ou mennen atravè kòd QR ou, lyen referans, oswa tablèt ou atribiye pou tout tan.",
     sourceOwnershipText2: "Lè yo rezève ankò, ou resevwa premye òf la — epi ou touche 15% komisyon sous menm si yon lòt chofè fè vwayaj la.",
-    offerExpired: "Òf Ekspire",
-    offerExpiredSub: "Voye bay pwochen chofè...",
     noOffer: "Ap tann vwayaj...",
     totalClients: "Total Kliyan",
     monthEarnings: "Lajan Mwa Sa",
@@ -216,10 +275,15 @@ const T: Record<Lang, Record<string, string>> = {
     clientPhone: "Telefòn",
     rideDetails: "Detay Vwayaj",
     noClientInfo: "Info kliyan pa disponib",
+    rideCompletedTitle: "Vwayaj Fini ✓",
+    rideCompletedSub: "Retounen nan panèl...",
+    transitioning: "Ap mete ajou...",
   },
 }
 
 // ─── TYPES ────────────────────────────────────────────────────
+type RideStatus = "assigned" | "en_route" | "arrived" | "in_trip" | "completed" | "cancelled" | "no_show"
+
 interface ActiveOffer {
   offer_id: string
   booking_id: string
@@ -234,8 +298,9 @@ interface ActiveOffer {
   offer_round?: number
 }
 
-interface AssignedRide {
+interface ActiveRide {
   booking_id: string
+  status: RideStatus
   pickup_location: string
   dropoff_location: string
   pickup_datetime: string | null
@@ -243,6 +308,7 @@ interface AssignedRide {
   total_price: number
   client_name?: string | null
   client_phone?: string | null
+  trip_started_at?: string | null
 }
 
 interface DriverSummary {
@@ -255,7 +321,7 @@ interface DriverSummary {
   lifetime_earnings: number
   pending_offers: number
   active_offer: ActiveOffer | null
-  assigned_ride: AssignedRide | null
+  assigned_ride: ActiveRide | null
 }
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
@@ -263,12 +329,8 @@ const BASE_URL = "https://www.sottoventoluxuryride.com"
 // ─── COUNTDOWN HOOK ───────────────────────────────────────────
 function useCountdown(expiresAt: string | null) {
   const [secondsLeft, setSecondsLeft] = useState<number>(0)
-
   useEffect(() => {
-    if (!expiresAt) {
-      setSecondsLeft(999) // no expiry = show max
-      return
-    }
+    if (!expiresAt) { setSecondsLeft(999); return }
     const calc = () => {
       const diff = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000))
       setSecondsLeft(diff)
@@ -277,14 +339,52 @@ function useCountdown(expiresAt: string | null) {
     const id = setInterval(calc, 500)
     return () => clearInterval(id)
   }, [expiresAt])
-
   return secondsLeft
+}
+
+// ─── ELAPSED TIMER HOOK ───────────────────────────────────────
+function useElapsed(startedAt: string | null) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!startedAt) return
+    const calc = () => {
+      const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
+      setElapsed(Math.max(0, diff))
+    }
+    calc()
+    const id = setInterval(calc, 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0")
+  const ss = String(elapsed % 60).padStart(2, "0")
+  return `${mm}:${ss}`
+}
+
+// ─── LANG TOGGLE ─────────────────────────────────────────────
+function LangToggle({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-zinc-700">
+      {(["en", "es", "ht"] as Lang[]).map((l) => (
+        <button
+          key={l}
+          onClick={() => onLang(l)}
+          className="px-2 py-1 text-xs uppercase tracking-widest transition-all"
+          style={{
+            backgroundColor: lang === l ? GOLD : "transparent",
+            color: lang === l ? "#000" : "#6b7280",
+            fontWeight: lang === l ? 600 : 400,
+          }}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────
 export default function DriverDashboardByCode() {
   const params = useParams()
-  const router = useRouter()
   const driverCode = (params?.driver_code as string)?.toUpperCase()
 
   const [lang, setLang] = useState<Lang>("en")
@@ -295,18 +395,18 @@ export default function DriverDashboardByCode() {
   const [showQR, setShowQR] = useState(false)
   const [responding, setResponding] = useState(false)
   const [respondResult, setRespondResult] = useState<"accepted" | "declined" | "expired" | null>(null)
+  const [transitioning, setTransitioning] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
 
-  // Persist driver code
   useEffect(() => {
     if (!driverCode) return
     try { localStorage.setItem("sottovento_driver_code", driverCode) } catch {}
   }, [driverCode])
 
-  // Detect saved language
   useEffect(() => {
     try {
       const saved = localStorage.getItem("sln_driver_lang") as Lang | null
@@ -331,6 +431,14 @@ export default function DriverDashboardByCode() {
         return
       }
       const d = data.driver
+      // Map assigned_ride — include status for ride flow
+      let activeRide: ActiveRide | null = null
+      if (d.assigned_ride) {
+        activeRide = {
+          ...d.assigned_ride,
+          status: d.assigned_ride.status ?? "assigned",
+        }
+      }
       setSummary({
         driver_id: d.id,
         driver_name: d.full_name,
@@ -341,7 +449,7 @@ export default function DriverDashboardByCode() {
         lifetime_earnings: d.stats?.lifetime_earnings ?? 0,
         pending_offers: d.stats?.pending_offers ?? 0,
         active_offer: d.active_offer ?? null,
-        assigned_ride: d.assigned_ride ?? null,
+        assigned_ride: activeRide,
       })
       setLoading(false)
     } catch {
@@ -350,7 +458,6 @@ export default function DriverDashboardByCode() {
     }
   }, [driverCode])
 
-  // Initial load + polling
   useEffect(() => {
     loadData()
     pollRef.current = setInterval(loadData, POLL_INTERVAL)
@@ -372,10 +479,8 @@ export default function DriverDashboardByCode() {
         }),
       })
       const data = await res.json()
-
       if (response === "accepted" && !data.error) {
         setRespondResult("accepted")
-        // Navigate to assigned ride screen after 1.5s
         setTimeout(() => {
           setRespondResult(null)
           setResponding(false)
@@ -394,15 +499,55 @@ export default function DriverDashboardByCode() {
     }
   }
 
-  // ── Handle offer expiry ──────────────────────────────────────
   const handleOfferExpired = useCallback(() => {
-    if (respondResult) return // already responded
+    if (respondResult) return
     setRespondResult("expired")
     setTimeout(() => {
       setRespondResult(null)
       loadData()
     }, 2500)
   }, [respondResult, loadData])
+
+  // ── Transition ride status ────────────────────────────────────
+  const transitionRide = async (newStatus: RideStatus) => {
+    if (!summary?.assigned_ride || transitioning) return
+    setTransitioning(true)
+    try {
+      const res = await fetch("/api/driver/ride-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: summary.assigned_ride.booking_id,
+          driver_id: summary.driver_id,
+          new_status: newStatus,
+        }),
+      })
+      const data = await res.json()
+      if (!data.error) {
+        if (newStatus === "completed") {
+          setShowCompleted(true)
+          setTimeout(() => {
+            setShowCompleted(false)
+            loadData()
+          }, 3000)
+        } else {
+          // Optimistic update
+          setSummary((prev) => {
+            if (!prev || !prev.assigned_ride) return prev
+            return {
+              ...prev,
+              assigned_ride: {
+                ...prev.assigned_ride,
+                status: newStatus,
+                trip_started_at: newStatus === "in_trip" ? new Date().toISOString() : prev.assigned_ride.trip_started_at,
+              },
+            }
+          })
+        }
+      }
+    } catch {}
+    setTransitioning(false)
+  }
 
   const copyLink = useCallback(async () => {
     try {
@@ -415,10 +560,8 @@ export default function DriverDashboardByCode() {
   // ── Loading ──────────────────────────────────────────────────
   if (loading) {
     return (
-      <div
-        className="min-h-screen bg-black text-white flex items-center justify-center"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-      >
+      <div className="min-h-screen bg-black text-white flex items-center justify-center"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
         <div className="text-center">
           <div className="text-zinc-500 text-sm mb-3">{t.loading}</div>
           <div className="w-6 h-6 border-2 rounded-full animate-spin mx-auto"
@@ -428,13 +571,10 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── Error ────────────────────────────────────────────────────
   if (error || !summary) {
     return (
-      <div
-        className="min-h-screen bg-black text-white flex items-center justify-center px-6"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-      >
+      <div className="min-h-screen bg-black text-white flex items-center justify-center px-6"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
         <div className="text-center max-w-sm">
           <div className="text-4xl mb-4">⚠️</div>
           <div className="text-white font-medium mb-2">{t.driverNotFound}</div>
@@ -445,7 +585,43 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── OFFER STATE — full screen dominant, NO dashboard ─────────
+  // ── COMPLETED OVERLAY ────────────────────────────────────────
+  if (showCompleted) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        <div className="text-6xl mb-5">✅</div>
+        <div className="text-2xl font-light text-white mb-2">{t.rideCompletedTitle}</div>
+        <div className="text-sm text-zinc-400">{t.rideCompletedSub}</div>
+      </div>
+    )
+  }
+
+  // ── OFFER RESPONSE OVERLAY ───────────────────────────────────
+  if (respondResult) {
+    const isAccepted = respondResult === "accepted"
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center"
+        style={{
+          backgroundColor: isAccepted ? "#052e16" : "#0a0a0a",
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+        }}>
+        <div className="text-6xl mb-5">
+          {isAccepted ? "✅" : respondResult === "declined" ? "✖️" : "⏰"}
+        </div>
+        <div className="text-2xl font-light text-white mb-2">
+          {isAccepted ? t.acceptedTitle : respondResult === "declined" ? t.declinedTitle : t.expiredTitle}
+        </div>
+        <div className="text-sm text-zinc-400">
+          {isAccepted ? t.acceptedSub : respondResult === "declined" ? t.declinedSub : t.expiredSub}
+        </div>
+      </div>
+    )
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // PRIORITY 1: OFFER SCREEN — full screen, no dashboard
+  // ══════════════════════════════════════════════════════════════
   if (summary.active_offer && !respondResult) {
     return (
       <OfferScreen
@@ -462,53 +638,31 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── RESPOND RESULT OVERLAY ───────────────────────────────────
-  if (respondResult) {
-    const isAccepted = respondResult === "accepted"
-    const isDeclined = respondResult === "declined"
-    const isExpired = respondResult === "expired"
-    return (
-      <div
-        className="fixed inset-0 flex flex-col items-center justify-center"
-        style={{
-          backgroundColor: isAccepted ? "#052e16" : "#0a0a0a",
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        }}
-      >
-        <div className="text-6xl mb-5">
-          {isAccepted ? "✅" : isDeclined ? "✖️" : "⏰"}
-        </div>
-        <div className="text-2xl font-light text-white mb-2">
-          {isAccepted ? t.acceptedTitle : isDeclined ? t.declinedTitle : t.expiredTitle}
-        </div>
-        <div className="text-sm text-zinc-400">
-          {isAccepted ? t.acceptedSub : isDeclined ? t.declinedSub : t.expiredSub}
-        </div>
-      </div>
-    )
-  }
-
-  // ── ASSIGNED STATE ───────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // PRIORITY 2: RIDE FLOW SCREEN — full screen, no dashboard
+  // ══════════════════════════════════════════════════════════════
   if (summary.assigned_ride) {
     return (
-      <AssignedScreen
+      <RideFlowScreen
         ride={summary.assigned_ride}
         driverName={summary.driver_name}
-        driverCode={summary.driver_code}
+        driverId={summary.driver_id}
         lang={lang}
         onLang={setLangAndSave}
+        onTransition={transitionRide}
+        transitioning={transitioning}
         t={t}
       />
     )
   }
 
-  // ── CALM STATE — dashboard ───────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // PRIORITY 3: CALM DASHBOARD
+  // ══════════════════════════════════════════════════════════════
   return (
-    <div
-      className="min-h-screen bg-black text-white pb-8"
-      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-    >
+    <div className="min-h-screen bg-black text-white pb-8"
+      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+
       {/* Header */}
       <div className="border-b border-zinc-800 px-5 py-4 flex items-center justify-between">
         <div>
@@ -516,40 +670,21 @@ export default function DriverDashboardByCode() {
           <h1 className="text-base font-light tracking-wide">{t.driverDashboard}</h1>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex rounded-lg overflow-hidden border border-zinc-700">
-            {(["en", "es", "ht"] as Lang[]).map((l) => (
-              <button
-                key={l}
-                onClick={() => setLangAndSave(l)}
-                className="px-2 py-1 text-xs uppercase tracking-widest transition-all"
-                style={{
-                  backgroundColor: lang === l ? GOLD : "transparent",
-                  color: lang === l ? "#000" : "#6b7280",
-                  fontWeight: lang === l ? 600 : 400,
-                }}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          <LangToggle lang={lang} onLang={setLangAndSave} />
           <div className="text-right">
-            <div className="text-sm font-medium" style={{ color: GOLD }}>
-              {summary.driver_name}
-            </div>
-            <div
-              className="text-xs px-2 py-0.5 rounded-full inline-block mt-0.5"
+            <div className="text-sm font-medium" style={{ color: GOLD }}>{summary.driver_name}</div>
+            <div className="text-xs px-2 py-0.5 rounded-full inline-block mt-0.5"
               style={{
                 backgroundColor: summary.driver_status === "active" ? "#14532d" : "#7f1d1d",
                 color: summary.driver_status === "active" ? "#4ade80" : "#f87171",
-              }}
-            >
+              }}>
               {summary.driver_status === "active" ? t.youAreOnline : t.youAreOffline}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Calm status banner */}
+      {/* Status banner */}
       <div className="mx-4 mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 px-5 py-3 flex items-center gap-3">
         <div className="w-2.5 h-2.5 rounded-full bg-green-400" style={{ boxShadow: "0 0 8px #4ade80" }} />
         <span className="text-sm text-white/70">{t.noOffer}</span>
@@ -581,23 +716,16 @@ export default function DriverDashboardByCode() {
               <span className="text-sm font-mono flex-1 truncate" style={{ color: GOLD }}>
                 /tablet/{summary.driver_code}
               </span>
-              <button
-                onClick={copyLink}
-                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0"
-              >
+              <button onClick={copyLink}
+                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0">
                 {copied ? t.copied : t.copy}
               </button>
-              <a
-                href={tabletUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0"
-              >
+              <a href={tabletUrl} target="_blank" rel="noopener noreferrer"
+                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-300 transition shrink-0">
                 {t.open}
               </a>
             </div>
           </div>
-
           <div className="px-5 py-3">
             <button onClick={() => setShowQR(!showQR)} className="flex items-center justify-between w-full">
               <span className="text-sm text-white">{t.qrPreview}</span>
@@ -614,7 +742,6 @@ export default function DriverDashboardByCode() {
               </div>
             )}
           </div>
-
           <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
             <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.tabletSetup}</div>
             <ol className="space-y-1 text-xs text-zinc-400 list-decimal list-inside">
@@ -630,31 +757,24 @@ export default function DriverDashboardByCode() {
       {/* Quick access */}
       <div className="px-4 mt-5 space-y-3">
         <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">{t.quickAccess}</div>
-        <Link
-          href={`/driver/${driverCode}/source-clients`}
-          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition"
-        >
+        <Link href={`/driver/${driverCode}/source-clients`}
+          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
           <div>
             <div className="text-sm font-medium">{t.capturedClients}</div>
             <div className="text-xs text-zinc-500 mt-0.5">{t.capturedClientsSub}</div>
           </div>
           <span className="text-zinc-400">→</span>
         </Link>
-        <Link
-          href={`/driver/${driverCode}/earnings`}
-          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition"
-        >
+        <Link href={`/driver/${driverCode}/earnings`}
+          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
           <div>
             <div className="text-sm font-medium">{t.earningsLabel}</div>
             <div className="text-xs text-zinc-500 mt-0.5">{t.earningsSub}</div>
           </div>
           <span className="text-zinc-400">→</span>
         </Link>
-        <Link
-          href={`/?ref=${summary.driver_code}`}
-          target="_blank"
-          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition"
-        >
+        <Link href={`/?ref=${summary.driver_code}`} target="_blank"
+          className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
           <div>
             <div className="text-sm font-medium">{t.referralLabel}</div>
             <div className="text-xs text-zinc-500 mt-0.5">{t.referralSub}</div>
@@ -663,7 +783,7 @@ export default function DriverDashboardByCode() {
         </Link>
       </div>
 
-      {/* Source ownership info */}
+      {/* Source ownership */}
       <div className="mx-4 mt-5 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
         <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.sourceOwnership}</div>
         <div className="space-y-2 text-xs text-zinc-400">
@@ -679,36 +799,20 @@ export default function DriverDashboardByCode() {
   )
 }
 
-// ─────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
 // OFFER SCREEN — full screen priority mode
-// No dashboard visible. Offer overrides entire UI.
-// ─────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
 function OfferScreen({
-  offer,
-  driverName,
-  lang,
-  onLang,
-  onAccept,
-  onDecline,
-  onExpired,
-  responding,
-  t,
+  offer, driverName, lang, onLang, onAccept, onDecline, onExpired, responding, t,
 }: {
-  offer: ActiveOffer
-  driverName: string
-  lang: Lang
-  onLang: (l: Lang) => void
-  onAccept: () => void
-  onDecline: () => void
-  onExpired: () => void
-  responding: boolean
-  t: Record<string, string>
+  offer: ActiveOffer; driverName: string; lang: Lang; onLang: (l: Lang) => void
+  onAccept: () => void; onDecline: () => void; onExpired: () => void
+  responding: boolean; t: Record<string, string>
 }) {
   const secondsLeft = useCountdown(offer.expires_at)
   const hasExpiry = !!offer.expires_at
   const expired = hasExpiry && secondsLeft === 0
 
-  // Auto-trigger expiry callback
   const expiredRef = useRef(false)
   useEffect(() => {
     if (expired && !expiredRef.current && !responding) {
@@ -717,39 +821,31 @@ function OfferScreen({
     }
   }, [expired, responding, onExpired])
 
-  // Dynamic timer color
   const timerColor =
     !hasExpiry ? "#ffffff" :
     secondsLeft > 60 ? "#ffffff" :
-    secondsLeft > 20 ? "#f59e0b" :
-    "#ef4444"
+    secondsLeft > 20 ? "#f59e0b" : "#ef4444"
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0")
   const ss = String(secondsLeft % 60).padStart(2, "0")
-
-  // Max seconds for progress bar (default 90s)
   const maxSeconds = hasExpiry
     ? Math.max(90, Math.ceil((new Date(offer.expires_at!).getTime() - Date.now()) / 1000) + secondsLeft)
     : 90
   const progressPct = hasExpiry ? Math.min(100, (secondsLeft / maxSeconds) * 100) : 100
 
-  // Format pickup datetime
   const pickupDate = offer.pickup_datetime
-    ? new Date(offer.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-    : ""
+    ? new Date(offer.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""
   const pickupTime = offer.pickup_datetime
-    ? new Date(offer.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-    : ""
+    ? new Date(offer.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
 
   return (
-    <div
-      className="fixed inset-0 flex flex-col bg-black"
+    <div className="fixed inset-0 flex flex-col bg-black"
       style={{
         paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
-      }}
-    >
-      {/* ── Top bar ── */}
+      }}>
+
+      {/* Top bar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
@@ -757,45 +853,23 @@ function OfferScreen({
             {t.newRideOffer}
           </span>
           {offer.is_source_offer && (
-            <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
-              style={{ backgroundColor: "#1c1400", color: GOLD, border: `1px solid ${GOLD}` }}
-            >
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+              style={{ backgroundColor: "#1c1400", color: GOLD, border: `1px solid ${GOLD}` }}>
               {t.sourceOffer}
             </span>
           )}
           {offer.offer_round && offer.offer_round > 1 && (
-            <span className="text-xs text-zinc-500">
-              {t.round} {offer.offer_round}
-            </span>
+            <span className="text-xs text-zinc-500">{t.round} {offer.offer_round}</span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Language toggle */}
-          <div className="flex rounded-lg overflow-hidden border border-zinc-700">
-            {(["en", "es", "ht"] as Lang[]).map((l) => (
-              <button
-                key={l}
-                onClick={() => onLang(l)}
-                className="px-2 py-1 text-xs uppercase tracking-widest transition-all"
-                style={{
-                  backgroundColor: lang === l ? GOLD : "transparent",
-                  color: lang === l ? "#000" : "#6b7280",
-                  fontWeight: lang === l ? 600 : 400,
-                }}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          <LangToggle lang={lang} onLang={onLang} />
           <span className="text-xs text-zinc-500 hidden sm:block">{driverName}</span>
         </div>
       </div>
 
-      {/* ── Main content ── */}
+      {/* Main content */}
       <div className="flex-1 flex flex-col px-5 py-4 overflow-hidden">
-
-        {/* Route — largest element */}
         <div className="flex-1 flex flex-col justify-center min-h-0">
 
           {/* Pickup */}
@@ -804,12 +878,9 @@ function OfferScreen({
               <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
               {t.pickup}
             </div>
-            <div className="text-2xl font-light text-white leading-tight">
-              {offer.pickup_location}
-            </div>
+            <div className="text-2xl font-light text-white leading-tight">{offer.pickup_location}</div>
           </div>
 
-          {/* Arrow divider */}
           <div className="flex items-center gap-3 my-3">
             <div className="h-px flex-1 bg-zinc-800" />
             <div className="text-zinc-600 text-lg">↓</div>
@@ -820,11 +891,9 @@ function OfferScreen({
           <div className="mb-5">
             <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
-              {t.route}
+              {t.dropoff}
             </div>
-            <div className="text-2xl font-light text-white leading-tight">
-              {offer.dropoff_location}
-            </div>
+            <div className="text-2xl font-light text-white leading-tight">{offer.dropoff_location}</div>
           </div>
 
           {/* Details grid */}
@@ -840,60 +909,41 @@ function OfferScreen({
             </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.fare}</div>
-              <div className="text-xl font-bold" style={{ color: GOLD }}>
-                ${offer.total_price.toFixed(0)}
-              </div>
+              <div className="text-xl font-bold" style={{ color: GOLD }}>${offer.total_price.toFixed(0)}</div>
             </div>
           </div>
         </div>
 
-        {/* ── Countdown timer ── */}
-        <div className="flex flex-col items-center py-4 flex-shrink-0">
-          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.timeRemaining}</div>
-          <div
-            className="text-6xl font-mono font-bold tabular-nums transition-colors duration-300"
-            style={{ color: timerColor }}
-          >
-            {hasExpiry ? `${mm}:${ss}` : "—"}
-          </div>
-          {/* Progress bar */}
-          {hasExpiry && (
-            <div className="w-full h-2 bg-zinc-800 rounded-full mt-3 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${progressPct}%`,
-                  backgroundColor: timerColor,
-                  boxShadow: `0 0 8px ${timerColor}60`,
-                }}
-              />
+        {/* Countdown */}
+        {hasExpiry && (
+          <div className="mt-4 flex-shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-zinc-500 uppercase tracking-widest">{t.timeRemaining}</span>
+              <span className="text-2xl font-mono font-bold tabular-nums" style={{ color: timerColor }}>
+                {mm}:{ss}
+              </span>
             </div>
-          )}
-        </div>
+            <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${progressPct}%`, backgroundColor: timerColor }} />
+            </div>
+          </div>
+        )}
 
-        {/* ── Action buttons ── */}
-        <div className="flex gap-3 flex-shrink-0">
-          {/* Decline — secondary, smaller */}
-          <button
-            onClick={onDecline}
-            disabled={responding || expired}
-            className="flex-none px-6 py-4 rounded-2xl border border-zinc-700 text-zinc-300 text-base font-medium transition-all active:scale-95 disabled:opacity-40"
-            style={{ minWidth: "100px" }}
-          >
-            {t.decline}
-          </button>
-
-          {/* Accept — primary, dominant */}
+        {/* Actions */}
+        <div className="mt-4 flex-shrink-0 space-y-3">
           <button
             onClick={onAccept}
             disabled={responding || expired}
-            className="flex-1 py-5 rounded-2xl text-black text-xl font-bold tracking-wide transition-all active:scale-95 disabled:opacity-40"
-            style={{
-              backgroundColor: responding ? "#a08040" : GOLD,
-              boxShadow: responding ? "none" : `0 0 24px ${GOLD}60`,
-            }}
-          >
+            className="w-full py-5 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-50"
+            style={{ backgroundColor: GOLD, color: "#000" }}>
             {responding ? "..." : t.accept}
+          </button>
+          <button
+            onClick={onDecline}
+            disabled={responding || expired}
+            className="w-full py-3 rounded-2xl border border-zinc-700 text-zinc-300 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
+            {t.decline}
           </button>
         </div>
       </div>
@@ -901,146 +951,290 @@ function OfferScreen({
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// ASSIGNED SCREEN — confirmed ride details
-// ─────────────────────────────────────────────────────────────
-function AssignedScreen({
-  ride,
-  driverName,
-  driverCode,
-  lang,
-  onLang,
-  t,
+// ══════════════════════════════════════════════════════════════
+// RIDE FLOW SCREEN — 5 states, one primary action each
+// ══════════════════════════════════════════════════════════════
+function RideFlowScreen({
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, t,
 }: {
-  ride: AssignedRide
-  driverName: string
-  driverCode: string
-  lang: Lang
-  onLang: (l: Lang) => void
-  t: Record<string, string>
+  ride: ActiveRide; driverName: string; driverId: string; lang: Lang
+  onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
+  transitioning: boolean; t: Record<string, string>
 }) {
-  const pickupDate = ride.pickup_datetime
-    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-    : ""
-  const pickupTime = ride.pickup_datetime
-    ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-    : ""
+  const elapsed = useElapsed(ride.trip_started_at ?? null)
 
-  const mapsUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.pickup_location)}`
+  const pickupDate = ride.pickup_datetime
+    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""
+  const pickupTime = ride.pickup_datetime
+    ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+
+  const mapsPickupUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.pickup_location)}`
+  const mapsDropoffUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.dropoff_location)}`
+  const contactUrl = ride.client_phone ? `tel:${ride.client_phone}` : null
+  const whatsappUrl = ride.client_phone
+    ? `https://wa.me/${ride.client_phone.replace(/\D/g, "")}` : null
+
+  // ── State-specific config ────────────────────────────────────
+  const stateConfig: Record<RideStatus, {
+    headerLabel: string
+    headerColor: string
+    dotColor: string
+    primaryLabel: string
+    primaryAction: RideStatus | null
+    primaryColor: string
+    showNavigate: boolean
+    navigateUrl: string
+    showContact: boolean
+    showNoShow?: boolean
+    showElapsed?: boolean
+  }> = {
+    assigned: {
+      headerLabel: t.assignedRide,
+      headerColor: GOLD,
+      dotColor: "#4ade80",
+      primaryLabel: t.enRouteBtn,
+      primaryAction: "en_route",
+      primaryColor: GOLD,
+      showNavigate: true,
+      navigateUrl: mapsPickupUrl,
+      showContact: true,
+    },
+    en_route: {
+      headerLabel: t.enRoute,
+      headerColor: "#60a5fa",
+      dotColor: "#60a5fa",
+      primaryLabel: t.arrivedBtn,
+      primaryAction: "arrived",
+      primaryColor: "#60a5fa",
+      showNavigate: true,
+      navigateUrl: mapsPickupUrl,
+      showContact: true,
+    },
+    arrived: {
+      headerLabel: t.arrived,
+      headerColor: "#4ade80",
+      dotColor: "#4ade80",
+      primaryLabel: t.startRide,
+      primaryAction: "in_trip",
+      primaryColor: "#4ade80",
+      showNavigate: false,
+      navigateUrl: mapsPickupUrl,
+      showContact: true,
+      showNoShow: true,
+    },
+    in_trip: {
+      headerLabel: t.inTrip,
+      headerColor: GOLD,
+      dotColor: GOLD,
+      primaryLabel: t.completeRide,
+      primaryAction: "completed",
+      primaryColor: GOLD,
+      showNavigate: true,
+      navigateUrl: mapsDropoffUrl,
+      showContact: false,
+      showElapsed: true,
+    },
+    completed: {
+      headerLabel: t.completed,
+      headerColor: "#4ade80",
+      dotColor: "#4ade80",
+      primaryLabel: t.backToDashboard,
+      primaryAction: null,
+      primaryColor: "#4ade80",
+      showNavigate: false,
+      navigateUrl: "",
+      showContact: false,
+    },
+    cancelled: {
+      headerLabel: "Cancelled",
+      headerColor: "#f87171",
+      dotColor: "#f87171",
+      primaryLabel: t.backToDashboard,
+      primaryAction: null,
+      primaryColor: "#f87171",
+      showNavigate: false,
+      navigateUrl: "",
+      showContact: false,
+    },
+    no_show: {
+      headerLabel: "No Show",
+      headerColor: "#f87171",
+      dotColor: "#f87171",
+      primaryLabel: t.backToDashboard,
+      primaryAction: null,
+      primaryColor: "#f87171",
+      showNavigate: false,
+      navigateUrl: "",
+      showContact: false,
+    },
+  }
+
+  const cfg = stateConfig[ride.status] ?? stateConfig.assigned
+
+  // ── Progress steps ───────────────────────────────────────────
+  const steps: RideStatus[] = ["assigned", "en_route", "arrived", "in_trip", "completed"]
+  const currentIdx = steps.indexOf(ride.status)
 
   return (
-    <div
-      className="min-h-screen bg-black text-white pb-8"
-      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-    >
-      {/* Header */}
-      <div className="border-b border-zinc-800 px-5 py-4 flex items-center justify-between">
-        <div>
-          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-0.5">Sottovento Network</div>
-          <h1 className="text-base font-light tracking-wide flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-400 inline-block" style={{ boxShadow: "0 0 6px #4ade80" }} />
-            {t.assignedRide}
-          </h1>
+    <div className="fixed inset-0 flex flex-col bg-black"
+      style={{
+        paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+        paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+      }}>
+
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ backgroundColor: cfg.dotColor }} />
+          <div>
+            <div className="text-xs text-zinc-500 uppercase tracking-widest">Sottovento Network</div>
+            <div className="text-sm font-medium" style={{ color: cfg.headerColor }}>{cfg.headerLabel}</div>
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex rounded-lg overflow-hidden border border-zinc-700">
-            {(["en", "es", "ht"] as Lang[]).map((l) => (
-              <button
-                key={l}
-                onClick={() => onLang(l)}
-                className="px-2 py-1 text-xs uppercase tracking-widest transition-all"
-                style={{
-                  backgroundColor: lang === l ? GOLD : "transparent",
-                  color: lang === l ? "#000" : "#6b7280",
-                  fontWeight: lang === l ? 600 : 400,
-                }}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          <LangToggle lang={lang} onLang={onLang} />
           <div className="text-sm font-medium" style={{ color: GOLD }}>{driverName}</div>
         </div>
       </div>
 
-      {/* Ride details card */}
-      <div className="mx-4 mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-800">
-          <div className="text-xs text-zinc-500 uppercase tracking-widest mb-3">{t.rideDetails}</div>
+      {/* ── Progress bar ── */}
+      <div className="flex items-center px-5 py-3 gap-1 flex-shrink-0">
+        {steps.map((step, idx) => (
+          <div key={step} className="flex items-center flex-1">
+            <div className="h-1.5 flex-1 rounded-full transition-all duration-500"
+              style={{
+                backgroundColor: idx <= currentIdx ? cfg.dotColor : "#27272a",
+              }} />
+            {idx < steps.length - 1 && (
+              <div className="w-1.5 h-1.5 rounded-full mx-0.5 flex-shrink-0"
+                style={{ backgroundColor: idx < currentIdx ? cfg.dotColor : "#27272a" }} />
+            )}
+          </div>
+        ))}
+      </div>
 
-          {/* Route */}
-          <div className="mb-1">
-            <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-              {t.pickup}
+      {/* ── Main content ── */}
+      <div className="flex-1 overflow-y-auto px-5 py-2">
+
+        {/* Route card */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden mb-4">
+          <div className="px-5 py-4">
+            {/* Pickup */}
+            <div className="mb-1">
+              <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                {t.pickup}
+              </div>
+              <div className="text-lg font-light text-white">{ride.pickup_location}</div>
             </div>
-            <div className="text-lg font-light text-white">{ride.pickup_location}</div>
-          </div>
-          <div className="flex items-center gap-3 my-2">
-            <div className="h-px flex-1 bg-zinc-800" />
-            <div className="text-zinc-600 text-sm">↓</div>
-            <div className="h-px flex-1 bg-zinc-800" />
-          </div>
-          <div>
-            <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
-              {t.route}
+            <div className="flex items-center gap-3 my-2">
+              <div className="h-px flex-1 bg-zinc-800" />
+              <div className="text-zinc-600 text-sm">↓</div>
+              <div className="h-px flex-1 bg-zinc-800" />
             </div>
-            <div className="text-lg font-light text-white">{ride.dropoff_location}</div>
+            {/* Dropoff */}
+            <div>
+              <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+                {t.dropoff}
+              </div>
+              <div className="text-lg font-light text-white">{ride.dropoff_location}</div>
+            </div>
+          </div>
+
+          {/* Details grid */}
+          <div className="grid grid-cols-3 divide-x divide-zinc-800 border-t border-zinc-800">
+            <div className="px-4 py-3">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
+              <div className="text-sm font-medium text-white">{pickupDate}</div>
+              <div className="text-xs text-zinc-300">{pickupTime}</div>
+            </div>
+            <div className="px-4 py-3">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.vehicle}</div>
+              <div className="text-sm font-medium text-white">{ride.vehicle_type}</div>
+            </div>
+            <div className="px-4 py-3">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.fare}</div>
+              <div className="text-xl font-bold" style={{ color: GOLD }}>${ride.total_price.toFixed(0)}</div>
+            </div>
+          </div>
+
+          {/* Elapsed time (in_trip only) */}
+          {cfg.showElapsed && (
+            <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50 flex items-center justify-between">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest">{t.elapsedTime}</div>
+              <div className="text-xl font-mono font-bold tabular-nums" style={{ color: GOLD }}>{elapsed}</div>
+            </div>
+          )}
+
+          {/* Passenger info */}
+          {(ride.client_name || ride.client_phone) && (
+            <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.passenger}</div>
+              {ride.client_name && (
+                <div className="text-sm font-medium text-white">{ride.client_name}</div>
+              )}
+              {ride.client_phone && (
+                <div className="text-sm mt-0.5" style={{ color: GOLD }}>{ride.client_phone}</div>
+              )}
+            </div>
+          )}
+
+          {/* Booking ID */}
+          <div className="px-5 py-2 border-t border-zinc-800">
+            <div className="text-xs text-zinc-600 font-mono truncate">
+              {t.bookingId}: {ride.booking_id.slice(0, 8)}...
+            </div>
           </div>
         </div>
 
-        {/* Details grid */}
-        <div className="grid grid-cols-3 divide-x divide-zinc-800">
-          <div className="px-4 py-3">
-            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
-            <div className="text-sm font-medium text-white">{pickupDate}</div>
-            <div className="text-xs text-zinc-300">{pickupTime}</div>
-          </div>
-          <div className="px-4 py-3">
-            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.vehicle}</div>
-            <div className="text-sm font-medium text-white">{ride.vehicle_type}</div>
-          </div>
-          <div className="px-4 py-3">
-            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.fare}</div>
-            <div className="text-xl font-bold" style={{ color: GOLD }}>${ride.total_price.toFixed(0)}</div>
-          </div>
-        </div>
-
-        {/* Client info */}
-        {(ride.client_name || ride.client_phone) && (
-          <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
-            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">{t.clientName}</div>
-            {ride.client_name && <div className="text-sm font-medium text-white">{ride.client_name}</div>}
-            {ride.client_phone && (
-              <a
-                href={`tel:${ride.client_phone}`}
-                className="text-sm mt-1 inline-block"
-                style={{ color: GOLD }}
-              >
-                {ride.client_phone}
+        {/* Secondary actions row */}
+        {(cfg.showNavigate || cfg.showContact) && (
+          <div className="flex gap-3 mb-4">
+            {cfg.showNavigate && (
+              <a href={cfg.navigateUrl}
+                className="flex-1 py-3.5 rounded-2xl border border-zinc-700 text-center text-sm font-medium text-zinc-300 transition-all active:scale-95">
+                {t.navigate}
+              </a>
+            )}
+            {cfg.showContact && contactUrl && (
+              <a href={contactUrl}
+                className="flex-1 py-3.5 rounded-2xl border border-zinc-700 text-center text-sm font-medium text-zinc-300 transition-all active:scale-95">
+                {t.contact}
+              </a>
+            )}
+            {cfg.showContact && whatsappUrl && !contactUrl && (
+              <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
+                className="flex-1 py-3.5 rounded-2xl border border-zinc-700 text-center text-sm font-medium text-zinc-300 transition-all active:scale-95">
+                WhatsApp
               </a>
             )}
           </div>
         )}
       </div>
 
-      {/* Action buttons */}
-      <div className="px-4 mt-4 flex gap-3">
-        <a
-          href={mapsUrl}
-          className="flex-1 py-4 rounded-2xl text-center text-base font-semibold transition-all active:scale-95"
-          style={{ backgroundColor: GOLD, color: "#000" }}
-        >
-          {t.navigate}
-        </a>
-        {ride.client_phone && (
-          <a
-            href={`tel:${ride.client_phone}`}
-            className="flex-none px-6 py-4 rounded-2xl border border-zinc-700 text-zinc-300 text-base font-medium transition-all active:scale-95"
-          >
-            {t.contact}
-          </a>
+      {/* ── Primary action ── */}
+      <div className="px-5 flex-shrink-0 space-y-3">
+        {cfg.primaryAction ? (
+          <button
+            onClick={() => cfg.primaryAction && onTransition(cfg.primaryAction)}
+            disabled={transitioning}
+            className="w-full py-5 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-60"
+            style={{ backgroundColor: cfg.primaryColor, color: "#000" }}>
+            {transitioning ? t.transitioning : cfg.primaryLabel}
+          </button>
+        ) : (
+          <div className="text-center text-zinc-400 text-sm py-4">{cfg.primaryLabel}</div>
+        )}
+
+        {/* No Show option (arrived state only) */}
+        {cfg.showNoShow && (
+          <button
+            onClick={() => onTransition("no_show")}
+            disabled={transitioning}
+            className="w-full py-3 rounded-2xl border border-zinc-800 text-zinc-500 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
+            {t.noShow}
+          </button>
         )}
       </div>
     </div>
