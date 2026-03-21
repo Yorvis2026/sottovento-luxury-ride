@@ -717,9 +717,10 @@ export default function AdminPanel() {
                     </div>
                     <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{dispatchData?.manualDispatchRequired?.length ?? 0}</span>
                   </div>
-                  {!dispatchData?.manualDispatchRequired?.length ? (
+                  {!dispatchData?.manualDispatchRequired?.length && (
                     <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-                  ) : dispatchData.manualDispatchRequired.map(b => {
+                  )}
+                  {(dispatchData?.manualDispatchRequired ?? []).map(b => {
                       // Capa 4: Dispatch Readiness Gate
                       const missingFields: string[] = []
                       if (!b.pickup_address?.trim()) missingFields.push("pickup address")
@@ -765,7 +766,7 @@ export default function AdminPanel() {
                           </div>
                         </div>
                       )
-                    })
+                    })}
                 </div>
               </>
             )}
