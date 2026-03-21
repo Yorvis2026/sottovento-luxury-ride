@@ -44,6 +44,7 @@ export async function GET() {
       FROM bookings b
       LEFT JOIN clients c ON b.client_id = c.id
       LEFT JOIN drivers d ON b.assigned_driver_id = d.id
+      WHERE b.status NOT IN ('archived')
       ORDER BY b.created_at DESC
       LIMIT 100
     `;
@@ -75,6 +76,7 @@ export async function GET() {
         FROM bookings b
         LEFT JOIN clients c ON b.client_id = c.id
         LEFT JOIN drivers d ON b.assigned_driver_id = d.id
+        WHERE b.status NOT IN ('archived')
         ORDER BY b.created_at DESC
         LIMIT 100
       `;
