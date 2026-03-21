@@ -1,6 +1,6 @@
 import type { ZoneId } from "./zones";
 
-export type VehicleType = "Sedan" | "SUV";
+export type VehicleType = "Sedan" | "SUV" | "Luxury SUV" | "Sprinter";
 export type ServiceType = "oneway" | "roundtrip";
 export type WaitTime = "none" | "2h" | "4h" | "fullday";
 export type ExtraStop = "none" | "quick" | "short" | "extended";
@@ -13,7 +13,7 @@ export type PriceResolution =
   | { type: "fallback";     price: number }
   | { type: "out_of_area";  price: null  };
 
-type PriceByVehicle = { Sedan: number; SUV: number };
+type PriceByVehicle = { Sedan: number; SUV: number; "Luxury SUV"?: number; Sprinter?: number };
 
 const key = (a: ZoneId, b: ZoneId) => `${a}->${b}` as const;
 
@@ -163,6 +163,8 @@ const ZONE_TO_ZONE_FARES: Record<string, PriceByVehicle> = {
 export const INTRA_ZONE_FARE: Record<VehicleType, number> = {
   Sedan: 45,
   SUV:   65,
+  "Luxury SUV": 95,
+  Sprinter: 160,
 };
 
 // ============================================================
@@ -172,6 +174,8 @@ export const INTRA_ZONE_FARE: Record<VehicleType, number> = {
 export const FALLBACK_FARE: Record<VehicleType, number> = {
   Sedan: 95,
   SUV:   120,
+  "Luxury SUV": 145,
+  Sprinter: 220,
 };
 
 // ============================================================
@@ -195,6 +199,8 @@ export function isInServiceArea(zone: ZoneId): boolean {
 export const MINIMUM_FARE: Record<VehicleType, number> = {
   Sedan: 45,
   SUV:   65,
+  "Luxury SUV": 95,
+  Sprinter: 160,
 };
 
 // ============================================================
@@ -240,6 +246,12 @@ export const HOURLY_RATE = 95; // per hour
 // INTERNAL HELPERS
 // ============================================================
 
+// ── Luxury multipliers for Luxury SUV and Sprinter ──────────
+const LUXURY_MULTIPLIER: Partial<Record<VehicleType, number>> = {
+  "Luxury SUV": 1.45,  // ~45% premium over SUV
+  Sprinter: 2.0,        // ~2x SUV price
+};
+
 function getExactPair(pickup: ZoneId, dropoff: ZoneId, table: Record<string, PriceByVehicle>): PriceByVehicle | null {
   const direct = table[key(pickup, dropoff)];
   if (direct) return direct;
@@ -268,6 +280,15 @@ export function resolvePrice(args: {
   serviceType?: ServiceType;
 }): PriceResolution {
   const { pickupZone, dropoffZone, vehicle, serviceType = "oneway" } = args;
+
+  // ── Luxury SUV / Sprinter: resolve as SUV then apply multiplier ──
+  const luxMultiplier = LUXURY_MULTIPLIER[vehicle];
+  if (luxMultiplier) {
+    const baseResolution = resolvePrice({ pickupZone, dropoffZone, vehicle: "SUV", serviceType });
+    if (baseResolution.price === null) return baseResolution;
+    return { ...baseResolution, price: Math.round(baseResolution.price * luxMultiplier / 5) * 5 };
+  }
+
 
   // ── Service area check ───────────────────────────────────
   if (!isInServiceArea(pickupZone) || !isInServiceArea(dropoffZone)) {

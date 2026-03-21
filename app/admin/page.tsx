@@ -115,6 +115,8 @@ export default function AdminPanel() {
   const [assignModal, setAssignModal] = useState<{ bookingId: string; pickup: string; dropoff: string } | null>(null)
   const [assigningDriver, setAssigningDriver] = useState(false)
   const [assignMsg, setAssignMsg] = useState("")
+  // Global toast for error surfacing (D3 requirement)
+  const [globalToast, setGlobalToast] = useState<{ msg: string; type: "error" | "success" } | null>(null)
 
   // ---- DATA LOADERS ----
   const loadDashboard = useCallback(async () => { setLoadingDash(true); try { const r = await fetch("/api/admin/dashboard"); if (r.ok) setDashboard(await r.json()) } catch { } finally { setLoadingDash(false) } }, [])
@@ -155,7 +157,19 @@ export default function AdminPanel() {
   }
 
   const handleBookingStatus = async (id: string, status: string, dispatch_status?: string) => {
-    try { await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, dispatch_status }) }); loadBookings(); loadDispatch(); loadDashboard() } catch { }
+    try {
+      const res = await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, dispatch_status }) })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setGlobalToast({ msg: `❌ ${data.error ?? "Failed to update booking"}`, type: "error" })
+        setTimeout(() => setGlobalToast(null), 4000)
+        return
+      }
+      loadBookings(); loadDispatch(); loadDashboard()
+    } catch (e: any) {
+      setGlobalToast({ msg: `❌ Network error: ${e.message}`, type: "error" })
+      setTimeout(() => setGlobalToast(null), 4000)
+    }
   }
 
   const handleAssignDriver = async (bookingId: string, driverId: string) => {
@@ -299,6 +313,19 @@ export default function AdminPanel() {
   // ============================================================
   return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", fontFamily: "system-ui, sans-serif", color: "#fff" }}>
+      {/* ---- GLOBAL TOAST (error/success surfacing) ---- */}
+      {globalToast && (
+        <div style={{
+          position: "fixed", top: "calc(env(safe-area-inset-top) + 16px)", left: "50%", transform: "translateX(-50%)",
+          background: globalToast.type === "error" ? "#3b0000" : "#14532d",
+          border: `1px solid ${globalToast.type === "error" ? "#f87171" : "#4ade80"}`,
+          color: globalToast.type === "error" ? "#f87171" : "#4ade80",
+          borderRadius: 10, padding: "12px 20px", fontSize: 14, fontWeight: 600,
+          zIndex: 9999, maxWidth: 360, textAlign: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.6)"
+        }}>
+          {globalToast.msg}
+        </div>
+      )}
       {/* ---- HEADER — with iOS safe area ---- */}
       <div style={{
         background: "#0d0d0d",

@@ -512,6 +512,9 @@ export default function DriverDashboardByCode() {
   // ── GPS state ─────────────────────────────────────────────────
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [gpsError, setGpsError] = useState<string | null>(null)
+  // ── New ride assignment alert modal ───────────────────────────
+  const [showNewRideAlert, setShowNewRideAlert] = useState(false)
+  const [newRideAlertData, setNewRideAlertData] = useState<{ pickup: string; dropoff: string; fare: number; pickup_time: string | null } | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
@@ -575,8 +578,20 @@ export default function DriverDashboardByCode() {
       const rideChanged = newRideId !== null && newRideId !== prevRideIdRef.current
       const offerChanged = newOfferId !== null && newOfferId !== prevOfferIdRef.current
 
-      if ((rideChanged && hadNoRide) || (offerChanged && hadNoOffer)) {
+      if (rideChanged || (offerChanged && hadNoOffer)) {
         playAlert()
+        // Vibrate if supported (pattern: 3 pulses)
+        try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 500]) } catch {}
+        // Show dominant modal for new ride assignment
+        if (rideChanged && activeRide) {
+          setNewRideAlertData({
+            pickup: activeRide.pickup_location ?? "TBD",
+            dropoff: activeRide.dropoff_location ?? "TBD",
+            fare: activeRide.total_price ?? 0,
+            pickup_time: activeRide.pickup_datetime ?? null,
+          })
+          setShowNewRideAlert(true)
+        }
       }
 
       prevRideIdRef.current = newRideId
@@ -777,7 +792,71 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── EARLY START MODAL (temporal guardrail) ────────────────────────
+  // ── NEW RIDE ALERT MODAL ───────────────────────────────────────────────
+  if (showNewRideAlert && newRideAlertData) {
+    const pickupFormatted = newRideAlertData.pickup_time
+      ? new Date(newRideAlertData.pickup_time).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : lang === "es" ? "Hora por confirmar" : "Time TBD"
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 px-6 z-[100]"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        {/* Pulsing ring */}
+        <div className="relative mb-6">
+          <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: GOLD + "40" }} />
+          <div className="relative w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: GOLD + "20", border: `2px solid ${GOLD}` }}>
+            <span className="text-3xl">🚗</span>
+          </div>
+        </div>
+        <div className="text-center mb-6">
+          <div className="text-2xl font-semibold text-white mb-1">
+            {lang === "es" ? "¡Nuevo Viaje Asignado!" : "New Ride Assigned!"}
+          </div>
+          <div className="text-sm text-zinc-400">
+            {lang === "es" ? "Se te ha asignado un nuevo servicio" : "A new ride has been assigned to you"}
+          </div>
+        </div>
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border overflow-hidden mb-6" style={{ borderColor: GOLD + "40" }}>
+          <div className="px-5 py-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="text-green-400 mt-0.5">↑</span>
+              <div>
+                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">{lang === "es" ? "Recogida" : "Pickup"}</div>
+                <div className="text-sm text-white">{newRideAlertData.pickup}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="text-red-400 mt-0.5">↓</span>
+              <div>
+                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">{lang === "es" ? "Destino" : "Dropoff"}</div>
+                <div className="text-sm text-white">{newRideAlertData.dropoff}</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+              <div className="text-xs text-zinc-500">{lang === "es" ? "Fecha/Hora" : "Pickup Time"}</div>
+              <div className="text-xs text-zinc-300">{pickupFormatted}</div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-zinc-500">{lang === "es" ? "Tarifa" : "Fare"}</div>
+              <div className="text-lg font-bold" style={{ color: GOLD }}>${newRideAlertData.fare.toFixed(0)}</div>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => { setShowNewRideAlert(false); setNewRideAlertData(null) }}
+          className="w-full max-w-sm py-4 rounded-2xl text-base font-bold text-black transition-all active:scale-95"
+          style={{ backgroundColor: GOLD }}>
+          {lang === "es" ? "Ver Detalles del Viaje" : "View Ride Details"}
+        </button>
+        <button
+          onClick={() => { setShowNewRideAlert(false); setNewRideAlertData(null) }}
+          className="mt-3 text-sm text-zinc-500 py-2">
+          {lang === "es" ? "Cerrar" : "Dismiss"}
+        </button>
+      </div>
+    )
+  }
+
+  // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────────
   if (showEarlyStartModal && summary?.assigned_ride) {
     const pickupTime = summary.assigned_ride.pickup_datetime
       ? new Date(summary.assigned_ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
