@@ -2027,12 +2027,15 @@ function RideFlowScreen({
       {/* ── Primary action (state-colored) ── */}
       {(() => {
         // READINESS GUARDRAIL: only for en_route transition (accepted/assigned states)
+        // Critical fields: pickup_address + pickup_datetime (must have to operate)
+        // Optional fields: client_name, client_phone (warn but don't block)
         const isEnRouteAction = cfg.primaryAction === "en_route"
         const gpsReady = !!gpsCoords && !gpsError
         const hasPickupAddress = !!(ride.pickup_location && ride.pickup_location !== "TBD")
         const hasPassengerInfo = !!(ride.client_name && ride.client_phone)
         const hasPickupTime = !!ride.pickup_datetime
-        const dataReady = hasPickupAddress && hasPassengerInfo && hasPickupTime
+        // dataReady only requires critical fields (address + time) — passenger info is optional
+        const dataReady = hasPickupAddress && hasPickupTime
         const fullyReady = dataReady && gpsReady
         const partiallyReady = dataReady && !gpsReady // data ok but no GPS
 

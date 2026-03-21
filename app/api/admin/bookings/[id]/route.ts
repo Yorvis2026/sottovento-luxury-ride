@@ -154,11 +154,44 @@ export async function PATCH(
             await sql`UPDATE bookings SET vehicle_type = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
           } else if (key === "total_price") {
             await sql`UPDATE bookings SET total_price = ${Number(val)}, updated_at = NOW() WHERE id = ${id}::uuid`;
-          } else if (key === "client_name") {
-            // Update via clients table join
-            await sql`UPDATE clients SET full_name = ${val}, updated_at = NOW() WHERE id = (SELECT client_id FROM bookings WHERE id = ${id}::uuid)`;
-          } else if (key === "client_phone") {
-            await sql`UPDATE clients SET phone = ${val}, updated_at = NOW() WHERE id = (SELECT client_id FROM bookings WHERE id = ${id}::uuid)`;
+          } else if (key === "client_name" || key === "client_phone") {
+            // Skip here — handled together after the loop
+          }
+        }
+
+        // Handle client_name and client_phone together: upsert client record
+        const newClientName = edit_fields.client_name as string | undefined;
+        const newClientPhone = edit_fields.client_phone as string | undefined;
+        if (newClientName !== undefined || newClientPhone !== undefined) {
+          try {
+            // Check if booking has a client_id
+            const bookingRows = await sql`SELECT client_id FROM bookings WHERE id = ${id}::uuid LIMIT 1`;
+            const existingClientId = bookingRows[0]?.client_id ?? null;
+
+            if (existingClientId) {
+              // Update existing client
+              if (newClientName !== undefined) {
+                await sql`UPDATE clients SET full_name = ${newClientName}, updated_at = NOW() WHERE id = ${existingClientId}`;
+              }
+              if (newClientPhone !== undefined) {
+                await sql`UPDATE clients SET phone = ${newClientPhone}, updated_at = NOW() WHERE id = ${existingClientId}`;
+              }
+            } else {
+              // Create new client and link to booking
+              const name = newClientName ?? "Guest";
+              const phone = newClientPhone ?? null;
+              const newClientRows = await sql`
+                INSERT INTO clients (full_name, phone, source_type, created_at, updated_at)
+                VALUES (${name}, ${phone}, 'direct', NOW(), NOW())
+                RETURNING id
+              `;
+              const newClientId = newClientRows[0]?.id;
+              if (newClientId) {
+                await sql`UPDATE bookings SET client_id = ${newClientId}, updated_at = NOW() WHERE id = ${id}::uuid`;
+              }
+            }
+          } catch (clientErr: any) {
+            console.error("[PATCH] client upsert error:", clientErr?.message);
           }
         }
       }
