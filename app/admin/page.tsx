@@ -67,7 +67,21 @@ export default function AdminPanel() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [finance, setFinance] = useState<FinanceData | null>(null)
   const [crownData, setCrownData] = useState<CrownData | null>(null)
-  const [dispatchData, setDispatchData] = useState<{ awaitingSourceOwner: Booking[]; awaitingSlnMember: Booking[]; manualDispatchRequired: Booking[]; total: number; migrationRequired?: boolean } | null>(null)
+  const [dispatchData, setDispatchData] = useState<{
+    // New 6-bucket structure
+    driverIssue: Booking[];
+    needsReview: Booking[];
+    readyForDispatch: Booking[];
+    assigned: Booking[];
+    inProgress: Booking[];
+    completed: Booking[];
+    total: number;
+    // Legacy
+    awaitingSourceOwner: Booking[];
+    awaitingSlnMember: Booking[];
+    manualDispatchRequired: Booking[];
+    migrationRequired?: boolean;
+  } | null>(null)
   const [loadingDispatch, setLoadingDispatch] = useState(false)
   const [migrationMsg, setMigrationMsg] = useState("")
   const [runningMigration, setRunningMigration] = useState(false)
@@ -592,61 +606,28 @@ export default function AdminPanel() {
         ====================================================== */}
         {tab === "dispatch" && (
           <div>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{t("dispTitle")}</div>
-              <div style={{ color: "#555", fontSize: 13 }}>{t("dispSubtitle")}</div>
+            <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>⚡ Torre de Control Operacional</div>
+                <div style={{ color: "#555", fontSize: 13 }}>Ciclo de vida completo de rides — actualización automática</div>
+              </div>
+              <button onClick={loadDispatch} disabled={loadingDispatch} style={{ ...S.btn(), fontSize: 12, padding: "8px 16px", background: "#1a1a1a", color: "#c9a84c", border: "1px solid #333" }}>
+                {loadingDispatch ? "..." : "🔄 Actualizar"}
+              </button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-              <div style={S.card}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#c9a84c", marginBottom: 12 }}>{t("dispFlowTitle")}</div>
-                {[
-                  { step: "1", label: t("dispStep1Label"), desc: t("dispStep1Desc"), color: "#c9a84c" },
-                  { step: "2", label: t("dispStep2Label"), desc: t("dispStep2Desc"), color: "#60a5fa" },
-                  { step: "3", label: t("dispStep3Label"), desc: t("dispStep3Desc"), color: "#f59e0b" },
-                ].map(s => (
-                  <div key={s.step} style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: s.color + "22", border: `1px solid ${s.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: s.color, flexShrink: 0 }}>{s.step}</div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{s.label}</div>
-                      <div style={{ fontSize: 12, color: "#666" }}>{s.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={S.card}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#c9a84c", marginBottom: 12 }}>{t("dispRulesTitle")}</div>
-                {[t("dispRule1"), t("dispRule2"), t("dispRule3"), t("dispRule4"), t("dispRule5")].map((r, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 13, color: "#aaa" }}>
-                    <span>{"⛔🔒👤📝✅"[i * 2]}{("⛔🔒👤📝✅")[i * 2 + 1]}</span><span>{r}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* ---- Migration Banner ---- */}
-            {dispatchData?.migrationRequired && (
-              <div style={{ background: "#3b1a00", border: "1px solid #f59e0b", borderRadius: 10, padding: "14px 18px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 13 }}>⚠️ Database Migration Required</div>
-                  <div style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>The dispatch_status column needs to be added to the database. Run migration to fix state consistency.</div>
-                </div>
-                <button onClick={handleRunMigration} disabled={runningMigration} style={{ background: "#f59e0b", color: "#000", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: runningMigration ? 0.5 : 1 }}>
-                  {runningMigration ? "Running..." : "Run Migration"}
-                </button>
-              </div>
-            )}
-            {migrationMsg && <div style={{ background: migrationMsg.startsWith("✅") ? "#14532d" : "#3b0000", border: `1px solid ${migrationMsg.startsWith("✅") ? "#4ade80" : "#f87171"}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: migrationMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{migrationMsg}</div>}
-
-            {/* ---- Summary Counters ---- */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+            {/* ---- 6-Bucket Summary Counters ---- */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Awaiting Source Owner", count: dispatchData?.awaitingSourceOwner?.length ?? 0, color: "#60a5fa" },
-                { label: "Awaiting SLN Member", count: dispatchData?.awaitingSlnMember?.length ?? 0, color: "#a78bfa" },
-                { label: "Manual Dispatch Required", count: dispatchData?.manualDispatchRequired?.length ?? 0, color: "#f59e0b" },
+                { label: "Driver Issue", count: dispatchData?.driverIssue?.length ?? 0, color: "#ef4444", icon: "🚨" },
+                { label: "Needs Review", count: dispatchData?.needsReview?.length ?? 0, color: "#f59e0b", icon: "⚠️" },
+                { label: "Ready to Dispatch", count: dispatchData?.readyForDispatch?.length ?? 0, color: "#60a5fa", icon: "📦" },
+                { label: "Assigned", count: dispatchData?.assigned?.length ?? 0, color: "#a78bfa", icon: "👤" },
+                { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "🚗" },
+                { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "✅" },
               ].map(k => (
-                <div key={k.label} style={{ ...S.statCard(k.color + "33"), minWidth: 160 }}>
-                  <div style={{ fontSize: 10, color: k.color, letterSpacing: 1, marginBottom: 6 }}>{k.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 32, fontWeight: 700, color: k.count > 0 ? k.color : "#333" }}>{k.count}</div>
-                  <div style={{ fontSize: 12, color: "#555" }}>bookings</div>
+                <div key={k.label} style={{ background: k.count > 0 ? k.color + "15" : "#111", border: `1px solid ${k.count > 0 ? k.color + "40" : "#222"}`, borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 10, color: k.count > 0 ? k.color : "#444", letterSpacing: 1, marginBottom: 4 }}>{k.icon} {k.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: k.count > 0 ? k.color : "#333" }}>{k.count}</div>
                 </div>
               ))}
             </div>
@@ -655,119 +636,261 @@ export default function AdminPanel() {
               <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
             ) : (
               <>
-                {/* ---- Section 1: Awaiting Source Owner ---- */}
+
+                {/* ════════════════════════════════════════════════
+                    BUCKET 1: DRIVER ISSUE (red — urgent)
+                ════════════════════════════════════════════════ */}
+                <div style={{ ...S.card, marginBottom: 16, borderColor: (dispatchData?.driverIssue?.length ?? 0) > 0 ? "#ef444440" : "#222" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>🚨 Driver Issue</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor rechazó o reportó datos incompletos — acción inmediata requerida</div>
+                    </div>
+                    <span style={{ ...S.badge("#3b0000"), color: "#ef4444" }}>{dispatchData?.driverIssue?.length ?? 0}</span>
+                  </div>
+                  {!dispatchData?.driverIssue?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin problemas activos — todos los conductores operando normalmente</div>
+                  ) : (dispatchData.driverIssue ?? []).map(b => {
+                    const missingFields: string[] = []
+                    if (!b.pickup_address?.trim()) missingFields.push("dirección recogida")
+                    if (!b.dropoff_address?.trim()) missingFields.push("dirección destino")
+                    if (!b.pickup_at) missingFields.push("hora pickup")
+                    if (!b.client_name?.trim()) missingFields.push("nombre pasajero")
+                    if (!b.client_phone?.trim()) missingFields.push("teléfono pasajero")
+                    const isReady = missingFields.length === 0
+                    const isRejected = b.dispatch_status === 'driver_rejected' || (b as any).last_driver_action === 'driver_rejected_incomplete_ride'
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a0000" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: isRejected ? "#ef4444" : "#f59e0b" }}>
+                              {isRejected ? "🚨 RECHAZADO" : "⚠️ INCOMPLETO"} — {b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name || "Sin cliente"}</div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>👤 {b.driver_name} ({b.driver_code})</div>}
+                            <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                            {missingFields.length > 0 && (
+                              <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b000050", border: "1px solid #ef444440", fontSize: 11, color: "#fca5a5" }}>
+                                Faltan: {missingFields.join(", ")}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                            <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => handleOpenEdit(b)}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f", fontWeight: 600 }}
+                          >✏️ Editar Booking</button>
+                          <button
+                            onClick={() => {
+                              if (!isReady) {
+                                setGlobalToast({ msg: `Completar datos antes de asignar: ${missingFields.join(", ")}`, type: "error" })
+                                setTimeout(() => setGlobalToast(null), 4000)
+                                return
+                              }
+                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
+                              setAssignMsg("")
+                            }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
+                          >{isReady ? "✅ Reasignar Conductor" : "⚠️ Completar primero"}</button>
+                          <button onClick={() => handleDispatchStatus(b.id, "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>→ Mover a Revisión</button>
+                          <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* ════════════════════════════════════════════════
+                    BUCKET 2: NEEDS REVIEW (amber)
+                ════════════════════════════════════════════════ */}
                 <div style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>🔵 Awaiting Source Owner</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Offer sent to the driver who sourced this booking</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>⚠️ Needs Review</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Requiere revisión del admin antes de despachar</div>
                     </div>
-                    <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>{dispatchData?.awaitingSourceOwner?.length ?? 0}</span>
+                    <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{dispatchData?.needsReview?.length ?? 0}</span>
                   </div>
-                  {!dispatchData?.awaitingSourceOwner?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-                  ) : dispatchData.awaitingSourceOwner.map(b => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a" }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
-                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name}</div>
-                        <div style={{ fontSize: 11, color: "#333" }}>ID: {b.id.slice(0, 8)}...</div>
+                  {!dispatchData?.needsReview?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings pendientes de revisión</div>
+                  ) : (dispatchData.needsReview ?? []).map(b => {
+                    const missingFields: string[] = []
+                    if (!b.pickup_address?.trim()) missingFields.push("dirección recogida")
+                    if (!b.dropoff_address?.trim()) missingFields.push("dirección destino")
+                    if (!b.pickup_at) missingFields.push("hora pickup")
+                    if (!b.client_name?.trim()) missingFields.push("nombre pasajero")
+                    if (!b.client_phone?.trim()) missingFields.push("teléfono pasajero")
+                    const isReady = missingFields.length === 0
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name || "Sin cliente"}</div>
+                            <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                            {missingFields.length > 0 && (
+                              <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b1a0030", border: "1px solid #f59e0b40", fontSize: 11, color: "#fbbf24" }}>
+                                Faltan: {missingFields.join(", ")}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
+                          <button
+                            onClick={() => {
+                              if (!isReady) {
+                                setGlobalToast({ msg: `Completar datos: ${missingFields.join(", ")}`, type: "error" })
+                                setTimeout(() => setGlobalToast(null), 4000)
+                                return
+                              }
+                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
+                              setAssignMsg("")
+                            }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
+                          >{isReady ? "✅ Asignar" : "⚠️ Completar primero"}</button>
+                          <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    )
+                  })}
+                </div>
+
+                {/* ════════════════════════════════════════════════
+                    BUCKET 3: READY FOR DISPATCH (blue)
+                ════════════════════════════════════════════════ */}
+                <div style={{ ...S.card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>📦 Ready for Dispatch</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Listos para asignar conductor</div>
+                    </div>
+                    <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>{dispatchData?.readyForDispatch?.length ?? 0}</span>
+                  </div>
+                  {!dispatchData?.readyForDispatch?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings listos para despacho</div>
+                  ) : (dispatchData.readyForDispatch ?? []).map(b => {
+                    const missingFields: string[] = []
+                    if (!b.pickup_address?.trim()) missingFields.push("dirección recogida")
+                    if (!b.dropoff_address?.trim()) missingFields.push("dirección destino")
+                    if (!b.pickup_at) missingFields.push("hora pickup")
+                    if (!b.client_name?.trim()) missingFields.push("nombre pasajero")
+                    if (!b.client_phone?.trim()) missingFields.push("teléfono pasajero")
+                    const isReady = missingFields.length === 0
+                    return (
+                      <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                          <div style={{ fontSize: 12, color: "#888" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name || "Sin cliente"}</div>
+                          <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️</button>
+                          <button
+                            onClick={() => {
+                              if (!isReady) {
+                                setGlobalToast({ msg: `Completar: ${missingFields.join(", ")}`, type: "error" })
+                                setTimeout(() => setGlobalToast(null), 4000)
+                                return
+                              }
+                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
+                              setAssignMsg("")
+                            }}
+                            style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", opacity: isReady ? 1 : 0.5 }}
+                          >{isReady ? "✅ Asignar" : "⚠️ Incompleto"}</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* ════════════════════════════════════════════════
+                    BUCKET 4: ASSIGNED (purple)
+                ════════════════════════════════════════════════ */}
+                <div style={{ ...S.card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>👤 Assigned</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor asignado, esperando inicio del viaje</div>
+                    </div>
+                    <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.assigned?.length ?? 0}</span>
+                  </div>
+                  {!dispatchData?.assigned?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides asignados actualmente</div>
+                  ) : (dispatchData.assigned ?? []).map(b => (
+                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
+                        {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>👤 {b.driver_name} ({b.driver_code})</div>}
+                        <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                        <button onClick={() => handleDispatchStatus(b.id, "awaiting_sln_member")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>→ SLN Member</button>
-                        <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>→ Manual</button>
-                        <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("assign")}</button>
+                        <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️</button>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                {/* ---- Section 2: Awaiting SLN Member ---- */}
+                {/* ════════════════════════════════════════════════
+                    BUCKET 5: IN PROGRESS (green)
+                ════════════════════════════════════════════════ */}
                 <div style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>🟣 Awaiting SLN Member</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Offer sent to available SLN network members</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>🚗 In Progress</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides activos en ejecución ahora mismo</div>
                     </div>
-                    <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.awaitingSlnMember?.length ?? 0}</span>
+                    <span style={{ ...S.badge("#14532d"), color: "#4ade80" }}>{dispatchData?.inProgress?.length ?? 0}</span>
                   </div>
-                  {!dispatchData?.awaitingSlnMember?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-                  ) : dispatchData.awaitingSlnMember.map(b => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a" }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
-                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name}</div>
+                  {!dispatchData?.inProgress?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides en progreso actualmente</div>
+                  ) : (dispatchData.inProgress ?? []).map(b => (
+                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{fmt(b.total_price)}</div>
+                        {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>👤 {b.driver_name} ({b.driver_code})</div>}
+                        <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
                       </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>→ Manual</button>
-                        <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("assign")}</button>
-                      </div>
+                      <span style={{ ...S.badge(statusColor[b.status] ?? "#14532d"), color: statusText[b.status] ?? "#4ade80" }}>{b.status?.replace("_", " ").toUpperCase()}</span>
                     </div>
                   ))}
                 </div>
 
-                {/* ---- Section 3: Manual Dispatch Required ---- */}
+                {/* ════════════════════════════════════════════════
+                    BUCKET 6: COMPLETED (gray — last 24h)
+                ════════════════════════════════════════════════ */}
                 <div style={S.card}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>🟡 Manual Dispatch Required</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Requires manual admin assignment — no automatic offer possible</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#6b7280" }}>✅ Completed (24h)</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides completados en las últimas 24 horas</div>
                     </div>
-                    <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{dispatchData?.manualDispatchRequired?.length ?? 0}</span>
+                    <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>{dispatchData?.completed?.length ?? 0}</span>
                   </div>
-                  {!dispatchData?.manualDispatchRequired?.length && (
-                    <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-                  )}
-                  {(dispatchData?.manualDispatchRequired ?? []).map(b => {
-                      // Capa 4: Dispatch Readiness Gate
-                      const missingFields: string[] = []
-                      if (!b.pickup_address?.trim()) missingFields.push("pickup address")
-                      if (!b.dropoff_address?.trim()) missingFields.push("dropoff address")
-                      if (!b.pickup_at) missingFields.push("pickup time")
-                      if (!b.client_name?.trim()) missingFields.push("passenger name")
-                      if (!b.client_phone?.trim()) missingFields.push("passenger phone")
-                      const isReady = missingFields.length === 0
-                      return (
-                        <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
-                              <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
-                              {b.client_name && <div style={{ fontSize: 12, color: "#888" }}>{b.client_name} {b.client_phone && `· ${b.client_phone}`}</div>}
-                              <div style={{ fontSize: 11, color: "#333" }}>ID: {b.id.slice(0, 8)}...</div>
-                            </div>
-                            <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                          </div>
-                          {!isReady && (
-                            <div style={{ marginTop: 8, padding: "6px 10px", borderRadius: 6, background: "#3b1a0020", border: "1px solid #dc262640", fontSize: 11, color: "#fca5a5" }}>
-                              ⚠️ Incomplete booking — missing: {missingFields.join(", ")}. Edit before assigning.
-                            </div>
-                          )}
-                          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                            <button
-                              onClick={() => {
-                                if (!isReady) {
-                                  setGlobalToast({ msg: `Cannot assign: missing ${missingFields.join(", ")}`, type: "error" })
-                                  setTimeout(() => setGlobalToast(null), 4000)
-                                  return
-                                }
-                                setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
-                                setAssignMsg("")
-                              }}
-                              style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
-                            >
-                              {isReady ? "✅" : "⚠️"} {t("assign")} Driver
-                            </button>
-                            <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>
-                            <button onClick={() => handleDispatchStatus(b.id, "awaiting_source_owner")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px" }}>↩ Back to Source</button>
-                            <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
-                          </div>
-                        </div>
-                      )
-                    })}
+                  {!dispatchData?.completed?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides completados en las últimas 24h</div>
+                  ) : (dispatchData.completed ?? []).map(b => (
+                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
+                        {b.driver_name && <div style={{ fontSize: 12, color: "#555" }}>👤 {b.driver_name}</div>}
+                        <div style={{ fontSize: 11, color: "#444", fontFamily: "monospace" }}>ID: {b.id}</div>
+                      </div>
+                      <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>COMPLETED</span>
+                    </div>
+                  ))}
                 </div>
+
               </>
             )}
           </div>
