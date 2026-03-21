@@ -2075,59 +2075,88 @@ function RideFlowScreen({
             {/* ── Recovery actions: only visible when data is incomplete ── */}
             {isEnRouteAction && !dataReady && (
               <div className="pt-2 border-t border-zinc-800/60 space-y-2">
-                <div className="text-xs text-zinc-500 text-center font-medium uppercase tracking-widest pb-1">
-                  {t.recoveryTitle}
-                </div>
 
-                {/* Result feedback */}
-                {reportResult && (
-                  <div className={`text-xs text-center py-2 rounded-xl ${
-                    reportResult.success ? "text-green-400 bg-green-900/30" : "text-red-400 bg-red-900/30"
-                  }`}>
-                    {reportResult.success
-                      ? (reportResult.action === "return_to_dispatch" || reportResult.action === "reject_ride")
-                        ? (reportResult.action === "reject_ride" ? t.rideRejected : t.returnedToDispatch)
-                        : t.reportSent
-                      : t.actionFailed}
+                {/* ── POST-ACTION CONFIRMATION SCREEN ── */}
+                {reportResult?.success ? (
+                  <div className="flex flex-col items-center gap-4 py-6">
+                    <div className="text-4xl">
+                      {reportResult.action === "reject_ride" ? "🚫" :
+                       reportResult.action === "return_to_dispatch" ? "↩️" :
+                       reportResult.action === "report_incomplete" ? "📋" : "✏️"}
+                    </div>
+                    <div className="text-center">
+                      <div className="text-green-400 font-semibold text-base mb-1">
+                        {reportResult.action === "reject_ride" ? t.rideRejected :
+                         reportResult.action === "return_to_dispatch" ? t.returnedToDispatch :
+                         t.reportSent}
+                      </div>
+                      <div className="text-zinc-500 text-xs mt-1">
+                        {reportResult.action === "return_to_dispatch" || reportResult.action === "reject_ride"
+                          ? (lang === "es" ? "Volviendo al panel en unos segundos..." : lang === "ht" ? "Retounen nan panèl nan kèk segonn..." : "Returning to dashboard in a moment...")
+                          : (lang === "es" ? "El admin fue notificado. Espera la corrección." : lang === "ht" ? "Admin avize. Tann koreksyon an." : "Admin has been notified. Wait for correction.")}
+                      </div>
+                    </div>
+                    {/* Only show back button for report/correction (not dispatch/reject which auto-redirect) */}
+                    {(reportResult.action === "report_incomplete" || reportResult.action === "request_correction") && (
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="mt-2 px-6 py-3 rounded-2xl text-sm font-medium transition-all active:scale-95"
+                        style={{ backgroundColor: "#1c1917", color: GOLD, border: `1px solid ${GOLD}50` }}>
+                        {lang === "es" ? "← Volver al panel" : lang === "ht" ? "← Retounen nan panèl" : "← Back to Dashboard"}
+                      </button>
+                    )}
                   </div>
-                )}
+                ) : (
+                  <>
+                    <div className="text-xs text-zinc-500 text-center font-medium uppercase tracking-widest pb-1">
+                      {t.recoveryTitle}
+                    </div>
 
-                {/* Return to Dispatch */}
-                <button
-                  onClick={() => onReport("return_to_dispatch", getMissingFields(), undefined)}
-                  disabled={reporting || !!reportResult?.success}
-                  className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
-                  style={{ backgroundColor: "#1c1917", color: "#f59e0b", border: "1px solid #f59e0b50" }}>
-                  {reporting ? "..." : t.returnToDispatch}
-                </button>
+                    {/* Error feedback */}
+                    {reportResult && !reportResult.success && (
+                      <div className="text-xs text-center py-2 rounded-xl text-red-400 bg-red-900/30">
+                        {t.actionFailed}
+                      </div>
+                    )}
 
-                {/* Report Incomplete Data */}
-                <button
-                  onClick={() => onReport("report_incomplete", getMissingFields(), undefined)}
-                  disabled={reporting || !!reportResult?.success}
-                  className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
-                  style={{ backgroundColor: "#1c1917", color: "#ef4444", border: "1px solid #ef444450" }}>
-                  {reporting ? "..." : t.reportIncomplete}
-                </button>
+                    {/* Return to Dispatch */}
+                    <button
+                      onClick={() => onReport("return_to_dispatch", getMissingFields(), undefined)}
+                      disabled={reporting}
+                      className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                      style={{ backgroundColor: "#1c1917", color: "#f59e0b", border: "1px solid #f59e0b50" }}>
+                      {reporting ? "..." : t.returnToDispatch}
+                    </button>
 
-                {/* Request Correction */}
-                <button
-                  onClick={() => onReport("request_correction", getMissingFields(), undefined)}
-                  disabled={reporting || !!reportResult?.success}
-                  className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
-                  style={{ backgroundColor: "#1c1917", color: "#a78bfa", border: "1px solid #a78bfa50" }}>
-                  {reporting ? "..." : t.requestCorrection}
-                </button>
+                    {/* Report Incomplete Data */}
+                    <button
+                      onClick={() => onReport("report_incomplete", getMissingFields(), undefined)}
+                      disabled={reporting}
+                      className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                      style={{ backgroundColor: "#1c1917", color: "#ef4444", border: "1px solid #ef444450" }}>
+                      {reporting ? "..." : t.reportIncomplete}
+                    </button>
 
-                {/* Reject Ride — only when critical data missing */}
-                {(!hasPickupTime || !hasPickupAddress || !hasPassengerInfo) && (
-                  <button
-                    onClick={() => onReport("reject_ride", getMissingFields(), undefined)}
-                    disabled={reporting || !!reportResult?.success}
-                    className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
-                    style={{ backgroundColor: "#450a0a", color: "#fca5a5", border: "1px solid #ef444440" }}>
-                    {reporting ? "..." : t.rejectRide}
-                  </button>
+                    {/* Request Correction */}
+                    <button
+                      onClick={() => onReport("request_correction", getMissingFields(), undefined)}
+                      disabled={reporting}
+                      className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                      style={{ backgroundColor: "#1c1917", color: "#a78bfa", border: "1px solid #a78bfa50" }}>
+                      {reporting ? "..." : t.requestCorrection}
+                    </button>
+
+                    {/* Reject Ride — only when critical data missing */}
+                    {(!hasPickupTime || !hasPickupAddress || !hasPassengerInfo) && (
+                      <button
+                        onClick={() => onReport("reject_ride", getMissingFields(), undefined)}
+                        disabled={reporting}
+                        className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                        style={{ backgroundColor: "#450a0a", color: "#fca5a5", border: "1px solid #ef444440" }}>
+                        {reporting ? "..." : t.rejectRide}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}

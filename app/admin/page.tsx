@@ -719,7 +719,7 @@ export default function AdminPanel() {
                   </div>
                   {!dispatchData?.manualDispatchRequired?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-                  ) : dispatchData.manualDispatchRequired.map(b => (() => {
+                  ) : dispatchData.manualDispatchRequired.map(b => {
                       // Capa 4: Dispatch Readiness Gate
                       const missingFields: string[] = []
                       if (!b.pickup_address?.trim()) missingFields.push("pickup address")
@@ -761,11 +761,11 @@ export default function AdminPanel() {
                             </button>
                             <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>
                             <button onClick={() => handleDispatchStatus(b.id, "awaiting_source_owner")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px" }}>↩ Back to Source</button>
+                            <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
                           </div>
                         </div>
                       )
-                    })()
-                  ))
+                    })
                 </div>
               </>
             )}
@@ -1497,12 +1497,27 @@ export default function AdminPanel() {
       {editModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: "#111", border: "1px solid #1e3a5f", borderRadius: 16, padding: 28, width: "100%", maxWidth: 540, maxHeight: "90vh", overflowY: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>✏️ Editar Reserva</div>
-                <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>ID: {editModal.id.slice(0, 8)}...</div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 4, fontFamily: "monospace", letterSpacing: 0.5 }}>ID: {editModal.id}</div>
+                <div style={{ fontSize: 12, color: "#60a5fa", marginTop: 4, fontWeight: 600 }}>
+                  {editModal.pickup_zone || editModal.pickup_address || "—"} → {editModal.dropoff_zone || editModal.dropoff_address || "—"}
+                </div>
+                {editModal.client_name && (
+                  <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>
+                    👤 {editModal.client_name}{editModal.client_phone ? ` · ${editModal.client_phone}` : ""}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
+                  📅 {fmtDate(editModal.pickup_at)} · {editModal.vehicle_type} · {fmt(editModal.total_price)}
+                </div>
+                <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ ...S.badge(statusColor[editModal.status] ?? "#1a1a1a"), color: statusText[editModal.status] ?? "#fff" }}>{editModal.status?.toUpperCase()}</span>
+                  {editModal.dispatch_status && <span style={{ ...S.badge(dispatchColor[editModal.dispatch_status] ?? "#1a1a1a"), color: dispatchText[editModal.dispatch_status] ?? "#fff" }}>{editModal.dispatch_status?.replace(/_/g, " ").toUpperCase()}</span>}
+                </div>
               </div>
-              <button onClick={() => { setEditModal(null); setEditMsg("") }} style={{ background: "none", border: "none", color: "#888", fontSize: 22, cursor: "pointer" }}>✕</button>
+              <button onClick={() => { setEditModal(null); setEditMsg("") }} style={{ background: "none", border: "none", color: "#888", fontSize: 22, cursor: "pointer", marginLeft: 12, flexShrink: 0 }}>✕</button>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
