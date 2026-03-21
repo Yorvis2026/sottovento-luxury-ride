@@ -416,6 +416,7 @@ interface ActiveRide {
   bookings_count?: number
   ride_mode?: "active_window" | "live_flow" | "upcoming"
   minutes_until_pickup?: number | null
+  updated_at?: string | null
 }
 
 interface UpcomingRide {
@@ -600,9 +601,12 @@ export default function DriverDashboardByCode() {
   // ── Driver recovery actions ──────────────────────────────────
   const [reporting, setReporting] = useState(false)
   const [reportResult, setReportResult] = useState<{ action: string; success: boolean } | null>(null)
+  // ── Dispatch live sync ────────────────────────────────────────
+  const [rideUpdatedByDispatch, setRideUpdatedByDispatch] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
+  const prevRideUpdatedAtRef = useRef<string | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
@@ -645,7 +649,11 @@ export default function DriverDashboardByCode() {
   const loadData = useCallback(async () => {
     if (!driverCode) return
     try {
-      const res = await fetch(`/api/driver/me?code=${encodeURIComponent(driverCode)}`)
+      // cache: 'no-store' ensures we always get fresh data from the server
+      const res = await fetch(`/api/driver/me?code=${encodeURIComponent(driverCode)}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+      })
       const data = await res.json()
       if (data.error) { setError(data.error); setLoading(false); return }
       const d = data.driver
@@ -654,14 +662,22 @@ export default function DriverDashboardByCode() {
         activeRide = { ...d.assigned_ride, status: d.assigned_ride.status ?? "assigned" }
       }
 
-      // ── Detect new ride or offer and play alert ──────────────
+      // ── Detect new ride or offer and play alert ──────────────────────
       const newRideId = activeRide?.booking_id ?? null
       const newOfferId = d.active_offer?.offer_id ?? null
+      const newUpdatedAt = activeRide?.updated_at ?? null
 
       const hadNoRide = prevRideIdRef.current === null
       const hadNoOffer = prevOfferIdRef.current === null
       const rideChanged = newRideId !== null && newRideId !== prevRideIdRef.current
       const offerChanged = newOfferId !== null && newOfferId !== prevOfferIdRef.current
+
+      // Detect booking update by dispatch (same ride, newer updated_at)
+      const sameRide = newRideId !== null && newRideId === prevRideIdRef.current
+      const rideDataUpdated = sameRide &&
+        newUpdatedAt !== null &&
+        prevRideUpdatedAtRef.current !== null &&
+        newUpdatedAt !== prevRideUpdatedAtRef.current
 
       if (rideChanged || (offerChanged && hadNoOffer)) {
         playAlert()
@@ -679,9 +695,17 @@ export default function DriverDashboardByCode() {
         }
       }
 
+      // If dispatch updated the booking data, show sync banner and clear any report result
+      if (rideDataUpdated) {
+        setRideUpdatedByDispatch(true)
+        setReportResult(null) // clear recovery screen so driver sees updated ride
+        // Auto-dismiss the banner after 8 seconds
+        setTimeout(() => setRideUpdatedByDispatch(false), 8000)
+      }
+
       prevRideIdRef.current = newRideId
       prevOfferIdRef.current = newOfferId
-      // ────────────────────────────────────────────────────────
+      prevRideUpdatedAtRef.current = newUpdatedAt
 
       setSummary({
         driver_id: d.id,
@@ -1172,6 +1196,7 @@ export default function DriverDashboardByCode() {
         onReport={reportAction}
         reporting={reporting}
         reportResult={reportResult}
+        rideUpdatedByDispatch={rideUpdatedByDispatch}
         t={t}
       />
     )
@@ -1659,7 +1684,7 @@ function OfferScreen({
 // RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, t,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, t,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
@@ -1671,6 +1696,7 @@ function RideFlowScreen({
   onReport: (action: "return_to_dispatch" | "report_incomplete" | "request_correction" | "reject_ride", missingFields?: string[], note?: string) => void
   reporting: boolean
   reportResult: { action: string; success: boolean } | null
+  rideUpdatedByDispatch: boolean
   t: Record<string, string>
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
@@ -2041,6 +2067,15 @@ function RideFlowScreen({
 
         return (
           <div className="px-4 flex-shrink-0 space-y-2">
+            {/* Dispatch live sync banner: shown when admin updated the booking */}
+            {rideUpdatedByDispatch && (
+              <div className="rounded-xl px-4 py-3 text-sm font-semibold flex items-center gap-2"
+                style={{ backgroundColor: "#14532d", color: "#86efac", border: "1px solid #16a34a60" }}>
+                <span>✅</span>
+                <span>{lang === "ht" ? "Despacho mete enfòmasyon yo" : lang === "es" ? "Despacho actualizó el viaje" : "Dispatch updated your ride"}</span>
+              </div>
+            )}
+
             {/* Readiness warning banner (en_route only, when not fully ready) */}
             {isEnRouteAction && !fullyReady && (
               <div className="rounded-xl px-4 py-2.5 text-xs leading-relaxed"

@@ -194,6 +194,11 @@ export async function PATCH(
             console.error("[PATCH] client upsert error:", clientErr?.message);
           }
         }
+
+        // Always touch updated_at to ensure driver panel detects the change via polling
+        try {
+          await sql`UPDATE bookings SET updated_at = NOW() WHERE id = ${id}::uuid`;
+        } catch {}
       }
     }
 

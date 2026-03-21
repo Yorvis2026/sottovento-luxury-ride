@@ -202,7 +202,8 @@ export async function GET(req: NextRequest) {
           flight_number,
           notes,
           passengers,
-          luggage
+          luggage,
+          updated_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
           AND (
@@ -314,6 +315,7 @@ export async function GET(req: NextRequest) {
           completed_at,
           ride_mode,
           minutes_until_pickup: minutesUntilPickup !== null ? Math.round(minutesUntilPickup) : null,
+          updated_at: r.updated_at ?? null,
         };
       }
     } catch (assignErr: any) {
