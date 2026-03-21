@@ -208,7 +208,7 @@ export async function GET(req: NextRequest) {
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at <= NOW() + INTERVAL '${ACTIVATION_BUFFER_MINUTES} minutes'
+                  pickup_at <= NOW() + INTERVAL '90 minutes'
                   AND pickup_at >= NOW() - INTERVAL '4 hours'
                 )
               )
@@ -308,7 +308,7 @@ export async function GET(req: NextRequest) {
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
           AND status IN ('accepted', 'assigned')
-          AND pickup_at > NOW() + INTERVAL '${ACTIVATION_BUFFER_MINUTES} minutes'
+          AND pickup_at > NOW() + INTERVAL '90 minutes'
         ORDER BY pickup_at ASC
         LIMIT 10
       `;
