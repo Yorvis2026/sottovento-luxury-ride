@@ -143,6 +143,15 @@ const T: Record<Lang, Record<string, string>> = {
     gpsRequiredWarning: "GPS inactive — enable location to proceed",
     overrideGps: "Proceed without GPS",
     cancelOverride: "Cancel",
+    returnToDispatch: "Return to Dispatch",
+    reportIncomplete: "Report Incomplete Data",
+    requestCorrection: "Request Correction",
+    rejectRide: "Reject Ride",
+    recoveryTitle: "Need Help?",
+    reportSent: "Admin notified ✓",
+    returnedToDispatch: "Returned to dispatch ✓",
+    rideRejected: "Ride rejected – returning...",
+    actionFailed: "Action failed. Try again.",
   },
   es: {
     network: "Red Sottovento",
@@ -243,6 +252,15 @@ const T: Record<Lang, Record<string, string>> = {
     gpsRequiredWarning: "GPS inactivo — activa la ubicación para continuar",
     overrideGps: "Continuar sin GPS",
     cancelOverride: "Cancelar",
+    returnToDispatch: "Devolver al Despacho",
+    reportIncomplete: "Reportar Datos Incompletos",
+    requestCorrection: "Solicitar Corrección",
+    rejectRide: "Rechazar Viaje",
+    recoveryTitle: "¿Necesitas ayuda?",
+    reportSent: "Admin notificado ✓",
+    returnedToDispatch: "Devuelto al despacho ✓",
+    rideRejected: "Viaje rechazado – volviendo...",
+    actionFailed: "Acción fallida. Inténtalo de nuevo.",
   },
   ht: {
     network: "Rezo Sottovento",
@@ -343,6 +361,15 @@ const T: Record<Lang, Record<string, string>> = {
     gpsRequiredWarning: "GPS inaktif — aktive kote ou ye pou kontinye",
     overrideGps: "Kontinye san GPS",
     cancelOverride: "Anile",
+    returnToDispatch: "Retounen nan Dispach",
+    reportIncomplete: "Rapò Done Enkomplet",
+    requestCorrection: "Mande Koreksyon",
+    rejectRide: "Refize Vwayaj",
+    recoveryTitle: "Bezwen Ede?",
+    reportSent: "Admin avize ✓",
+    returnedToDispatch: "Retounen nan dispach ✓",
+    rideRejected: "Vwayaj refize – ap retounen...",
+    actionFailed: "Aksyon echwe. Eseye ankò.",
   },
 }
 
@@ -570,6 +597,9 @@ export default function DriverDashboardByCode() {
   // ── New ride assignment alert modal ───────────────────────────
   const [showNewRideAlert, setShowNewRideAlert] = useState(false)
   const [newRideAlertData, setNewRideAlertData] = useState<{ pickup: string; dropoff: string; fare: number; pickup_time: string | null } | null>(null)
+  // ── Driver recovery actions ──────────────────────────────────
+  const [reporting, setReporting] = useState(false)
+  const [reportResult, setReportResult] = useState<{ action: string; success: boolean } | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
@@ -842,6 +872,39 @@ export default function DriverDashboardByCode() {
     setSmsSending(false)
   }
 
+  // ── Driver recovery action handler ──────────────────────────────
+  const reportAction = async (
+    action: "return_to_dispatch" | "report_incomplete" | "request_correction" | "reject_ride",
+    missingFields?: string[],
+    note?: string
+  ) => {
+    if (!summary?.assigned_ride || reporting) return
+    setReporting(true)
+    setReportResult(null)
+    try {
+      const res = await fetch("/api/driver/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: summary.assigned_ride.booking_id,
+          driver_code: driverCode,
+          action,
+          missing_fields: missingFields ?? [],
+          note: note ?? null,
+        }),
+      })
+      const data = await res.json()
+      setReportResult({ action, success: !data.error })
+      if (!data.error && (action === "return_to_dispatch" || action === "reject_ride")) {
+        // Ride was returned to dispatch — reload dashboard after 2s
+        setTimeout(() => loadData(), 2000)
+      }
+    } catch {
+      setReportResult({ action, success: false })
+    }
+    setReporting(false)
+  }
+
   const copyLink = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(tabletUrl)
@@ -1097,6 +1160,9 @@ export default function DriverDashboardByCode() {
         smsSent={smsSent}
         gpsCoords={gpsCoords}
         gpsError={gpsError}
+        onReport={reportAction}
+        reporting={reporting}
+        reportResult={reportResult}
         t={t}
       />
     )
@@ -1584,7 +1650,7 @@ function OfferScreen({
 // RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, t,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, t,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
@@ -1593,6 +1659,9 @@ function RideFlowScreen({
   smsSending: boolean; smsSent: boolean
   gpsCoords: { lat: number; lng: number } | null
   gpsError: string | null
+  onReport: (action: "return_to_dispatch" | "report_incomplete" | "request_correction" | "reject_ride", missingFields?: string[], note?: string) => void
+  reporting: boolean
+  reportResult: { action: string; success: boolean } | null
   t: Record<string, string>
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
@@ -1993,9 +2062,78 @@ function RideFlowScreen({
                 {t.noShow}
               </button>
             )}
+
+            {/* ── Recovery actions: only visible when data is incomplete ── */}
+            {isEnRouteAction && !dataReady && (
+              <div className="pt-2 border-t border-zinc-800/60 space-y-2">
+                <div className="text-xs text-zinc-500 text-center font-medium uppercase tracking-widest pb-1">
+                  {t.recoveryTitle}
+                </div>
+
+                {/* Result feedback */}
+                {reportResult && (
+                  <div className={`text-xs text-center py-2 rounded-xl ${
+                    reportResult.success ? "text-green-400 bg-green-900/30" : "text-red-400 bg-red-900/30"
+                  }`}>
+                    {reportResult.success
+                      ? (reportResult.action === "return_to_dispatch" || reportResult.action === "reject_ride")
+                        ? (reportResult.action === "reject_ride" ? t.rideRejected : t.returnedToDispatch)
+                        : t.reportSent
+                      : t.actionFailed}
+                  </div>
+                )}
+
+                {/* Return to Dispatch */}
+                <button
+                  onClick={() => onReport("return_to_dispatch", getMissingFields(), undefined)}
+                  disabled={reporting || !!reportResult?.success}
+                  className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                  style={{ backgroundColor: "#1c1917", color: "#f59e0b", border: "1px solid #f59e0b50" }}>
+                  {reporting ? "..." : t.returnToDispatch}
+                </button>
+
+                {/* Report Incomplete Data */}
+                <button
+                  onClick={() => onReport("report_incomplete", getMissingFields(), undefined)}
+                  disabled={reporting || !!reportResult?.success}
+                  className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                  style={{ backgroundColor: "#1c1917", color: "#ef4444", border: "1px solid #ef444450" }}>
+                  {reporting ? "..." : t.reportIncomplete}
+                </button>
+
+                {/* Request Correction */}
+                <button
+                  onClick={() => onReport("request_correction", getMissingFields(), undefined)}
+                  disabled={reporting || !!reportResult?.success}
+                  className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                  style={{ backgroundColor: "#1c1917", color: "#a78bfa", border: "1px solid #a78bfa50" }}>
+                  {reporting ? "..." : t.requestCorrection}
+                </button>
+
+                {/* Reject Ride — only when critical data missing */}
+                {(!hasPickupTime || !hasPickupAddress || !hasPassengerInfo) && (
+                  <button
+                    onClick={() => onReport("reject_ride", getMissingFields(), undefined)}
+                    disabled={reporting || !!reportResult?.success}
+                    className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                    style={{ backgroundColor: "#450a0a", color: "#fca5a5", border: "1px solid #ef444440" }}>
+                    {reporting ? "..." : t.rejectRide}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )
       })()}
     </div>
   )
+
+  function getMissingFields(): string[] {
+    const missing: string[] = []
+    if (!ride.pickup_datetime) missing.push("pickup_time")
+    if (!ride.pickup_location || ride.pickup_location === "TBD") missing.push("pickup_address")
+    if (!ride.client_phone) missing.push("passenger_phone")
+    if (!ride.client_name) missing.push("passenger_name")
+    return missing
+  }
 }
