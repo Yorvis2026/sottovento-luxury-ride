@@ -32,10 +32,11 @@ export async function POST(req: NextRequest) {
     const bookingRows = await sql`
       SELECT
         b.id, b.status, b.dispatch_status, b.pickup_at, b.pickup_address,
-        b.dropoff_address, b.client_name, b.client_phone, b.vehicle_type,
-        b.total_price, b.assigned_driver_id,
-        d.name AS driver_name, d.phone AS driver_phone, d.driver_code AS d_code
+        b.dropoff_address, b.vehicle_type, b.total_price, b.assigned_driver_id,
+        c.full_name AS client_name, c.phone AS client_phone,
+        d.full_name AS driver_name, d.driver_code AS d_code
       FROM bookings b
+      LEFT JOIN clients c ON c.id = b.client_id
       LEFT JOIN drivers d ON d.id = b.assigned_driver_id
       WHERE b.id = ${booking_id}::uuid
       LIMIT 1
