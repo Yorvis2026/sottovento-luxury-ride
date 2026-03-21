@@ -14,7 +14,7 @@ type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "le
 
 // ---- TYPES ----
 type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
-type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; flight_number?: string; notes?: string; passengers?: number; luggage?: string }
+type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; flight_number?: string; notes?: string; passengers?: number; luggage?: string; driver_reported?: boolean; driver_report_action?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
@@ -117,6 +117,11 @@ export default function AdminPanel() {
   const [assignMsg, setAssignMsg] = useState("")
   // Global toast for error surfacing (D3 requirement)
   const [globalToast, setGlobalToast] = useState<{ msg: string; type: "error" | "success" } | null>(null)
+  // Edit Booking Modal
+  const [editModal, setEditModal] = useState<Booking | null>(null)
+  const [editFields, setEditFields] = useState<Record<string, string>>({})
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editMsg, setEditMsg] = useState("")
 
   // ---- DATA LOADERS ----
   const loadDashboard = useCallback(async () => { setLoadingDash(true); try { const r = await fetch("/api/admin/dashboard"); if (r.ok) setDashboard(await r.json()) } catch { } finally { setLoadingDash(false) } }, [])
@@ -154,6 +159,57 @@ export default function AdminPanel() {
   const handleToggleStatus = async (driver: Driver) => {
     const newStatus = driver.driver_status === "active" ? "inactive" : "active"
     try { await fetch(`/api/admin/drivers/${driver.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver_status: newStatus }) }); loadDrivers() } catch { }
+  }
+
+  const handleOpenEdit = (b: Booking) => {
+    setEditModal(b)
+    // Pre-populate fields with current values
+    setEditFields({
+      pickup_at: b.pickup_at ? new Date(b.pickup_at).toISOString().slice(0, 16) : "",
+      pickup_address: b.pickup_address ?? "",
+      dropoff_address: b.dropoff_address ?? "",
+      flight_number: b.flight_number ?? "",
+      notes: b.notes ?? "",
+      service_type: (b as any).service_type ?? "transfer",
+      passengers: String(b.passengers ?? 1),
+      luggage: b.luggage ?? "",
+      vehicle_type: b.vehicle_type ?? "",
+      total_price: String(b.total_price ?? ""),
+      client_name: b.client_name ?? "",
+      client_phone: b.client_phone ?? "",
+    })
+    setEditMsg("")
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editModal) return
+    setSavingEdit(true); setEditMsg("")
+    try {
+      // Convert pickup_at from local datetime-local to ISO
+      const fields: Record<string, string | number> = { ...editFields }
+      if (fields.pickup_at) fields.pickup_at = new Date(fields.pickup_at as string).toISOString()
+      if (fields.passengers) fields.passengers = Number(fields.passengers)
+      if (fields.total_price) fields.total_price = Number(fields.total_price)
+      // Remove empty strings
+      Object.keys(fields).forEach(k => { if (fields[k] === "" || fields[k] === null) delete fields[k] })
+      const res = await fetch(`/api/admin/bookings/${editModal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ edit_fields: fields })
+      })
+      if (res.ok) {
+        setEditMsg("✅ Guardado correctamente")
+        loadBookings(); loadDispatch()
+        setTimeout(() => { setEditModal(null); setEditMsg("") }, 1200)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setEditMsg(`❌ Error: ${d.error ?? "Unknown"}`)
+      }
+    } catch (e: any) {
+      setEditMsg(`❌ Network error: ${e.message}`)
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   const handleBookingStatus = async (id: string, status: string, dispatch_status?: string) => {
@@ -503,12 +559,26 @@ export default function AdminPanel() {
                       </div>
                     </div>
                     {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>🚗 {t("assign")}: {b.driver_name} ({b.driver_code})</div>}
+                    {b.driver_reported && (
+                      <div style={{ marginTop: 8, padding: "8px 12px", background: b.driver_report_action === "driver_rejected_incomplete_ride" ? "#3b0000" : "#3b1a00", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14 }}>{b.driver_report_action === "driver_rejected_incomplete_ride" ? "🚫" : "⚠️"}</span>
+                        <span style={{ fontSize: 12, color: b.driver_report_action === "driver_rejected_incomplete_ride" ? "#f87171" : "#f59e0b", fontWeight: 600 }}>
+                          {b.driver_report_action === "driver_rejected_incomplete_ride"
+                            ? "Conductor rechazó — datos incompletos. URGENTE: editar y reasignar."
+                            : b.driver_report_action === "driver_requested_correction"
+                            ? "Conductor solicitó corrección. Editar y notificar."
+                            : "Conductor reportó datos incompletos. Editar booking."
+                          }
+                        </span>
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                       {b.status === "new" && <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookAccept")}</button>}
                       {["new", "offered", "accepted"].includes(b.status) && <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>}
                       {b.status === "accepted" && <button onClick={() => handleBookingStatus(b.id, "in_progress", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>{t("bookInProgress")}</button>}
                       {b.status === "in_progress" && <button onClick={() => handleBookingStatus(b.id, "completed", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookComplete")}</button>}
                       {(!b.dispatch_status || b.dispatch_status === "awaiting_source_owner") && <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>⚡ Manual Dispatch</button>}
+                      <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
                     </div>
                   </div>
                 ))}
@@ -1416,6 +1486,106 @@ export default function AdminPanel() {
 
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
               <button onClick={() => { setAssignModal(null); setAssignMsg("") }} style={{ ...S.btn(), flex: 1 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          EDIT BOOKING MODAL
+      ====================================================== */}
+      {editModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#111", border: "1px solid #1e3a5f", borderRadius: 16, padding: 28, width: "100%", maxWidth: 540, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>✏️ Editar Reserva</div>
+                <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>ID: {editModal.id.slice(0, 8)}...</div>
+              </div>
+              <button onClick={() => { setEditModal(null); setEditMsg("") }} style={{ background: "none", border: "none", color: "#888", fontSize: 22, cursor: "pointer" }}>✕</button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Client Info */}
+              <div style={{ fontSize: 11, color: "#60a5fa", letterSpacing: 2, marginBottom: 4 }}>CLIENTE</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={S.label}>Nombre del Cliente</label>
+                  <input value={editFields.client_name ?? ""} onChange={e => setEditFields(f => ({ ...f, client_name: e.target.value }))} style={S.input} placeholder="John Doe" />
+                </div>
+                <div>
+                  <label style={S.label}>Teléfono del Cliente</label>
+                  <input value={editFields.client_phone ?? ""} onChange={e => setEditFields(f => ({ ...f, client_phone: e.target.value }))} style={S.input} placeholder="+14073830647" />
+                </div>
+              </div>
+
+              {/* Ride Info */}
+              <div style={{ fontSize: 11, color: "#60a5fa", letterSpacing: 2, marginTop: 4, marginBottom: 4 }}>VIAJE</div>
+              <div>
+                <label style={S.label}>Fecha y Hora de Recogida</label>
+                <input type="datetime-local" value={editFields.pickup_at ?? ""} onChange={e => setEditFields(f => ({ ...f, pickup_at: e.target.value }))} style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Dirección de Recogida</label>
+                <input value={editFields.pickup_address ?? ""} onChange={e => setEditFields(f => ({ ...f, pickup_address: e.target.value }))} style={S.input} placeholder="123 Main St, Orlando, FL" />
+              </div>
+              <div>
+                <label style={S.label}>Dirección de Destino</label>
+                <input value={editFields.dropoff_address ?? ""} onChange={e => setEditFields(f => ({ ...f, dropoff_address: e.target.value }))} style={S.input} placeholder="MCO Airport, Terminal B" />
+              </div>
+
+              {/* Flight Info */}
+              <div style={{ fontSize: 11, color: "#60a5fa", letterSpacing: 2, marginTop: 4, marginBottom: 4 }}>VUELO</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={S.label}>Número de Vuelo</label>
+                  <input value={editFields.flight_number ?? ""} onChange={e => setEditFields(f => ({ ...f, flight_number: e.target.value }))} style={S.input} placeholder="AA1234" />
+                </div>
+                <div>
+                  <label style={S.label}>Tipo de Vehículo</label>
+                  <select value={editFields.vehicle_type ?? ""} onChange={e => setEditFields(f => ({ ...f, vehicle_type: e.target.value }))} style={{ ...S.input, cursor: "pointer" }}>
+                    <option value="">-- Seleccionar --</option>
+                    <option value="Luxury Sedan">Luxury Sedan</option>
+                    <option value="Luxury SUV">Luxury SUV</option>
+                    <option value="Sprinter">Sprinter</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Passengers & Luggage */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={S.label}>Pasajeros</label>
+                  <input type="number" min="1" max="20" value={editFields.passengers ?? ""} onChange={e => setEditFields(f => ({ ...f, passengers: e.target.value }))} style={S.input} />
+                </div>
+                <div>
+                  <label style={S.label}>Equipaje</label>
+                  <input value={editFields.luggage ?? ""} onChange={e => setEditFields(f => ({ ...f, luggage: e.target.value }))} style={S.input} placeholder="2 maletas grandes" />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label style={S.label}>Notas Especiales</label>
+                <textarea value={editFields.notes ?? ""} onChange={e => setEditFields(f => ({ ...f, notes: e.target.value }))} style={{ ...S.input, height: 80, resize: "vertical" }} placeholder="Instrucciones especiales para el conductor..." />
+              </div>
+
+              {/* Price */}
+              <div>
+                <label style={S.label}>Precio Total ($)</label>
+                <input type="number" step="0.01" value={editFields.total_price ?? ""} onChange={e => setEditFields(f => ({ ...f, total_price: e.target.value }))} style={S.input} placeholder="75.00" />
+              </div>
+            </div>
+
+            {editMsg && (
+              <div style={{ marginTop: 16, padding: "10px 14px", background: editMsg.startsWith("✅") ? "#052e16" : "#1c0a0a", borderRadius: 8, fontSize: 13, color: editMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{editMsg}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={() => { setEditModal(null); setEditMsg("") }} style={{ ...S.btn(), flex: 1 }}>Cancelar</button>
+              <button onClick={handleSaveEdit} disabled={savingEdit} style={{ ...S.btn(true), flex: 2, opacity: savingEdit ? 0.6 : 1 }}>
+                {savingEdit ? "⏳ Guardando..." : "💾 Guardar Cambios"}
+              </button>
             </div>
           </div>
         </div>

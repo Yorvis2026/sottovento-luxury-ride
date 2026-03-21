@@ -122,7 +122,47 @@ export async function PATCH(
     // Next.js 15+ requires awaiting params
     const { id } = await params;
     const body = await req.json();
-    const { status, dispatch_status, assigned_driver_id } = body;
+    const { status, dispatch_status, assigned_driver_id, edit_fields } = body;
+
+    // Edit operational fields (pickup_at, pickup_address, dropoff_address, flight_number, notes, service_type, passengers, luggage)
+    if (edit_fields && typeof edit_fields === "object") {
+      const allowed = ["pickup_at", "pickup_address", "dropoff_address", "flight_number",
+                       "notes", "service_type", "passengers", "luggage", "vehicle_type",
+                       "total_price", "client_name", "client_phone"];
+      const keys = Object.keys(edit_fields).filter(k => allowed.includes(k));
+      if (keys.length > 0) {
+        // Build dynamic SET clause safely using individual updates
+        for (const key of keys) {
+          const val = edit_fields[key];
+          if (key === "pickup_at") {
+            await sql`UPDATE bookings SET pickup_at = ${val}::timestamptz, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "pickup_address") {
+            await sql`UPDATE bookings SET pickup_address = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "dropoff_address") {
+            await sql`UPDATE bookings SET dropoff_address = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "flight_number") {
+            await sql`UPDATE bookings SET flight_number = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "notes") {
+            await sql`UPDATE bookings SET notes = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "service_type") {
+            await sql`UPDATE bookings SET service_type = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "passengers") {
+            await sql`UPDATE bookings SET passengers = ${Number(val)}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "luggage") {
+            await sql`UPDATE bookings SET luggage = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "vehicle_type") {
+            await sql`UPDATE bookings SET vehicle_type = ${val}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "total_price") {
+            await sql`UPDATE bookings SET total_price = ${Number(val)}, updated_at = NOW() WHERE id = ${id}::uuid`;
+          } else if (key === "client_name") {
+            // Update via clients table join
+            await sql`UPDATE clients SET full_name = ${val}, updated_at = NOW() WHERE id = (SELECT client_id FROM bookings WHERE id = ${id}::uuid)`;
+          } else if (key === "client_phone") {
+            await sql`UPDATE clients SET phone = ${val}, updated_at = NOW() WHERE id = (SELECT client_id FROM bookings WHERE id = ${id}::uuid)`;
+          }
+        }
+      }
+    }
 
     if (status) {
       const inferredDispatch = dispatch_status ?? inferDispatchStatus(status);
