@@ -128,6 +128,21 @@ const T: Record<Lang, Record<string, string>> = {
     transitioning: "Updating...",
     sending: "Sending...",
     sent: "Sent ✓",
+    flightNumber: "Flight",
+    airline: "Airline",
+    terminal: "Terminal / Door",
+    serviceType: "Service Type",
+    passengerPhone: "Phone",
+    passengers: "Pax",
+    luggage: "Bags",
+    notes: "Notes",
+    meetGreet: "MEET & GREET",
+    curbside: "CURBSIDE",
+    transfer: "TRANSFER",
+    readinessWarning: "Complete ride data required before departure",
+    gpsRequiredWarning: "GPS inactive — enable location to proceed",
+    overrideGps: "Proceed without GPS",
+    cancelOverride: "Cancel",
   },
   es: {
     network: "Red Sottovento",
@@ -213,6 +228,21 @@ const T: Record<Lang, Record<string, string>> = {
     transitioning: "Actualizando...",
     sending: "Enviando...",
     sent: "Enviado ✓",
+    flightNumber: "Vuelo",
+    airline: "Aerolínea",
+    terminal: "Terminal / Puerta",
+    serviceType: "Tipo de Servicio",
+    passengerPhone: "Teléfono",
+    passengers: "Pax",
+    luggage: "Maletas",
+    notes: "Notas",
+    meetGreet: "MEET & GREET",
+    curbside: "CURBSIDE",
+    transfer: "TRASLADO",
+    readinessWarning: "Se requieren datos completos antes de salir",
+    gpsRequiredWarning: "GPS inactivo — activa la ubicación para continuar",
+    overrideGps: "Continuar sin GPS",
+    cancelOverride: "Cancelar",
   },
   ht: {
     network: "Rezo Sottovento",
@@ -298,6 +328,21 @@ const T: Record<Lang, Record<string, string>> = {
     transitioning: "Ap mete ajou...",
     sending: "Ap voye...",
     sent: "Voye ✓",
+    flightNumber: "Vòl",
+    airline: "Konpayi Avyon",
+    terminal: "Tèminal / Pòt",
+    serviceType: "Tip Sèvis",
+    passengerPhone: "Telefòn",
+    passengers: "Pasaje",
+    luggage: "Valiz",
+    notes: "Nòt",
+    meetGreet: "MEET & GREET",
+    curbside: "CURBSIDE",
+    transfer: "TRANSFÈ",
+    readinessWarning: "Done konplè obligatwa anvan depa",
+    gpsRequiredWarning: "GPS inaktif — aktive kote ou ye pou kontinye",
+    overrideGps: "Kontinye san GPS",
+    cancelOverride: "Anile",
   },
 }
 
@@ -325,12 +370,22 @@ interface ActiveRide {
   status: RideStatus
   pickup_location: string
   dropoff_location: string
+  pickup_zone?: string | null
+  dropoff_zone?: string | null
   pickup_datetime: string | null
   vehicle_type: string
   total_price: number
   client_name?: string | null
   client_phone?: string | null
+  service_type?: string | null
+  flight_number?: string | null
+  notes?: string | null
+  passengers?: number | null
+  luggage?: number | null
   trip_started_at?: string | null
+  en_route_at?: string | null
+  arrived_at?: string | null
+  completed_at?: string | null
   bookings_count?: number
   ride_mode?: "active_window" | "live_flow" | "upcoming"
   minutes_until_pickup?: number | null
@@ -625,6 +680,37 @@ export default function DriverDashboardByCode() {
     pollRef.current = setInterval(loadData, POLL_INTERVAL)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadData])
+
+  // ── GPS: continuous watchPosition for live tracking ────────────────────
+  const gpsWatchRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGpsError("Geolocation not supported")
+      return
+    }
+    // Start continuous watch immediately
+    gpsWatchRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setGpsError(null)
+      },
+      (err) => {
+        setGpsError(err.message)
+        // On permission denied, stop watching
+        if (err.code === 1 && gpsWatchRef.current !== null) {
+          navigator.geolocation.clearWatch(gpsWatchRef.current)
+          gpsWatchRef.current = null
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    )
+    return () => {
+      if (gpsWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current)
+        gpsWatchRef.current = null
+      }
+    }
+  }, [])
 
   const respondOffer = async (response: "accepted" | "declined") => {
     if (!summary?.active_offer || responding) return
@@ -1705,16 +1791,21 @@ function RideFlowScreen({
       {/* ── Main content ── */}
       <div className="flex-1 overflow-y-auto px-4 pb-2">
 
-        {/* Route card */}
+        {/* ── OPERATIONAL BRIEFING CARD ── */}
         <div className="rounded-2xl border overflow-hidden mb-4"
           style={{ borderColor: theme.primary + "30", backgroundColor: "#0f0f0f" }}>
-          <div className="px-5 py-4">
-            <div className="mb-1">
+
+          {/* ─ Section: Pickup/Dropoff addresses ─ */}
+          <div className="px-5 pt-4 pb-3">
+            <div className="mb-3">
               <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
                 {t.pickup}
               </div>
-              <div className="text-lg font-light text-white">{ride.pickup_location}</div>
+              <div className="text-base font-medium text-white leading-snug">{ride.pickup_location}</div>
+              {ride.pickup_zone && (
+                <div className="text-xs text-zinc-500 mt-0.5">{ride.pickup_zone}</div>
+              )}
             </div>
             <div className="flex items-center gap-3 my-2">
               <div className="h-px flex-1 bg-zinc-800" />
@@ -1726,29 +1817,89 @@ function RideFlowScreen({
                 <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
                 {t.dropoff}
               </div>
-              <div className="text-lg font-light text-white">{ride.dropoff_location}</div>
+              <div className="text-base font-medium text-white leading-snug">{ride.dropoff_location}</div>
+              {ride.dropoff_zone && (
+                <div className="text-xs text-zinc-500 mt-0.5">{ride.dropoff_zone}</div>
+              )}
             </div>
           </div>
 
-          {/* Details grid */}
-          <div className="grid grid-cols-3 divide-x border-t"
+          {/* ─ Section: Date / Time / Vehicle / Fare grid ─ */}
+          <div className="grid grid-cols-4 divide-x border-t"
             style={{ borderColor: theme.primary + "20" }}>
-            <div className="px-4 py-3">
+            <div className="px-3 py-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.pickup}</div>
-              <div className="text-sm font-medium text-white">{pickupDate}</div>
-              <div className="text-xs text-zinc-300">{pickupTime}</div>
+              <div className="text-xs font-medium text-white">{pickupDate || "—"}</div>
+              <div className="text-xs text-zinc-300 font-semibold">{pickupTime || "—"}</div>
             </div>
-            <div className="px-4 py-3">
+            <div className="px-3 py-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.vehicle}</div>
-              <div className="text-sm font-medium text-white">{ride.vehicle_type}</div>
+              <div className="text-xs font-medium text-white leading-tight">{ride.vehicle_type}</div>
             </div>
-            <div className="px-4 py-3">
+            <div className="px-3 py-3">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.passengers}</div>
+              <div className="text-sm font-medium text-white">{ride.passengers ?? "—"}</div>
+            </div>
+            <div className="px-3 py-3">
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.fare}</div>
-              <div className="text-xl font-bold" style={{ color: GOLD }}>${ride.total_price.toFixed(0)}</div>
+              <div className="text-lg font-bold" style={{ color: GOLD }}>${ride.total_price.toFixed(0)}</div>
             </div>
           </div>
 
-          {/* Elapsed time (in_trip only) */}
+          {/* ─ Section: Passenger info ─ */}
+          <div className="px-5 py-3 border-t" style={{ borderColor: theme.primary + "20" }}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.passenger}</div>
+                <div className="text-sm font-semibold text-white truncate">{ride.client_name ?? "—"}</div>
+              </div>
+              {ride.client_phone && (
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.passengerPhone}</div>
+                  <a href={`tel:${ride.client_phone}`}
+                    className="text-sm font-medium truncate block"
+                    style={{ color: theme.primary }}>
+                    {ride.client_phone}
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ─ Section: Service type + Flight info (airport rides) ─ */}
+          {(ride.service_type || ride.flight_number) && (
+            <div className="px-5 py-3 border-t" style={{ borderColor: theme.primary + "20" }}>
+              <div className="grid grid-cols-2 gap-3">
+                {ride.service_type && (
+                  <div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.serviceType}</div>
+                    <div className="text-xs font-bold px-2 py-0.5 rounded-full inline-block"
+                      style={{ backgroundColor: theme.primary + "20", color: theme.primary, border: `1px solid ${theme.primary}40` }}>
+                      {ride.service_type === "meet_greet" ? t.meetGreet
+                        : ride.service_type === "curbside" ? t.curbside
+                        : t.transfer}
+                    </div>
+                  </div>
+                )}
+                {ride.flight_number && (
+                  <div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.flightNumber}</div>
+                    <div className="text-sm font-bold text-white">{ride.flight_number}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ─ Section: Notes ─ */}
+          {ride.notes && (
+            <div className="px-5 py-3 border-t" style={{ borderColor: theme.primary + "20" }}>
+              <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.notes}</div>
+              <div className="text-sm text-zinc-300 leading-relaxed">{ride.notes}</div>
+            </div>
+          )}
+
+          {/* ─ Elapsed time (in_trip only) ─ */}
           {cfg.showElapsed && (
             <div className="px-5 py-3 border-t flex items-center justify-between"
               style={{ borderColor: theme.primary + "30", backgroundColor: theme.primary + "08" }}>
@@ -1757,7 +1908,7 @@ function RideFlowScreen({
             </div>
           )}
 
-          {/* Booking ID */}
+          {/* ─ Booking ID ─ */}
           <div className="px-5 py-2 border-t border-zinc-800/50">
             <div className="text-xs text-zinc-600 font-mono truncate">
               {t.bookingId}: {ride.booking_id.slice(0, 8)}...
@@ -1796,28 +1947,55 @@ function RideFlowScreen({
       </div>
 
       {/* ── Primary action (state-colored) ── */}
-      <div className="px-4 flex-shrink-0 space-y-3">
-        {cfg.primaryAction ? (
-          <button
-            onClick={() => cfg.primaryAction && onTransition(cfg.primaryAction)}
-            disabled={transitioning}
-            className="w-full py-5 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-60"
-            style={{ backgroundColor: theme.primary, color: theme.primary === "#f59e0b" || theme.primary === GOLD || theme.primary === "#4ade80" ? "#000" : "#fff" }}>
-            {transitioning ? t.transitioning : cfg.primaryLabel}
-          </button>
-        ) : (
-          <div className="text-center text-zinc-400 text-sm py-4">{cfg.primaryLabel}</div>
-        )}
+      {(() => {
+        // READINESS GUARDRAIL: only for en_route transition (accepted/assigned states)
+        const isEnRouteAction = cfg.primaryAction === "en_route"
+        const gpsReady = !!gpsCoords && !gpsError
+        const hasPickupAddress = !!(ride.pickup_location && ride.pickup_location !== "TBD")
+        const hasPassengerInfo = !!(ride.client_name && ride.client_phone)
+        const hasPickupTime = !!ride.pickup_datetime
+        const dataReady = hasPickupAddress && hasPassengerInfo && hasPickupTime
+        const fullyReady = dataReady && gpsReady
+        const partiallyReady = dataReady && !gpsReady // data ok but no GPS
 
-        {cfg.showNoShow && (
-          <button
-            onClick={() => onTransition("no_show")}
-            disabled={transitioning}
-            className="w-full py-3 rounded-2xl border border-zinc-800 text-zinc-500 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
-            {t.noShow}
-          </button>
-        )}
-      </div>
+        return (
+          <div className="px-4 flex-shrink-0 space-y-2">
+            {/* Readiness warning banner (en_route only, when not fully ready) */}
+            {isEnRouteAction && !fullyReady && (
+              <div className="rounded-xl px-4 py-2.5 text-xs leading-relaxed"
+                style={{ backgroundColor: "#7c2d12", color: "#fca5a5", border: "1px solid #dc262640" }}>
+                {!dataReady ? t.readinessWarning : t.gpsRequiredWarning}
+              </div>
+            )}
+
+            {cfg.primaryAction ? (
+              <button
+                onClick={() => cfg.primaryAction && onTransition(cfg.primaryAction)}
+                disabled={transitioning || (isEnRouteAction && !dataReady)}
+                className="w-full py-5 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-40"
+                style={{
+                  backgroundColor: isEnRouteAction && !fullyReady && dataReady
+                    ? "#78716c"  // muted amber when GPS missing but data ok
+                    : theme.primary,
+                  color: theme.primary === "#f59e0b" || theme.primary === GOLD || theme.primary === "#4ade80" ? "#000" : "#fff"
+                }}>
+                {transitioning ? t.transitioning : cfg.primaryLabel}
+              </button>
+            ) : (
+              <div className="text-center text-zinc-400 text-sm py-4">{cfg.primaryLabel}</div>
+            )}
+
+            {cfg.showNoShow && (
+              <button
+                onClick={() => onTransition("no_show")}
+                disabled={transitioning}
+                className="w-full py-3 rounded-2xl border border-zinc-800 text-zinc-500 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
+                {t.noShow}
+              </button>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

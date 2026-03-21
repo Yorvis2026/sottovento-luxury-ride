@@ -192,10 +192,17 @@ export async function GET(req: NextRequest) {
           status,
           pickup_address,
           dropoff_address,
+          pickup_zone,
+          dropoff_zone,
           pickup_at,
           vehicle_type,
           total_price,
-          client_id
+          client_id,
+          service_type,
+          flight_number,
+          notes,
+          passengers,
+          luggage
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
           AND (
@@ -271,16 +278,36 @@ export async function GET(req: NextRequest) {
           ride_mode = "active_window"; // shouldn't happen due to query, but safety
         }
 
+        // ── Fetch bookings_count for repeat client detection ──
+        let bookings_count = 1;
+        if (r.client_id) {
+          try {
+            const countRows = await sql`
+              SELECT COUNT(*) AS cnt FROM bookings
+              WHERE client_id = ${r.client_id} AND status = 'completed'
+            `;
+            bookings_count = Number(countRows[0]?.cnt ?? 0);
+          } catch {}
+        }
+
         assigned_ride = {
           booking_id: r.booking_id,
           status: r.status ?? "assigned",
           pickup_location: r.pickup_address ?? "TBD",
           dropoff_location: r.dropoff_address ?? "TBD",
+          pickup_zone: r.pickup_zone ?? null,
+          dropoff_zone: r.dropoff_zone ?? null,
           pickup_datetime: r.pickup_at,
           vehicle_type: r.vehicle_type ?? "Sedan",
           total_price: Number(r.total_price ?? 0),
           client_name,
           client_phone,
+          service_type: r.service_type ?? "transfer",
+          flight_number: r.flight_number ?? null,
+          notes: r.notes ?? null,
+          passengers: r.passengers ?? null,
+          luggage: r.luggage ?? null,
+          bookings_count,
           en_route_at,
           arrived_at,
           trip_started_at,
