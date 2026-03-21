@@ -14,7 +14,7 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
 // Body:
 //   price, vehicle, pickupZone, dropoffZone, tripType
 //   name, email, phone, date, time, pickupLocation, dropoffLocation
-//   flightNumber?, notes?, sourceCode?
+//   flightNumber?, notes?, sourceCode?, passengers?, luggage?
 // ============================================================
 
 export async function POST(req: NextRequest) {
@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
     // ── 1. Pre-create a PENDING booking in the DB ─────────────
     let bookingId: string | null = null
     let clientId: string | null = null
+    let sourceDriverId: string | null = null
     const preCreateErrors: string[] = []
 
     // Step A: Ensure extra columns exist (run each separately to avoid partial failure)
@@ -62,6 +63,9 @@ export async function POST(req: NextRequest) {
       sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS passengers INTEGER`,
       sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS luggage VARCHAR(100)`,
       sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dispatch_status VARCHAR(50)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pickup_zone VARCHAR(50)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dropoff_zone VARCHAR(50)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20)`,
     ]
 
     for (const stmt of alterStatements) {
@@ -102,10 +106,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Step C: Resolve source_driver_id from sourceCode
+    if (sourceCode) {
+      try {
+        const driverRows = await sql`
+          SELECT id, status FROM drivers
+          WHERE driver_code = ${sourceCode.toUpperCase()}
+          LIMIT 1
+        `
+        if (driverRows.length > 0) {
+          sourceDriverId = driverRows[0].id
+        }
+      } catch (err: any) {
+        preCreateErrors.push(`source_driver_lookup: ${err.message}`)
+        console.error("[create-checkout-session] source driver lookup failed:", err.message)
+      }
+    }
+
     // Build pickup datetime
     const pickupAt = date && time ? `${date}T${time}:00+00` : null
 
-    // Step C: Create pending booking
+    // Step D: Create pending booking with all fields including zones and source_driver_id
     try {
       const pickupAddr = pickupLocation || pickupZone
       const dropoffAddr = dropoffLocation || dropoffZone
@@ -116,6 +137,8 @@ export async function POST(req: NextRequest) {
           dispatch_status,
           pickup_address,
           dropoff_address,
+          pickup_zone,
+          dropoff_zone,
           pickup_at,
           vehicle_type,
           total_price,
@@ -125,6 +148,7 @@ export async function POST(req: NextRequest) {
           flight_number,
           notes,
           source_code,
+          source_driver_id,
           passengers,
           luggage,
           trip_type,
@@ -135,6 +159,8 @@ export async function POST(req: NextRequest) {
           'pending_payment',
           ${pickupAddr},
           ${dropoffAddr},
+          ${pickupZone ?? null},
+          ${dropoffZone ?? null},
           ${pickupAt}::timestamptz,
           ${vehicle},
           ${price},
@@ -144,6 +170,7 @@ export async function POST(req: NextRequest) {
           ${flightNumber ?? null},
           ${notes ?? null},
           ${sourceCode ?? null},
+          ${sourceDriverId}::uuid,
           ${passengers ? Number(passengers) : null},
           ${luggage ?? null},
           ${tripType},
@@ -182,25 +209,26 @@ export async function POST(req: NextRequest) {
       ],
       // ── Full metadata for webhook finalization ──────────────
       metadata: {
-        booking_id:       bookingId ?? "",
-        client_id:        clientId ?? "",
-        client_name:      name ?? "",
-        client_email:     email ?? "",
-        client_phone:     phone ?? "",
-        pickup_zone:      pickupZone ?? "",
-        dropoff_zone:     dropoffZone ?? "",
-        pickup_location:  pickupLabel ?? "",
-        dropoff_location: dropoffLabel ?? "",
-        pickup_date:      date ?? "",
-        pickup_time:      time ?? "",
-        vehicle_type:     vehicle ?? "",
-        trip_type:        tripType ?? "oneway",
-        fare:             String(price),
-        flight_number:    flightNumber ?? "",
-        notes:            notes ?? "",
-        source_code:      sourceCode ?? "",
-        passengers:       String(passengers ?? ""),
-        luggage:          luggage ?? "",
+        booking_id:        bookingId ?? "",
+        client_id:         clientId ?? "",
+        client_name:       name ?? "",
+        client_email:      email ?? "",
+        client_phone:      phone ?? "",
+        pickup_zone:       pickupZone ?? "",
+        dropoff_zone:      dropoffZone ?? "",
+        pickup_location:   pickupLabel ?? "",
+        dropoff_location:  dropoffLabel ?? "",
+        pickup_date:       date ?? "",
+        pickup_time:       time ?? "",
+        vehicle_type:      vehicle ?? "",
+        trip_type:         tripType ?? "oneway",
+        fare:              String(price),
+        flight_number:     flightNumber ?? "",
+        notes:             notes ?? "",
+        source_code:       sourceCode ?? "",
+        source_driver_id:  sourceDriverId ?? "",
+        passengers:        String(passengers ?? ""),
+        luggage:           luggage ?? "",
       },
       success_url: `https://sottoventoluxuryride.com/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: "https://sottoventoluxuryride.com",
@@ -221,6 +249,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       url: session.url,
       booking_id: bookingId,
+      source_driver_resolved: !!sourceDriverId,
       ...(preCreateErrors.length > 0 ? { pre_create_errors: preCreateErrors } : {}),
     })
   } catch (error: any) {

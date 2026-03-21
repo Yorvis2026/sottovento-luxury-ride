@@ -116,9 +116,11 @@ async function sendDriverNotificationEmail(opts: {
 // PATCH /api/admin/bookings/[id] — Update booking status and/or dispatch_status
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Next.js 15+ requires awaiting params
+    const { id } = await params;
     const body = await req.json();
     const { status, dispatch_status, assigned_driver_id } = body;
 
@@ -131,7 +133,7 @@ export async function PATCH(
             status = ${status},
             dispatch_status = ${inferredDispatch},
             updated_at = NOW()
-          WHERE id = ${params.id}::uuid
+          WHERE id = ${id}::uuid
         `;
       } catch (e: any) {
         // Fallback if dispatch_status column doesn't exist yet
@@ -139,7 +141,7 @@ export async function PATCH(
           await sql`
             UPDATE bookings
             SET status = ${status}, updated_at = NOW()
-            WHERE id = ${params.id}::uuid
+            WHERE id = ${id}::uuid
           `;
         } else throw e;
       }
@@ -151,7 +153,7 @@ export async function PATCH(
         await sql`
           UPDATE bookings
           SET dispatch_status = ${dispatch_status}, updated_at = NOW()
-          WHERE id = ${params.id}::uuid
+          WHERE id = ${id}::uuid
         `;
       } catch (e: any) {
         if (!e.message?.includes("dispatch_status")) throw e;
@@ -163,7 +165,7 @@ export async function PATCH(
       await sql`
         UPDATE bookings
         SET assigned_driver_id = ${assigned_driver_id}::uuid, updated_at = NOW()
-        WHERE id = ${params.id}::uuid
+        WHERE id = ${id}::uuid
       `;
 
       // Send email notification to driver (non-blocking)
@@ -176,7 +178,7 @@ export async function PATCH(
                    b.total_price, b.id AS booking_id,
                    c.full_name AS client_name
             FROM drivers d
-            JOIN bookings b ON b.id = ${params.id}::uuid
+            JOIN bookings b ON b.id = ${id}::uuid
             LEFT JOIN clients c ON b.client_id = c.id
             WHERE d.id = ${assigned_driver_id}::uuid
             LIMIT 1
@@ -187,7 +189,7 @@ export async function PATCH(
             sendDriverNotificationEmail({
               driverEmail: driverRow.email,
               driverName: driverRow.full_name ?? "Driver",
-              bookingId: driverRow.booking_id ?? params.id,
+              bookingId: driverRow.booking_id ?? id,
               pickupAddress: driverRow.pickup_address ?? "TBD",
               dropoffAddress: driverRow.dropoff_address ?? "TBD",
               pickupAt: driverRow.pickup_at ?? null,
@@ -210,9 +212,11 @@ export async function PATCH(
 // GET /api/admin/bookings/[id] — Get single booking with full details
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Next.js 15+ requires awaiting params
+    const { id } = await params;
     const rows = await sql`
       SELECT
         b.*,
@@ -225,7 +229,7 @@ export async function GET(
       FROM bookings b
       LEFT JOIN clients c ON b.client_id = c.id
       LEFT JOIN drivers d ON b.assigned_driver_id = d.id
-      WHERE b.id = ${params.id}::uuid
+      WHERE b.id = ${id}::uuid
     `;
     if (!rows[0]) {
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });

@@ -5,9 +5,11 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // PATCH /api/admin/leads/[id] — Update lead status
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Next.js 15+ requires awaiting params
+    const { id } = await params;
     const { status } = await req.json();
     if (!status) {
       return NextResponse.json({ error: "status is required" }, { status: 400 });
@@ -15,7 +17,7 @@ export async function PATCH(
     await sql`
       UPDATE leads
       SET status = ${status}, updated_at = NOW()
-      WHERE id = ${params.id}::uuid
+      WHERE id = ${id}::uuid
     `;
     return NextResponse.json({ success: true });
   } catch (err: any) {

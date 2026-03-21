@@ -8,9 +8,10 @@ const sql = neon(process.env.DATABASE_URL!)
 // Returns only public-safe data for the client tracking page
 export async function GET(
   request: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  const { token } = params
+  // Next.js 15+ requires awaiting params
+  const { token } = await params
 
   if (!token || token.length < 16) {
     return NextResponse.json({ error: "Invalid token" }, { status: 400 })
