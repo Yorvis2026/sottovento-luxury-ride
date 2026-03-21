@@ -14,7 +14,7 @@ type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "le
 
 // ---- TYPES ----
 type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
-type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string }
+type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; flight_number?: string; notes?: string; passengers?: number; luggage?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
@@ -649,24 +649,53 @@ export default function AdminPanel() {
                   </div>
                   {!dispatchData?.manualDispatchRequired?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>{t("dispNoPending")}</div>
-                  ) : dispatchData.manualDispatchRequired.map(b => (
-                    <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
-                          <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
-                          {b.client_name && <div style={{ fontSize: 12, color: "#888" }}>{b.client_name} {b.client_phone && `· ${b.client_phone}`}</div>}
-                          <div style={{ fontSize: 11, color: "#333" }}>ID: {b.id.slice(0, 8)}...</div>
+                  ) : dispatchData.manualDispatchRequired.map(b => (() => {
+                      // Capa 4: Dispatch Readiness Gate
+                      const missingFields: string[] = []
+                      if (!b.pickup_address?.trim()) missingFields.push("pickup address")
+                      if (!b.dropoff_address?.trim()) missingFields.push("dropoff address")
+                      if (!b.pickup_at) missingFields.push("pickup time")
+                      if (!b.client_name?.trim()) missingFields.push("passenger name")
+                      if (!b.client_phone?.trim()) missingFields.push("passenger phone")
+                      const isReady = missingFields.length === 0
+                      return (
+                        <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
+                              <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
+                              {b.client_name && <div style={{ fontSize: 12, color: "#888" }}>{b.client_name} {b.client_phone && `· ${b.client_phone}`}</div>}
+                              <div style={{ fontSize: 11, color: "#333" }}>ID: {b.id.slice(0, 8)}...</div>
+                            </div>
+                            <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                          </div>
+                          {!isReady && (
+                            <div style={{ marginTop: 8, padding: "6px 10px", borderRadius: 6, background: "#3b1a0020", border: "1px solid #dc262640", fontSize: 11, color: "#fca5a5" }}>
+                              ⚠️ Incomplete booking — missing: {missingFields.join(", ")}. Edit before assigning.
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                            <button
+                              onClick={() => {
+                                if (!isReady) {
+                                  setGlobalToast({ msg: `Cannot assign: missing ${missingFields.join(", ")}`, type: "error" })
+                                  setTimeout(() => setGlobalToast(null), 4000)
+                                  return
+                                }
+                                setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
+                                setAssignMsg("")
+                              }}
+                              style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
+                            >
+                              {isReady ? "✅" : "⚠️"} {t("assign")} Driver
+                            </button>
+                            <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>
+                            <button onClick={() => handleDispatchStatus(b.id, "awaiting_source_owner")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px" }}>↩ Back to Source</button>
+                          </div>
                         </div>
-                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                        <button onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#14532d", color: "#4ade80", border: "none" }}>✅ {t("assign")} Driver</button>
-                        <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>
-                        <button onClick={() => handleDispatchStatus(b.id, "awaiting_source_owner")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px" }}>↩ Back to Source</button>
-                      </div>
-                    </div>
-                  ))}
+                      )
+                    })()
+                  ))
                 </div>
               </>
             )}

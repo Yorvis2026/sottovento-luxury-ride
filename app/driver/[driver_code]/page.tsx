@@ -947,58 +947,67 @@ export default function DriverDashboardByCode() {
       ? new Date(newRideAlertData.pickup_time).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
       : lang === "es" ? "Hora por confirmar" : "Time TBD"
     return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 px-6 z-[100]"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
-        {/* Pulsing ring */}
-        <div className="relative mb-6">
-          <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: GOLD + "40" }} />
-          <div className="relative w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: GOLD + "20", border: `2px solid ${GOLD}` }}>
+      <div className="fixed inset-0 flex flex-col items-center justify-center px-6 z-[100]"
+        style={{ backgroundColor: "#000", paddingTop: "calc(env(safe-area-inset-top, 0px) + 20px)", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}>
+        {/* Top badge */}
+        <div className="mb-4 px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase animate-pulse"
+          style={{ backgroundColor: GOLD + "20", color: GOLD, border: `1px solid ${GOLD}60` }}>
+          {lang === "es" ? "NUEVA ASIGNACIÓN" : "NEW ASSIGNMENT"}
+        </div>
+        {/* Pulsing icon ring */}
+        <div className="relative mb-5">
+          <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: GOLD + "30", transform: "scale(1.4)" }} />
+          <div className="relative w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: GOLD + "15", border: `2px solid ${GOLD}` }}>
             <span className="text-3xl">🚗</span>
           </div>
         </div>
-        <div className="text-center mb-6">
+        {/* Title */}
+        <div className="text-center mb-5">
           <div className="text-2xl font-semibold text-white mb-1">
             {lang === "es" ? "¡Nuevo Viaje Asignado!" : "New Ride Assigned!"}
           </div>
-          <div className="text-sm text-zinc-400">
+          <div className="text-sm" style={{ color: GOLD + "cc" }}>
             {lang === "es" ? "Se te ha asignado un nuevo servicio" : "A new ride has been assigned to you"}
           </div>
         </div>
-        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border overflow-hidden mb-6" style={{ borderColor: GOLD + "40" }}>
+        {/* Ride card with pulsing gold border */}
+        <div className="w-full max-w-sm rounded-2xl overflow-hidden mb-6 animate-pulse"
+          style={{ background: "#111", border: `2px solid ${GOLD}`, boxShadow: `0 0 24px ${GOLD}40` }}>
           <div className="px-5 py-4 space-y-3">
             <div className="flex items-start gap-3">
-              <span className="text-green-400 mt-0.5">↑</span>
+              <span className="text-green-400 mt-0.5 text-lg">↑</span>
               <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">{lang === "es" ? "Recogida" : "Pickup"}</div>
-                <div className="text-sm text-white">{newRideAlertData.pickup}</div>
+                <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: GOLD + "80" }}>{lang === "es" ? "Recogida" : "Pickup"}</div>
+                <div className="text-sm font-medium text-white">{newRideAlertData.pickup}</div>
               </div>
             </div>
             <div className="flex items-start gap-3">
-              <span className="text-red-400 mt-0.5">↓</span>
+              <span className="text-red-400 mt-0.5 text-lg">↓</span>
               <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">{lang === "es" ? "Destino" : "Dropoff"}</div>
-                <div className="text-sm text-white">{newRideAlertData.dropoff}</div>
+                <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: GOLD + "80" }}>{lang === "es" ? "Destino" : "Dropoff"}</div>
+                <div className="text-sm font-medium text-white">{newRideAlertData.dropoff}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+            <div className="flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${GOLD}20` }}>
               <div className="text-xs text-zinc-500">{lang === "es" ? "Fecha/Hora" : "Pickup Time"}</div>
               <div className="text-xs text-zinc-300">{pickupFormatted}</div>
             </div>
             <div className="flex items-center justify-between">
               <div className="text-xs text-zinc-500">{lang === "es" ? "Tarifa" : "Fare"}</div>
-              <div className="text-lg font-bold" style={{ color: GOLD }}>${newRideAlertData.fare.toFixed(0)}</div>
+              <div className="text-xl font-bold" style={{ color: GOLD }}>${newRideAlertData.fare.toFixed(0)}</div>
             </div>
           </div>
         </div>
+        {/* Primary CTA — full width, high contrast */}
         <button
           onClick={() => { setShowNewRideAlert(false); setNewRideAlertData(null) }}
-          className="w-full max-w-sm py-4 rounded-2xl text-base font-bold text-black transition-all active:scale-95"
-          style={{ backgroundColor: GOLD }}>
+          className="w-full max-w-sm py-5 rounded-2xl text-base font-bold text-black transition-all active:scale-95"
+          style={{ backgroundColor: GOLD, fontSize: 17, letterSpacing: "0.05em" }}>
           {lang === "es" ? "Ver Detalles del Viaje" : "View Ride Details"}
         </button>
         <button
           onClick={() => { setShowNewRideAlert(false); setNewRideAlertData(null) }}
-          className="mt-3 text-sm text-zinc-500 py-2">
+          className="mt-4 text-sm py-2" style={{ color: "#555" }}>
           {lang === "es" ? "Cerrar" : "Dismiss"}
         </button>
       </div>

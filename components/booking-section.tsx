@@ -89,6 +89,7 @@ function BookingInner() {
   const [submitted, setSubmitted] = useState(false)
   const [paying, setPaying] = useState(false)
   const [payError, setPayError] = useState("")
+  const [step1Error, setStep1Error] = useState("")
   const [countdown, setCountdown] = useState<number | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [supportOpen, setSupportOpen] = useState(false)
@@ -219,6 +220,30 @@ function BookingInner() {
     }
     if (!formData.pickupZone || !formData.dropoffZone) {
       setPayError("Please select a pickup zone and drop-off zone.")
+      return
+    }
+    if (!formData.pickupLocation?.trim()) {
+      setPayError("Pickup address is required before proceeding to payment.")
+      return
+    }
+    if (!formData.dropoffLocation?.trim()) {
+      setPayError("Drop-off address is required before proceeding to payment.")
+      return
+    }
+    if (!formData.date || !formData.time) {
+      setPayError("Pickup date and time are required.")
+      return
+    }
+    if (!formData.name?.trim()) {
+      setPayError("Passenger name is required.")
+      return
+    }
+    if (!formData.phone?.trim()) {
+      setPayError("Phone number is required.")
+      return
+    }
+    if (!formData.email?.trim()) {
+      setPayError("Email address is required.")
       return
     }
     if (!price) {
@@ -509,9 +534,37 @@ function BookingInner() {
                 </div>
               )}
 
+              {/* Step 1 validation error */}
+              {step1Error && (
+                <div className="rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: "#7c2d1220", color: "#fca5a5", border: "1px solid #dc262640" }}>
+                  {step1Error}
+                </div>
+              )}
               <button
                 type="button"
-                onClick={() => setStep(2)}
+                onClick={() => {
+                  if (!isHourly) {
+                    if (!formData.pickupZone || !formData.dropoffZone) {
+                      setStep1Error("Please select a pickup zone and drop-off zone.")
+                      return
+                    }
+                    if (!formData.pickupLocation?.trim()) {
+                      setStep1Error("Please enter a pickup address.")
+                      return
+                    }
+                    if (!formData.dropoffLocation?.trim()) {
+                      setStep1Error("Please enter a drop-off address.")
+                      return
+                    }
+                  } else {
+                    if (!formData.pickupLocation?.trim()) {
+                      setStep1Error("Please enter a pickup location.")
+                      return
+                    }
+                  }
+                  setStep1Error("")
+                  setStep(2)
+                }}
                 className="w-full py-4 rounded-lg font-medium tracking-widest uppercase transition"
                 style={{ backgroundColor: GOLD, color: "#000", fontSize: 18 }}
               >

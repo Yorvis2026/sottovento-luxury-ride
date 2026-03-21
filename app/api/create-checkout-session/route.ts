@@ -40,8 +40,25 @@ export async function POST(req: NextRequest) {
       luggage,
     } = body
 
-    if (!price || !vehicle || !pickupZone || !dropoffZone) {
-      return NextResponse.json({ error: "Missing required booking fields" }, { status: 400 })
+    // ── serverBookingValidation() — Capa 2: server-side pre-checkout validation ──
+    const validationErrors: string[] = []
+    if (!price)            validationErrors.push("fare_total")
+    if (!vehicle)          validationErrors.push("vehicle_type")
+    if (!pickupZone)       validationErrors.push("pickup_zone")
+    if (!dropoffZone)      validationErrors.push("dropoff_zone")
+    if (!pickupLocation?.trim())  validationErrors.push("pickup_address")
+    if (!dropoffLocation?.trim()) validationErrors.push("dropoff_address")
+    if (!date)             validationErrors.push("pickup_date")
+    if (!time)             validationErrors.push("pickup_time")
+    if (!name?.trim())     validationErrors.push("client_name")
+    if (!phone?.trim())    validationErrors.push("client_phone")
+    if (!email?.trim())    validationErrors.push("client_email")
+    if (validationErrors.length > 0) {
+      return NextResponse.json({
+        error: "booking_validation_failed",
+        missing_fields: validationErrors,
+        message: `Booking incomplete. Missing required fields: ${validationErrors.join(", ")}`
+      }, { status: 400 })
     }
 
     // ── 1. Pre-create a PENDING booking in the DB ─────────────
@@ -66,6 +83,7 @@ export async function POST(req: NextRequest) {
       sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pickup_zone VARCHAR(50)`,
       sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dropoff_zone VARCHAR(50)`,
       sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS trip_type VARCHAR(20)`,
+      sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS readiness_status VARCHAR(30) DEFAULT 'ready'`,
     ]
 
     for (const stmt of alterStatements) {
@@ -135,6 +153,7 @@ export async function POST(req: NextRequest) {
         INSERT INTO bookings (
           status,
           dispatch_status,
+          readiness_status,
           pickup_address,
           dropoff_address,
           pickup_zone,
@@ -157,6 +176,7 @@ export async function POST(req: NextRequest) {
         ) VALUES (
           'pending_payment',
           'pending_payment',
+          'ready',
           ${pickupAddr},
           ${dropoffAddr},
           ${pickupZone ?? null},
