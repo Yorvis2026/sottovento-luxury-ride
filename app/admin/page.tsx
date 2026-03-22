@@ -988,42 +988,44 @@ export default function AdminPanel() {
                 {tab === "dispatch" && (
           <div>
             {/* ── Header ── */}
-            <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>&#9889; Torre de Control Operacional</div>
-                <div style={{ color: "#555", fontSize: 13 }}>Ciclo de vida completo de rides &mdash; actualiza en tiempo real</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Dispatch Control Tower</div>
+                <div style={{ color: "#555", fontSize: 13 }}>Operational dispatch — 6-bucket pipeline</div>
               </div>
-              <button onClick={loadDispatch} disabled={loadingDispatch} style={{ ...S.btn(), fontSize: 12, padding: "8px 16px", background: "#1a1a1a", color: "#c9a84c", border: "1px solid #333" }}>
-                {loadingDispatch ? "..." : "\uD83D\uDD04 Actualizar"}
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={loadDispatch} style={S.btn()} disabled={loadingDispatch}>
+                  {loadingDispatch ? "Loading..." : "\u21BB Refresh"}
+                </button>
+              </div>
             </div>
 
-            {/* ── KPI Cards (interactive — click to scroll to bucket) ── */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
+            {/* ── KPI Cards (scroll to bucket) ── */}
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, marginBottom: 20 }}>
               {[
-                { label: "Driver Issue", count: dispatchData?.driverIssue?.length ?? 0, color: "#ef4444", icon: "\uD83D\uDEA8", anchor: "bucket-driver-issue" },
-                { label: "Needs Review", count: dispatchData?.needsReview?.length ?? 0, color: "#f59e0b", icon: "\u26A0\uFE0F", anchor: "bucket-needs-review" },
-                { label: "Ready to Dispatch", count: dispatchData?.readyForDispatch?.length ?? 0, color: "#60a5fa", icon: "\uD83D\uDCE6", anchor: "bucket-ready" },
-                { label: "Assigned", count: dispatchData?.assigned?.length ?? 0, color: "#a78bfa", icon: "\uD83D\uDC64", anchor: "bucket-assigned" },
-                { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "\uD83D\uDE97", anchor: "bucket-in-progress" },
-                { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "\u2705", anchor: "bucket-completed" },
+                { label: "Driver Issue", count: dispatchData?.driverIssue?.length ?? 0, color: "#ef4444", icon: "🚨", anchor: "bucket-driver-issue" },
+                { label: "Needs Review", count: dispatchData?.needsReview?.length ?? 0, color: "#f59e0b", icon: "⚠️", anchor: "bucket-needs-review" },
+                { label: "Ready to Dispatch", count: dispatchData?.readyForDispatch?.length ?? 0, color: "#60a5fa", icon: "📦", anchor: "bucket-ready" },
+                { label: "Assigned", count: dispatchData?.assigned?.length ?? 0, color: "#a78bfa", icon: "👤", anchor: "bucket-assigned" },
+                { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "🚗", anchor: "bucket-in-progress" },
+                { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "✅", anchor: "bucket-completed" },
               ].map(k => (
                 <div
-                  key={k.label}
+                  key={k.anchor}
                   onClick={() => { const el = document.getElementById(k.anchor); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }) }}
-                  style={{ background: k.count > 0 ? k.color + "15" : "#111", border: `1px solid ${k.count > 0 ? k.color + "40" : "#222"}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = k.color + "80")}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = k.count > 0 ? k.color + "40" : "#222")}
+                  style={{ ...S.statCard(k.count > 0 ? k.color + "40" : undefined), minWidth: 110, cursor: "pointer", transition: "border-color 150ms" }}
                 >
-                  <div style={{ fontSize: 10, color: k.count > 0 ? k.color : "#444", letterSpacing: 1, marginBottom: 4 }}>{k.icon} {k.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: k.count > 0 ? k.color : "#333" }}>{k.count}</div>
-                  <div style={{ fontSize: 10, color: "#444", marginTop: 2 }}>&#8594; ver bucket</div>
+                  <div style={{ fontSize: 18 }}>{k.icon}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: k.count > 0 ? k.color : "#555" }}>{k.count}</div>
+                  <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{k.label}</div>
                 </div>
               ))}
             </div>
 
             {loadingDispatch ? (
-              <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
+              <div style={{ color: "#555", textAlign: "center", padding: 40 }}>Loading dispatch data...</div>
+            ) : !dispatchData ? (
+              <div style={{ color: "#555", textAlign: "center", padding: 40 }}>No dispatch data available</div>
             ) : (
               <>
                 {/* ════════════════════════════════════════════════
@@ -1032,8 +1034,8 @@ export default function AdminPanel() {
                 <div id="bucket-driver-issue" style={{ ...S.card, marginBottom: 16, borderColor: (dispatchData?.driverIssue?.length ?? 0) > 0 ? "#ef444440" : "#222" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>\uD83D\uDEA8 Driver Issue</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor rechaz\u00F3 o report\u00F3 datos incompletos &mdash; acci\u00F3n inmediata requerida</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>🚨 Driver Issue</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Conductor rechazó o reportó datos incompletos</div>
                     </div>
                     <span style={{ ...S.badge("#3b0000"), color: "#ef4444" }}>{dispatchData?.driverIssue?.length ?? 0}</span>
                   </div>
@@ -1049,19 +1051,24 @@ export default function AdminPanel() {
                     const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    const isExpanded = expandedDispatchId === b.id
                     return (
                       <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a0000" }}>
+                        {/* Summary row */}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
-                              <span style={{ fontSize: 10, color: "#ef444480", background: "#3b000050", padding: "1px 6px", borderRadius: 4 }}>\u23F1 {agingLabel} ago</span>
+                              <span style={{ fontSize: 10, color: "#ef444480", background: "#3b000050", padding: "1px 6px", borderRadius: 4 }}>⏱️ {agingLabel} ago</span>
                             </div>
                             <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>
-                              {b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}
+                              {b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}
                             </div>
-                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.client_name || "Sin cliente"}</div>
-                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>\uD83D\uDC64 {b.driver_name} ({b.driver_code})</div>}
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                              {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
+                            </div>
+                            {b.client_phone && <div style={{ fontSize: 12, color: "#aaa" }}>📞 {b.client_phone}</div>}
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>👤 {b.driver_name} ({b.driver_code}) {b.driver_phone ? `\u2022 ${b.driver_phone}` : ""}</div>}
                             {(b as any).driver_issue_notes && <div style={{ fontSize: 11, color: "#fca5a5", marginTop: 4, padding: "4px 8px", background: "#3b000050", borderRadius: 4 }}>Nota: {(b as any).driver_issue_notes}</div>}
                             {missingFields.length > 0 && (
                               <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b000050", border: "1px solid #ef444440", fontSize: 11, color: "#fca5a5" }}>
@@ -1069,18 +1076,42 @@ export default function AdminPanel() {
                               </div>
                             )}
                           </div>
-                          <span style={{ ...S.badge("#3b0000"), color: "#ef4444", fontSize: 10 }}>DRIVER ISSUE</span>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge("#3b0000"), color: "#ef4444", fontSize: 10 }}>DRIVER ISSUE</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
                         </div>
+                        {/* Expanded detail view */}
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#1a0000", borderRadius: 8, border: "1px solid #3b0000", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 10 }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Estado pago:</span> <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b" }}>{b.payment_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pickup:</span> <span style={{ color: "#fff" }}>{b.pickup_address || b.pickup_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Dropoff:</span> <span style={{ color: "#fff" }}>{b.dropoff_address || b.dropoff_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fecha/Hora:</span> <span style={{ color: "#fff" }}>{fmtDate(b.pickup_at)}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehículo:</span> <span style={{ color: "#fff" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pasajeros:</span> <span style={{ color: "#fff" }}>{b.passenger_count || b.passengers || 1}</span></div>
+                              <div><span style={{ color: "#666" }}>Equipaje:</span> <span style={{ color: "#fff" }}>{b.luggage_count ?? "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Vuelo:</span> <span style={{ color: "#fff" }}>{b.flight_number || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fuente:</span> <span style={{ color: "#fff" }}>{b.lead_source || b.booking_origin || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Capturado por:</span> <span style={{ color: "#fff" }}>{b.captured_by_driver_code || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Email cliente:</span> <span style={{ color: "#fff" }}>{b.client_email || "—"}</span></div>
+                            </div>
+                            {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                          </div>
+                        )}
+                        {/* Actions */}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>\u270F\uFE0F Editar</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
                           <button
                             onClick={() => {
                               if (!isReady) { setGlobalToast({ msg: `Completar datos: ${missingFields.join(", ")}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000); return }
                               setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("")
                             }}
                             style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
-                          >{isReady ? "\u2705 Reasignar Conductor" : "\u26A0\uFE0F Completar primero"}</button>
-                          <button onClick={() => handleDispatchStatus(b.id, "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>&#8594; Mover a Revisi\u00F3n</button>
+                          >{isReady ? "✅ Reasignar Conductor" : "⚠️ Completar primero"}</button>
+                          <button onClick={() => handleDispatchStatus(b.id, "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>&rarr; Mover a Revisión</button>
                           <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
@@ -1094,13 +1125,13 @@ export default function AdminPanel() {
                 <div id="bucket-needs-review" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>\u26A0\uFE0F Needs Review</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Datos incompletos &mdash; NO despachar hasta que admin valide y corrija</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>⚠️ Needs Review</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Datos incompletos — NO mostrar a conductores</div>
                     </div>
                     <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{dispatchData?.needsReview?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.needsReview?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings pendientes de revisi\u00F3n</div>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings pendientes de revisión</div>
                   ) : (dispatchData.needsReview ?? []).map(b => {
                     const missingFields: string[] = []
                     if (!b.pickup_address && !b.pickup_zone) missingFields.push("pickup")
@@ -1111,27 +1142,60 @@ export default function AdminPanel() {
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
                     const isUrgent = agingMin > 60
+                    const isComplete = missingFields.length === 0
+                    const isExpanded = expandedDispatchId === b.id
                     return (
                       <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a1500" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
-                              <span style={{ fontSize: 10, color: isUrgent ? "#ef4444" : "#f59e0b80", background: isUrgent ? "#3b000050" : "#3b1a0050", padding: "1px 6px", borderRadius: 4 }}>{isUrgent ? "\uD83D\uDD34" : "\u23F1"} {agingLabel}</span>
+                              <span style={{ fontSize: 10, color: isUrgent ? "#ef4444" : "#f59e0b80", background: isUrgent ? "#3b000050" : "#3b1a0050", padding: "1px 6px", borderRadius: 4 }}>{isUrgent ? "🔴" : "⏱️"} {agingLabel}</span>
                             </div>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.client_name || "Sin cliente"}</div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                              {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
+                            </div>
+                            {b.client_phone && <div style={{ fontSize: 12, color: "#aaa" }}>📞 {b.client_phone}</div>}
                             {missingFields.length > 0 && (
                               <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b1a0050", border: "1px solid #f59e0b40", fontSize: 11, color: "#fcd34d" }}>
                                 Faltan: {missingFields.join(", ")}
                               </div>
                             )}
                           </div>
-                          <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b", fontSize: 10 }}>REVIEW</span>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b", fontSize: 10 }}>REVIEW</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
                         </div>
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#1a1000", borderRadius: 8, border: "1px solid #3b1a00", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 10 }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Estado pago:</span> <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b" }}>{b.payment_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pickup:</span> <span style={{ color: "#fff" }}>{b.pickup_address || b.pickup_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Dropoff:</span> <span style={{ color: "#fff" }}>{b.dropoff_address || b.dropoff_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fecha/Hora:</span> <span style={{ color: "#fff" }}>{fmtDate(b.pickup_at)}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehículo:</span> <span style={{ color: "#fff" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pasajeros:</span> <span style={{ color: "#fff" }}>{b.passenger_count || b.passengers || 1}</span></div>
+                              <div><span style={{ color: "#666" }}>Equipaje:</span> <span style={{ color: "#fff" }}>{b.luggage_count ?? "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Vuelo:</span> <span style={{ color: "#fff" }}>{b.flight_number || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fuente:</span> <span style={{ color: "#fff" }}>{b.lead_source || b.booking_origin || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Capturado por:</span> <span style={{ color: "#fff" }}>{b.captured_by_driver_code || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Email cliente:</span> <span style={{ color: "#fff" }}>{b.client_email || "—"}</span></div>
+                            </div>
+                            {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                          </div>
+                        )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>\u270F\uFE0F Editar y Validar</button>
-                          <button onClick={() => handleBookingStatus(b.id, "ready_for_dispatch", "not_required")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1e3a5f", color: "#60a5fa", border: "none" }}>&#8594; Listo para Despacho</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar y Validar</button>
+                          <button
+                            onClick={() => {
+                              if (!isComplete) { setGlobalToast({ msg: `Completar datos: ${missingFields.join(", ")}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000); return }
+                              handleBookingStatus(b.id, "ready_for_dispatch", "not_required")
+                            }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: isComplete ? "#1e3a5f" : "#1a1a1a", color: isComplete ? "#60a5fa" : "#555", cursor: isComplete ? "pointer" : "not-allowed", opacity: isComplete ? 1 : 0.6 }}
+                          >&rarr; {isComplete ? "Listo para Despacho" : "Completar datos primero"}</button>
                           <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
@@ -1145,10 +1209,10 @@ export default function AdminPanel() {
                 <div id="bucket-ready" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>\uD83D\uDCE6 Ready for Dispatch</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Validados y listos para asignar conductor</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>📦 Ready for Dispatch</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Validado — listo para asignar conductor</div>
                     </div>
-                    <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>{dispatchData?.readyForDispatch?.length ?? 0}</span>
+                    <span style={{ ...S.badge("#0c2340"), color: "#60a5fa" }}>{dispatchData?.readyForDispatch?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.readyForDispatch?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin bookings listos para despacho</div>
@@ -1156,29 +1220,53 @@ export default function AdminPanel() {
                     const agingMs = Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
-                    const hasSourceDriver = !!b.captured_by_driver_code
+                    const isExpanded = expandedDispatchId === b.id
                     return (
-                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a2a3a" }}>
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #0c2340" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
-                              <span style={{ fontSize: 10, color: "#60a5fa80", background: "#1e3a5f50", padding: "1px 6px", borderRadius: 4 }}>\u23F1 {agingLabel}</span>
-                              {hasSourceDriver && <span style={{ fontSize: 10, color: "#c9a84c", background: "#3b2a0050", padding: "1px 6px", borderRadius: 4 }}>\uD83D\uDC51 Source: {b.captured_by_driver_code}</span>}
+                              <span style={{ fontSize: 10, color: "#60a5fa80", background: "#1e3a5f50", padding: "1px 6px", borderRadius: 4 }}>⏱️ {agingLabel}</span>
+                              {b.captured_by_driver_code && <span style={{ fontSize: 10, color: "#c9a84c", background: "#2a1a0050", padding: "1px 6px", borderRadius: 4 }}>src: {b.captured_by_driver_code}</span>}
                             </div>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.client_name || "Sin cliente"}</div>
-                            <div style={{ fontSize: 12, color: "#555" }}>{b.vehicle_type} &middot; {b.passenger_count || 1} pax</div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                              {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
+                            </div>
+                            {b.client_phone && <div style={{ fontSize: 12, color: "#aaa" }}>📞 {b.client_phone}</div>}
                           </div>
-                          <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa", fontSize: 10 }}>READY</span>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge("#0c2340"), color: "#60a5fa", fontSize: 10 }}>READY</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
                         </div>
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#0a1a2a", borderRadius: 8, border: "1px solid #1e3a5f", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 10 }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Estado pago:</span> <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b" }}>{b.payment_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pickup:</span> <span style={{ color: "#fff" }}>{b.pickup_address || b.pickup_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Dropoff:</span> <span style={{ color: "#fff" }}>{b.dropoff_address || b.dropoff_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fecha/Hora:</span> <span style={{ color: "#fff" }}>{fmtDate(b.pickup_at)}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehículo:</span> <span style={{ color: "#fff" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pasajeros:</span> <span style={{ color: "#fff" }}>{b.passenger_count || b.passengers || 1}</span></div>
+                              <div><span style={{ color: "#666" }}>Equipaje:</span> <span style={{ color: "#fff" }}>{b.luggage_count ?? "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Vuelo:</span> <span style={{ color: "#fff" }}>{b.flight_number || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fuente:</span> <span style={{ color: "#fff" }}>{b.lead_source || b.booking_origin || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Capturado por:</span> <span style={{ color: "#fff" }}>{b.captured_by_driver_code || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Email cliente:</span> <span style={{ color: "#fff" }}>{b.client_email || "—"}</span></div>
+                            </div>
+                            {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                          </div>
+                        )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                           <button
                             onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }}
-                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1e3a5f", color: "#60a5fa", border: "1px solid #2a4a7f", fontWeight: 700 }}
-                          >\uD83D\uDC64 Asignar Conductor</button>
-                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>\u270F\uFE0F Editar</button>
-                          <button onClick={() => handleBookingStatus(b.id, "needs_review", "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>&#8592; Mover a Revisi\u00F3n</button>
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#14532d", color: "#4ade80", border: "none" }}
+                          >👤 Asignar Conductor</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
+                          <button onClick={() => handleDispatchStatus(b.id, "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>&larr; Mover a Revisión</button>
                           <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
@@ -1192,34 +1280,80 @@ export default function AdminPanel() {
                 <div id="bucket-assigned" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>\uD83D\uDC64 Assigned</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor asignado &mdash; esperando ejecuci\u00F3n del ride</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>👤 Assigned</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Conductor asignado — esperando ejecución</div>
                     </div>
                     <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.assigned?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.assigned?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides asignados pendientes</div>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings asignados actualmente</div>
                   ) : (dispatchData.assigned ?? []).map(b => {
-                    const agingMs = Date.now() - new Date(b.created_at).getTime()
+                    const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    const isExpanded = expandedDispatchId === b.id
                     return (
-                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1f1a2e" }}>
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a1a40" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
-                              <span style={{ fontSize: 10, color: "#a78bfa80", background: "#3b1f5e50", padding: "1px 6px", borderRadius: 4 }}>\u23F1 {agingLabel}</span>
+                              <span style={{ fontSize: 10, color: "#a78bfa80", background: "#3b1f5e50", padding: "1px 6px", borderRadius: 4 }}>⏱️ {agingLabel}</span>
                             </div>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)}</div>
-                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>\uD83D\uDC64 {b.driver_name} ({b.driver_code}) {b.driver_phone ? `\u00B7 ${b.driver_phone}` : ""}</div>}
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                              {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
+                            </div>
+                            {b.client_phone && <div style={{ fontSize: 12, color: "#aaa" }}>📞 {b.client_phone}</div>}
+                            {b.driver_name && (
+                              <div style={{ fontSize: 12, color: "#a78bfa", marginTop: 2 }}>
+                                👤 {b.driver_name} ({b.driver_code})
+                                {b.driver_phone && (
+                                  <a href={`tel:${b.driver_phone}`} style={{ color: "#60a5fa", marginLeft: 8 }}>📞 {b.driver_phone}</a>
+                                )}
+                              </div>
+                            )}
                           </div>
-                          <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa", fontSize: 10 }}>{b.status?.toUpperCase().replace("_"," ")}</span>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge(statusColor[b.status] ?? "#3b1f5e"), color: statusText[b.status] ?? "#a78bfa", fontSize: 10 }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
                         </div>
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#0f0a1a", borderRadius: 8, border: "1px solid #3b1f5e", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 10 }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Estado pago:</span> <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b" }}>{b.payment_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pickup:</span> <span style={{ color: "#fff" }}>{b.pickup_address || b.pickup_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Dropoff:</span> <span style={{ color: "#fff" }}>{b.dropoff_address || b.dropoff_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fecha/Hora:</span> <span style={{ color: "#fff" }}>{fmtDate(b.pickup_at)}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehículo:</span> <span style={{ color: "#fff" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pasajeros:</span> <span style={{ color: "#fff" }}>{b.passenger_count || b.passengers || 1}</span></div>
+                              <div><span style={{ color: "#666" }}>Equipaje:</span> <span style={{ color: "#fff" }}>{b.luggage_count ?? "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Vuelo:</span> <span style={{ color: "#fff" }}>{b.flight_number || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fuente:</span> <span style={{ color: "#fff" }}>{b.lead_source || b.booking_origin || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Capturado por:</span> <span style={{ color: "#fff" }}>{b.captured_by_driver_code || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Email cliente:</span> <span style={{ color: "#fff" }}>{b.client_email || "—"}</span></div>
+                            </div>
+                            {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                          </div>
+                        )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>\u270F\uFE0F Editar</button>
-                          <button onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>\uD83D\uDD04 Reasignar</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
+                          <button
+                            onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}
+                          >🔄 Reasignar Conductor</button>
+                          {b.driver_phone && (
+                            <a href={`tel:${b.driver_phone}`} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#14532d", color: "#4ade80", border: "none", textDecoration: "none" }}>
+                              📞 Llamar Conductor
+                            </a>
+                          )}
+                          {b.client_phone && (
+                            <a href={`tel:${b.client_phone}`} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1e3a5f", color: "#60a5fa", border: "none", textDecoration: "none" }}>
+                              📞 Llamar Cliente
+                            </a>
+                          )}
                           <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
@@ -1233,8 +1367,8 @@ export default function AdminPanel() {
                 <div id="bucket-in-progress" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>\uD83D\uDE97 In Progress</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides activos en ejecuci\u00F3n ahora mismo</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>🚗 In Progress</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Ride enejecución activa</div>
                     </div>
                     <span style={{ ...S.badge("#14532d"), color: "#4ade80" }}>{dispatchData?.inProgress?.length ?? 0}</span>
                   </div>
@@ -1244,18 +1378,59 @@ export default function AdminPanel() {
                     const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : 0
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    const isExpanded = expandedDispatchId === b.id
                     return (
-                      <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a2a1a", gap: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
-                            <span style={{ fontSize: 10, color: "#4ade8080", background: "#14532d50", padding: "1px 6px", borderRadius: 4 }}>\uD83D\uDFE2 {agingLabel}</span>
+                      <div key={b.id} style={{ display: "flex", flexDirection: "column", padding: "12px 0", borderBottom: "1px solid #1a2a1a", gap: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ fontSize: 10, color: "#4ade8080", background: "#14532d50", padding: "1px 6px", borderRadius: 4 }}>🟢 {agingLabel}</span>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888" }}>
+                              {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
+                            </div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>👤 {b.driver_name} ({b.driver_code})</div>}
                           </div>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                          <div style={{ fontSize: 12, color: "#888" }}>{fmt(b.total_price)}</div>
-                          {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>\uD83D\uDC64 {b.driver_name} ({b.driver_code})</div>}
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge(statusColor[b.status] ?? "#14532d"), color: statusText[b.status] ?? "#4ade80" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
                         </div>
-                        <span style={{ ...S.badge(statusColor[b.status] ?? "#14532d"), color: statusText[b.status] ?? "#4ade80" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
+                        {isExpanded && (
+                          <div style={{ padding: "12px 14px", background: "#0a1a0a", borderRadius: 8, border: "1px solid #14532d", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 10 }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Estado pago:</span> <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b" }}>{b.payment_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pickup:</span> <span style={{ color: "#fff" }}>{b.pickup_address || b.pickup_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Dropoff:</span> <span style={{ color: "#fff" }}>{b.dropoff_address || b.dropoff_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fecha/Hora:</span> <span style={{ color: "#fff" }}>{fmtDate(b.pickup_at)}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehículo:</span> <span style={{ color: "#fff" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pasajeros:</span> <span style={{ color: "#fff" }}>{b.passenger_count || b.passengers || 1}</span></div>
+                              <div><span style={{ color: "#666" }}>Equipaje:</span> <span style={{ color: "#fff" }}>{b.luggage_count ?? "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Conductor:</span> <span style={{ color: "#4ade80" }}>{b.driver_name} ({b.driver_code})</span></div>
+                              <div><span style={{ color: "#666" }}>Tel. conductor:</span> <span style={{ color: "#fff" }}>{b.driver_phone || "—"}</span></div>
+                            </div>
+                            {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {b.driver_phone && (
+                            <a href={`tel:${b.driver_phone}`} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#14532d", color: "#4ade80", border: "none", textDecoration: "none" }}>
+                              📞 Conductor
+                            </a>
+                          )}
+                          {b.client_phone && (
+                            <a href={`tel:${b.client_phone}`} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1e3a5f", color: "#60a5fa", border: "none", textDecoration: "none" }}>
+                              📞 Cliente
+                            </a>
+                          )}
+                          <button
+                            onClick={() => { if (window.confirm("Override restringido: ¿marcar como completado?")) handleBookingStatus(b.id, "completed", "not_required") }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a1a1a", color: "#555", border: "1px solid #333" }}
+                          >🔒 Override Completar</button>
+                        </div>
                       </div>
                     )
                   })}
@@ -1267,35 +1442,62 @@ export default function AdminPanel() {
                 <div id="bucket-completed" style={S.card}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#6b7280" }}>\u2705 Completed (24h)</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides completados en las \u00FAltimas 24 horas</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#6b7280" }}>✅ Completed (24h)</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides completados en las últimas 24 horas</div>
                     </div>
                     <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>{dispatchData?.completed?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.completed?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides completados en las \u00FAltimas 24h</div>
-                  ) : (dispatchData.completed ?? []).map(b => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides completados en las últimas 24h</div>
+                  ) : (dispatchData.completed ?? []).map(b => {
+                    const isExpanded = expandedDispatchId === b.id
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ ...S.badge("#1a1a1a"), color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b", fontSize: 10 }}>{b.payment_status?.toUpperCase() || "PENDING"}</span>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)}</div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#555" }}>👤 {b.driver_name}</div>}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>COMPLETED</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)}</div>
-                        {b.driver_name && <div style={{ fontSize: 12, color: "#555" }}>\uD83D\uDC64 {b.driver_name}</div>}
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#111", borderRadius: 8, border: "1px solid #222", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 10 }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Estado pago:</span> <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b" }}>{b.payment_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Pickup:</span> <span style={{ color: "#fff" }}>{b.pickup_address || b.pickup_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Dropoff:</span> <span style={{ color: "#fff" }}>{b.dropoff_address || b.dropoff_zone || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Fecha/Hora:</span> <span style={{ color: "#fff" }}>{fmtDate(b.pickup_at)}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehículo:</span> <span style={{ color: "#fff" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Conductor:</span> <span style={{ color: "#aaa" }}>{b.driver_name} ({b.driver_code})</span></div>
+                              <div><span style={{ color: "#666" }}>Fuente:</span> <span style={{ color: "#fff" }}>{b.lead_source || b.booking_origin || "—"}</span></div>
+                            </div>
+                            {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <button onClick={() => handleBookingStatus(b.id, "archived", "not_required")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>Archivar</button>
+                          <button
+                            onClick={() => { if (window.confirm("Reabrir este booking requiere permiso especial. \u00BFContinuar?")) handleBookingStatus(b.id, "needs_review", "not_required") }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a1a1a", color: "#555", border: "1px solid #333" }}
+                          >🔒 Reabrir (restringido)</button>
+                        </div>
                       </div>
-                      <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>COMPLETED</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </>
             )}
           </div>
         )}
-
-        {/* ======================================================
-            4. DRIVERS
-        ====================================================== */}
         {tab === "drivers" && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
