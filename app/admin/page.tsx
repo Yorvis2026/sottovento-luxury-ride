@@ -995,7 +995,7 @@ export default function AdminPanel() {
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={loadDispatch} style={S.btn()} disabled={loadingDispatch}>
-                  {loadingDispatch ? "Loading..." : "\u21BB Refresh"}
+                  {loadingDispatch ? "Loading..." : "🔄 Refresh"}
                 </button>
               </div>
             </div>
@@ -1368,7 +1368,7 @@ export default function AdminPanel() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>🚗 In Progress</div>
-                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Ride enejecución activa</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Ride en ejecución activa</div>
                     </div>
                     <span style={{ ...S.badge("#14532d"), color: "#4ade80" }}>{dispatchData?.inProgress?.length ?? 0}</span>
                   </div>
@@ -1486,7 +1486,7 @@ export default function AdminPanel() {
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                           <button onClick={() => handleBookingStatus(b.id, "archived", "not_required")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>Archivar</button>
                           <button
-                            onClick={() => { if (window.confirm("Reabrir este booking requiere permiso especial. \u00BFContinuar?")) handleBookingStatus(b.id, "needs_review", "not_required") }}
+                            onClick={() => { if (window.confirm("Reabrir este booking requiere permiso especial. ¿Continuar?")) handleBookingStatus(b.id, "needs_review", "not_required") }}
                             style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a1a1a", color: "#555", border: "1px solid #333" }}
                           >🔒 Reabrir (restringido)</button>
                         </div>
