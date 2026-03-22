@@ -327,18 +327,25 @@ export async function GET(req: NextRequest) {
     try {
       const upcomingRows = await sql`
         SELECT
-          id AS booking_id,
-          status,
-          pickup_address,
-          dropoff_address,
-          pickup_at,
-          vehicle_type,
-          total_price
-        FROM bookings
-        WHERE assigned_driver_id = ${driver.id}
-          AND status IN ('accepted', 'assigned')
-          AND pickup_at > NOW() + INTERVAL '90 minutes'
-        ORDER BY pickup_at ASC
+          b.id AS booking_id,
+          b.status,
+          b.pickup_address,
+          b.dropoff_address,
+          b.pickup_at,
+          b.vehicle_type,
+          b.total_price,
+          b.flight_number,
+          b.passengers,
+          b.luggage,
+          b.notes,
+          c.full_name AS client_name,
+          c.phone AS client_phone
+        FROM bookings b
+        LEFT JOIN clients c ON c.id = b.client_id
+        WHERE b.assigned_driver_id = ${driver.id}
+          AND b.status IN ('accepted', 'assigned')
+          AND b.pickup_at > NOW() + INTERVAL '90 minutes'
+        ORDER BY b.pickup_at ASC
         LIMIT 10
       `;
       upcoming_rides = upcomingRows.map((r) => {
@@ -356,6 +363,12 @@ export async function GET(req: NextRequest) {
           total_price: Number(r.total_price ?? 0),
           ride_window_state: "upcoming",
           minutes_until_pickup: minutesUntil,
+          flight_number: r.flight_number ?? null,
+          passengers: r.passengers ?? null,
+          luggage: r.luggage ?? null,
+          notes: r.notes ?? null,
+          client_name: r.client_name ?? null,
+          client_phone: r.client_phone ?? null,
         };
       });
     } catch { /* non-blocking */ }

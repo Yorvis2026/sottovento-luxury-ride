@@ -429,6 +429,12 @@ interface UpcomingRide {
   total_price: number
   ride_window_state: string
   minutes_until_pickup?: number | null
+  flight_number?: string | null
+  passengers?: number | null
+  luggage?: string | null
+  notes?: string | null
+  client_name?: string | null
+  client_phone?: string | null
 }
 
 interface CompletedRide {
@@ -601,6 +607,8 @@ export default function DriverDashboardByCode() {
   // ── Driver recovery actions ──────────────────────────────────
   const [reporting, setReporting] = useState(false)
   const [reportResult, setReportResult] = useState<{ action: string; success: boolean } | null>(null)
+  // ── Upcoming ride detail expand ─────────────────────────────────
+  const [expandedRideId, setExpandedRideId] = useState<string | null>(null)
   // ── Dispatch live sync ────────────────────────────────────────
   const [rideUpdatedByDispatch, setRideUpdatedByDispatch] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1383,6 +1391,7 @@ export default function DriverDashboardByCode() {
                 const minutesUntil = ride.pickup_datetime
                   ? Math.round((new Date(ride.pickup_datetime).getTime() - Date.now()) / 60000) : null
                 const isNearWindow = minutesUntil !== null && minutesUntil <= 120
+                const isExpanded = expandedRideId === ride.booking_id
 
                 return (
                   <div key={ride.booking_id}
@@ -1395,14 +1404,17 @@ export default function DriverDashboardByCode() {
                         {lang === "es" ? `Activación en ${minutesUntil} min` : `Activates in ${minutesUntil} min`}
                       </div>
                     )}
-                    <div className="px-4 py-3">
+                    {/* Header row — always visible, tap to expand */}
+                    <div className="px-4 py-3 cursor-pointer"
+                      onClick={() => setExpandedRideId(isExpanded ? null : ride.booking_id)}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
                           <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
                         </div>
-                        <div className="text-lg font-bold flex-shrink-0" style={{ color: GOLD }}>
-                          ${ride.total_price.toFixed(0)}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="text-lg font-bold" style={{ color: GOLD }}>${ride.total_price.toFixed(0)}</div>
+                          <div className="text-zinc-500 text-xs">{isExpanded ? "▲" : "▼"}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-3 mt-2">
@@ -1416,6 +1428,53 @@ export default function DriverDashboardByCode() {
                         )}
                       </div>
                     </div>
+                    {/* Expanded detail panel */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-zinc-800">
+                        <div className="mt-3 space-y-2">
+                          {ride.client_name && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-500 w-20 flex-shrink-0">{lang === "es" ? "Cliente" : "Client"}</span>
+                              <span className="text-xs text-white">{ride.client_name}</span>
+                            </div>
+                          )}
+                          {ride.client_phone && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-500 w-20 flex-shrink-0">{lang === "es" ? "Teléfono" : "Phone"}</span>
+                              <a href={`tel:${ride.client_phone}`} className="text-xs" style={{ color: GOLD }}>{ride.client_phone}</a>
+                            </div>
+                          )}
+                          {ride.flight_number && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-500 w-20 flex-shrink-0">{lang === "es" ? "Vuelo" : "Flight"}</span>
+                              <span className="text-xs text-white font-mono">{ride.flight_number}</span>
+                            </div>
+                          )}
+                          {ride.passengers && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-500 w-20 flex-shrink-0">{lang === "es" ? "Pasajeros" : "Passengers"}</span>
+                              <span className="text-xs text-white">{ride.passengers}</span>
+                            </div>
+                          )}
+                          {ride.luggage && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-500 w-20 flex-shrink-0">{lang === "es" ? "Equipaje" : "Luggage"}</span>
+                              <span className="text-xs text-white">{ride.luggage}</span>
+                            </div>
+                          )}
+                          {ride.notes && (
+                            <div className="flex items-start gap-2">
+                              <span className="text-xs text-zinc-500 w-20 flex-shrink-0">{lang === "es" ? "Notas" : "Notes"}</span>
+                              <span className="text-xs text-zinc-300">{ride.notes}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 pt-1">
+                            <span className="text-xs text-zinc-500 w-20 flex-shrink-0">Booking ID</span>
+                            <span className="text-xs font-mono text-zinc-400">{ride.booking_id.slice(0, 8).toUpperCase()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}

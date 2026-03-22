@@ -112,14 +112,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "report_incomplete") {
-      // Update booking dispatch_status → needs_correction so it appears in Driver Issue bucket
-      try {
-        await sql`
-          UPDATE bookings
-          SET dispatch_status = 'needs_correction', updated_at = NOW()
-          WHERE id = ${booking_id}::uuid
-        `
-      } catch { /* non-blocking */ }
+      // Release driver assignment + move to Driver Issue bucket
+      await sql`
+        UPDATE bookings
+        SET
+          dispatch_status    = 'needs_correction',
+          assigned_driver_id = NULL,
+          updated_at         = NOW()
+        WHERE id = ${booking_id}::uuid
+      `
       // Audit log
       try {
         await sql`
@@ -158,14 +159,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "request_correction") {
-      // Update booking dispatch_status → needs_correction so it appears in Driver Issue bucket
-      try {
-        await sql`
-          UPDATE bookings
-          SET dispatch_status = 'needs_correction', updated_at = NOW()
-          WHERE id = ${booking_id}::uuid
-        `
-      } catch { /* non-blocking */ }
+      // Release driver assignment + move to Driver Issue bucket
+      await sql`
+        UPDATE bookings
+        SET
+          dispatch_status    = 'needs_correction',
+          assigned_driver_id = NULL,
+          updated_at         = NOW()
+        WHERE id = ${booking_id}::uuid
+      `
       // Audit log
       try {
         await sql`

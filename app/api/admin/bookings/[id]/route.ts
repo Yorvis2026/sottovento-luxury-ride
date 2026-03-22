@@ -240,6 +240,25 @@ export async function PATCH(
 
     // Assign driver + send email notification
     if (assigned_driver_id !== undefined) {
+      // ── Pre-assignment validation gate (Section 3.3) ──────────────
+      if (assigned_driver_id) {
+        const [bookingCheck] = await sql`
+          SELECT pickup_at, pickup_address, dropoff_address, total_price
+          FROM bookings WHERE id = ${id}::uuid LIMIT 1
+        `;
+        const missingFields: string[] = [];
+        if (!bookingCheck?.pickup_at) missingFields.push("pickup_time");
+        if (!bookingCheck?.pickup_address || bookingCheck.pickup_address === "TBD") missingFields.push("pickup_address");
+        if (!bookingCheck?.dropoff_address || bookingCheck.dropoff_address === "TBD") missingFields.push("dropoff_address");
+        if (!bookingCheck?.total_price || Number(bookingCheck.total_price) === 0) missingFields.push("total_price");
+        if (missingFields.length > 0) {
+          return NextResponse.json(
+            { error: `Cannot assign driver: booking is missing required fields: ${missingFields.join(", ")}. Please edit the booking first.`, missingFields },
+            { status: 422 }
+          );
+        }
+      }
+
       await sql`
         UPDATE bookings
         SET assigned_driver_id = ${assigned_driver_id}::uuid, updated_at = NOW()

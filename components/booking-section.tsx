@@ -234,6 +234,18 @@ function BookingInner() {
       setPayError("Pickup date and time are required.")
       return
     }
+    // ── 120-min advance booking window (public web only) ──────────
+    {
+      const MIN_ADVANCE_MINUTES = 120
+      const pickupDateTime = new Date(`${formData.date}T${formData.time}:00`)
+      const nowPlusMinimum = new Date(Date.now() + MIN_ADVANCE_MINUTES * 60 * 1000)
+      if (pickupDateTime < nowPlusMinimum) {
+        setPayError(
+          "To ensure punctual premium service, Sottovento bookings require at least 2 hours advance notice. For urgent transportation requests, please contact us directly."
+        )
+        return
+      }
+    }
     if (!formData.name?.trim()) {
       setPayError("Passenger name is required.")
       return
@@ -678,6 +690,7 @@ function BookingInner() {
                   <input
                     type="date"
                     value={formData.date}
+                    min={new Date().toISOString().split("T")[0]}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     className={inputClass}
                     style={inputStyle}
@@ -694,6 +707,19 @@ function BookingInner() {
                   />
                 </div>
               </div>
+              {/* 120-min advance notice warning */}
+              {formData.date && formData.time && (() => {
+                const pickupDT = new Date(`${formData.date}T${formData.time}:00`)
+                const minDT = new Date(Date.now() + 120 * 60 * 1000)
+                return pickupDT < minDT ? (
+                  <div className="rounded-lg p-4" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.4)" }}>
+                    <p style={{ color: "#fca5a5", fontSize: 14, lineHeight: 1.5 }}>
+                      ⚠️ <strong>Advance notice required.</strong> Sottovento bookings require at least 2 hours advance notice. Please select a later time or{" "}
+                      <a href="#contact" style={{ color: "#fca5a5", textDecoration: "underline" }}>contact us directly</a> for urgent requests.
+                    </p>
+                  </div>
+                ) : null
+              })()}
 
               {/* Date/time summary */}
               {formData.date && formData.time && (
