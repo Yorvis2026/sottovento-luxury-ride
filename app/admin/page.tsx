@@ -83,6 +83,7 @@ export default function AdminPanel() {
     migrationRequired?: boolean;
   } | null>(null)
   const [loadingDispatch, setLoadingDispatch] = useState(false)
+  const [expandedDispatchId, setExpandedDispatchId] = useState<string | null>(null)
   const [migrationMsg, setMigrationMsg] = useState("")
   const [runningMigration, setRunningMigration] = useState(false)
   const [runningReclassify, setRunningReclassify] = useState(false)

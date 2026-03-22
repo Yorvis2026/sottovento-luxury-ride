@@ -60,7 +60,7 @@ export async function GET(req: Request) {
         FROM bookings b
         LEFT JOIN clients c ON b.client_id = c.id
         LEFT JOIN drivers d ON b.assigned_driver_id = d.id
-        WHERE b.status = ANY(ARRAY['new','needs_review','ready_for_dispatch','assigned','driver_confirmed','in_progress','driver_issue'])
+        WHERE b.status = ANY(ARRAY['new','needs_review','ready_for_dispatch','assigned','driver_confirmed','in_progress','driver_issue','pending_dispatch','pending','pending_payment'])
         ORDER BY b.created_at DESC
         LIMIT 200
       `;
