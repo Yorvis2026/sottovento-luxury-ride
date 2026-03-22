@@ -985,30 +985,39 @@ export default function AdminPanel() {
         {/* ======================================================
             3. DISPATCH
         ====================================================== */}
-        {tab === "dispatch" && (
+                {tab === "dispatch" && (
           <div>
+            {/* ── Header ── */}
             <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>⚡ Torre de Control Operacional</div>
-                <div style={{ color: "#555", fontSize: 13 }}>Ciclo de vida completo de rides — actualización automática</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>&#9889; Torre de Control Operacional</div>
+                <div style={{ color: "#555", fontSize: 13 }}>Ciclo de vida completo de rides &mdash; actualiza en tiempo real</div>
               </div>
               <button onClick={loadDispatch} disabled={loadingDispatch} style={{ ...S.btn(), fontSize: 12, padding: "8px 16px", background: "#1a1a1a", color: "#c9a84c", border: "1px solid #333" }}>
-                {loadingDispatch ? "..." : "🔄 Actualizar"}
+                {loadingDispatch ? "..." : "\uD83D\uDD04 Actualizar"}
               </button>
             </div>
-            {/* ---- 6-Bucket Summary Counters ---- */}
+
+            {/* ── KPI Cards (interactive — click to scroll to bucket) ── */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Driver Issue", count: dispatchData?.driverIssue?.length ?? 0, color: "#ef4444", icon: "🚨" },
-                { label: "Needs Review", count: dispatchData?.needsReview?.length ?? 0, color: "#f59e0b", icon: "⚠️" },
-                { label: "Ready to Dispatch", count: dispatchData?.readyForDispatch?.length ?? 0, color: "#60a5fa", icon: "📦" },
-                { label: "Assigned", count: dispatchData?.assigned?.length ?? 0, color: "#a78bfa", icon: "👤" },
-                { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "🚗" },
-                { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "✅" },
+                { label: "Driver Issue", count: dispatchData?.driverIssue?.length ?? 0, color: "#ef4444", icon: "\uD83D\uDEA8", anchor: "bucket-driver-issue" },
+                { label: "Needs Review", count: dispatchData?.needsReview?.length ?? 0, color: "#f59e0b", icon: "\u26A0\uFE0F", anchor: "bucket-needs-review" },
+                { label: "Ready to Dispatch", count: dispatchData?.readyForDispatch?.length ?? 0, color: "#60a5fa", icon: "\uD83D\uDCE6", anchor: "bucket-ready" },
+                { label: "Assigned", count: dispatchData?.assigned?.length ?? 0, color: "#a78bfa", icon: "\uD83D\uDC64", anchor: "bucket-assigned" },
+                { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "\uD83D\uDE97", anchor: "bucket-in-progress" },
+                { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "\u2705", anchor: "bucket-completed" },
               ].map(k => (
-                <div key={k.label} style={{ background: k.count > 0 ? k.color + "15" : "#111", border: `1px solid ${k.count > 0 ? k.color + "40" : "#222"}`, borderRadius: 10, padding: "12px 14px" }}>
+                <div
+                  key={k.label}
+                  onClick={() => { const el = document.getElementById(k.anchor); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }) }}
+                  style={{ background: k.count > 0 ? k.color + "15" : "#111", border: `1px solid ${k.count > 0 ? k.color + "40" : "#222"}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", transition: "border-color 0.15s" }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = k.color + "80")}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = k.count > 0 ? k.color + "40" : "#222")}
+                >
                   <div style={{ fontSize: 10, color: k.count > 0 ? k.color : "#444", letterSpacing: 1, marginBottom: 4 }}>{k.icon} {k.label.toUpperCase()}</div>
                   <div style={{ fontSize: 28, fontWeight: 700, color: k.count > 0 ? k.color : "#333" }}>{k.count}</div>
+                  <div style={{ fontSize: 10, color: "#444", marginTop: 2 }}>&#8594; ver bucket</div>
                 </div>
               ))}
             </div>
@@ -1017,67 +1026,61 @@ export default function AdminPanel() {
               <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
             ) : (
               <>
-
                 {/* ════════════════════════════════════════════════
                     BUCKET 1: DRIVER ISSUE (red — urgent)
                 ════════════════════════════════════════════════ */}
-                <div style={{ ...S.card, marginBottom: 16, borderColor: (dispatchData?.driverIssue?.length ?? 0) > 0 ? "#ef444440" : "#222" }}>
+                <div id="bucket-driver-issue" style={{ ...S.card, marginBottom: 16, borderColor: (dispatchData?.driverIssue?.length ?? 0) > 0 ? "#ef444440" : "#222" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>🚨 Driver Issue</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor rechazó o reportó datos incompletos — acción inmediata requerida</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>\uD83D\uDEA8 Driver Issue</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor rechaz\u00F3 o report\u00F3 datos incompletos &mdash; acci\u00F3n inmediata requerida</div>
                     </div>
                     <span style={{ ...S.badge("#3b0000"), color: "#ef4444" }}>{dispatchData?.driverIssue?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.driverIssue?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin problemas activos — todos los conductores operando normalmente</div>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin issues de conductor activos</div>
                   ) : (dispatchData.driverIssue ?? []).map(b => {
                     const missingFields: string[] = []
-                    if (!b.pickup_address?.trim()) missingFields.push("dirección recogida")
-                    if (!b.dropoff_address?.trim()) missingFields.push("dirección destino")
-                    if (!b.pickup_at) missingFields.push("hora pickup")
-                    if (!b.client_name?.trim()) missingFields.push("nombre pasajero")
-                    if (!b.client_phone?.trim()) missingFields.push("teléfono pasajero")
+                    if (!b.pickup_address && !b.pickup_zone) missingFields.push("pickup")
+                    if (!b.dropoff_address && !b.dropoff_zone) missingFields.push("dropoff")
+                    if (!b.client_phone) missingFields.push("tel. cliente")
+                    if (!b.pickup_at) missingFields.push("fecha/hora")
                     const isReady = missingFields.length === 0
-                    const isRejected = b.dispatch_status === 'driver_rejected' || (b as any).last_driver_action === 'driver_rejected_incomplete_ride'
+                    const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : Date.now() - new Date(b.created_at).getTime()
+                    const agingMin = Math.floor(agingMs / 60000)
+                    const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
                     return (
                       <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a0000" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: isRejected ? "#ef4444" : "#f59e0b" }}>
-                              {isRejected ? "🚨 RECHAZADO" : "⚠️ INCOMPLETO"} — {b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ fontSize: 10, color: "#ef444480", background: "#3b000050", padding: "1px 6px", borderRadius: 4 }}>\u23F1 {agingLabel} ago</span>
                             </div>
-                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name || "Sin cliente"}</div>
-                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>👤 {b.driver_name} ({b.driver_code})</div>}
-                            <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>
+                              {b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.client_name || "Sin cliente"}</div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>\uD83D\uDC64 {b.driver_name} ({b.driver_code})</div>}
+                            {(b as any).driver_issue_notes && <div style={{ fontSize: 11, color: "#fca5a5", marginTop: 4, padding: "4px 8px", background: "#3b000050", borderRadius: 4 }}>Nota: {(b as any).driver_issue_notes}</div>}
                             {missingFields.length > 0 && (
                               <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b000050", border: "1px solid #ef444440", fontSize: 11, color: "#fca5a5" }}>
                                 Faltan: {missingFields.join(", ")}
                               </div>
                             )}
                           </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-                            <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                          </div>
+                          <span style={{ ...S.badge("#3b0000"), color: "#ef4444", fontSize: 10 }}>DRIVER ISSUE</span>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <button
-                            onClick={() => handleOpenEdit(b)}
-                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f", fontWeight: 600 }}
-                          >✏️ Editar Booking</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>\u270F\uFE0F Editar</button>
                           <button
                             onClick={() => {
-                              if (!isReady) {
-                                setGlobalToast({ msg: `Completar datos antes de asignar: ${missingFields.join(", ")}`, type: "error" })
-                                setTimeout(() => setGlobalToast(null), 4000)
-                                return
-                              }
-                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
-                              setAssignMsg("")
+                              if (!isReady) { setGlobalToast({ msg: `Completar datos: ${missingFields.join(", ")}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000); return }
+                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("")
                             }}
-                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
-                          >{isReady ? "✅ Reasignar Conductor" : "⚠️ Completar primero"}</button>
-                          <button onClick={() => handleDispatchStatus(b.id, "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>→ Mover a Revisión</button>
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
+                          >{isReady ? "\u2705 Reasignar Conductor" : "\u26A0\uFE0F Completar primero"}</button>
+                          <button onClick={() => handleDispatchStatus(b.id, "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>&#8594; Mover a Revisi\u00F3n</button>
                           <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
@@ -1088,54 +1091,48 @@ export default function AdminPanel() {
                 {/* ════════════════════════════════════════════════
                     BUCKET 2: NEEDS REVIEW (amber)
                 ════════════════════════════════════════════════ */}
-                <div style={{ ...S.card, marginBottom: 16 }}>
+                <div id="bucket-needs-review" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>⚠️ Needs Review</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Requiere revisión del admin antes de despachar</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>\u26A0\uFE0F Needs Review</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Datos incompletos &mdash; NO despachar hasta que admin valide y corrija</div>
                     </div>
                     <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{dispatchData?.needsReview?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.needsReview?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings pendientes de revisión</div>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings pendientes de revisi\u00F3n</div>
                   ) : (dispatchData.needsReview ?? []).map(b => {
                     const missingFields: string[] = []
-                    if (!b.pickup_address?.trim()) missingFields.push("dirección recogida")
-                    if (!b.dropoff_address?.trim()) missingFields.push("dirección destino")
-                    if (!b.pickup_at) missingFields.push("hora pickup")
-                    if (!b.client_name?.trim()) missingFields.push("nombre pasajero")
-                    if (!b.client_phone?.trim()) missingFields.push("teléfono pasajero")
-                    const isReady = missingFields.length === 0
+                    if (!b.pickup_address && !b.pickup_zone) missingFields.push("pickup")
+                    if (!b.dropoff_address && !b.dropoff_zone) missingFields.push("dropoff")
+                    if (!b.client_phone) missingFields.push("tel. cliente")
+                    if (!b.pickup_at) missingFields.push("fecha/hora")
+                    const agingMs = Date.now() - new Date(b.created_at).getTime()
+                    const agingMin = Math.floor(agingMs / 60000)
+                    const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    const isUrgent = agingMin > 60
                     return (
-                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a1a1a" }}>
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a1500" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name || "Sin cliente"}</div>
-                            <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ fontSize: 10, color: isUrgent ? "#ef4444" : "#f59e0b80", background: isUrgent ? "#3b000050" : "#3b1a0050", padding: "1px 6px", borderRadius: 4 }}>{isUrgent ? "\uD83D\uDD34" : "\u23F1"} {agingLabel}</span>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.client_name || "Sin cliente"}</div>
                             {missingFields.length > 0 && (
-                              <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b1a0030", border: "1px solid #f59e0b40", fontSize: 11, color: "#fbbf24" }}>
+                              <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b1a0050", border: "1px solid #f59e0b40", fontSize: 11, color: "#fcd34d" }}>
                                 Faltan: {missingFields.join(", ")}
                               </div>
                             )}
                           </div>
-                          <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
+                          <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b", fontSize: 10 }}>REVIEW</span>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
-                          <button
-                            onClick={() => {
-                              if (!isReady) {
-                                setGlobalToast({ msg: `Completar datos: ${missingFields.join(", ")}`, type: "error" })
-                                setTimeout(() => setGlobalToast(null), 4000)
-                                return
-                              }
-                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
-                              setAssignMsg("")
-                            }}
-                            style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", cursor: isReady ? "pointer" : "not-allowed", opacity: isReady ? 1 : 0.6 }}
-                          >{isReady ? "✅ Asignar" : "⚠️ Completar primero"}</button>
-                          <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>\u270F\uFE0F Editar y Validar</button>
+                          <button onClick={() => handleBookingStatus(b.id, "ready_for_dispatch", "not_required")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1e3a5f", color: "#60a5fa", border: "none" }}>&#8594; Listo para Despacho</button>
+                          <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
                     )
@@ -1145,46 +1142,44 @@ export default function AdminPanel() {
                 {/* ════════════════════════════════════════════════
                     BUCKET 3: READY FOR DISPATCH (blue)
                 ════════════════════════════════════════════════ */}
-                <div style={{ ...S.card, marginBottom: 16 }}>
+                <div id="bucket-ready" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>📦 Ready for Dispatch</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Listos para asignar conductor</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>\uD83D\uDCE6 Ready for Dispatch</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Validados y listos para asignar conductor</div>
                     </div>
                     <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>{dispatchData?.readyForDispatch?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.readyForDispatch?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin bookings listos para despacho</div>
                   ) : (dispatchData.readyForDispatch ?? []).map(b => {
-                    const missingFields: string[] = []
-                    if (!b.pickup_address?.trim()) missingFields.push("dirección recogida")
-                    if (!b.dropoff_address?.trim()) missingFields.push("dirección destino")
-                    if (!b.pickup_at) missingFields.push("hora pickup")
-                    if (!b.client_name?.trim()) missingFields.push("nombre pasajero")
-                    if (!b.client_phone?.trim()) missingFields.push("teléfono pasajero")
-                    const isReady = missingFields.length === 0
+                    const agingMs = Date.now() - new Date(b.created_at).getTime()
+                    const agingMin = Math.floor(agingMs / 60000)
+                    const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    const hasSourceDriver = !!b.captured_by_driver_code
                     return (
-                      <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                          <div style={{ fontSize: 12, color: "#888" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)} · {b.client_name || "Sin cliente"}</div>
-                          <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1a2a3a" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ fontSize: 10, color: "#60a5fa80", background: "#1e3a5f50", padding: "1px 6px", borderRadius: 4 }}>\u23F1 {agingLabel}</span>
+                              {hasSourceDriver && <span style={{ fontSize: 10, color: "#c9a84c", background: "#3b2a0050", padding: "1px 6px", borderRadius: 4 }}>\uD83D\uDC51 Source: {b.captured_by_driver_code}</span>}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.client_name || "Sin cliente"}</div>
+                            <div style={{ fontSize: 12, color: "#555" }}>{b.vehicle_type} &middot; {b.passenger_count || 1} pax</div>
+                          </div>
+                          <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa", fontSize: 10 }}>READY</span>
                         </div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️</button>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                           <button
-                            onClick={() => {
-                              if (!isReady) {
-                                setGlobalToast({ msg: `Completar: ${missingFields.join(", ")}`, type: "error" })
-                                setTimeout(() => setGlobalToast(null), 4000)
-                                return
-                              }
-                              setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })
-                              setAssignMsg("")
-                            }}
-                            style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: isReady ? "#14532d" : "#1a1a1a", color: isReady ? "#4ade80" : "#555", border: "none", opacity: isReady ? 1 : 0.5 }}
-                          >{isReady ? "✅ Asignar" : "⚠️ Incompleto"}</button>
+                            onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1e3a5f", color: "#60a5fa", border: "1px solid #2a4a7f", fontWeight: 700 }}
+                          >\uD83D\uDC64 Asignar Conductor</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>\u270F\uFE0F Editar</button>
+                          <button onClick={() => handleBookingStatus(b.id, "needs_review", "needs_review")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>&#8592; Mover a Revisi\u00F3n</button>
+                          <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
                         </div>
                       </div>
                     )
@@ -1194,84 +1189,105 @@ export default function AdminPanel() {
                 {/* ════════════════════════════════════════════════
                     BUCKET 4: ASSIGNED (purple)
                 ════════════════════════════════════════════════ */}
-                <div style={{ ...S.card, marginBottom: 16 }}>
+                <div id="bucket-assigned" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>👤 Assigned</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor asignado, esperando inicio del viaje</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>\uD83D\uDC64 Assigned</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Conductor asignado &mdash; esperando ejecuci\u00F3n del ride</div>
                     </div>
                     <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.assigned?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.assigned?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides asignados actualmente</div>
-                  ) : (dispatchData.assigned ?? []).map(b => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                        <div style={{ fontSize: 12, color: "#888" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
-                        {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>👤 {b.driver_name} ({b.driver_code})</div>}
-                        <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides asignados pendientes</div>
+                  ) : (dispatchData.assigned ?? []).map(b => {
+                    const agingMs = Date.now() - new Date(b.created_at).getTime()
+                    const agingMin = Math.floor(agingMs / 60000)
+                    const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1f1a2e" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ fontSize: 10, color: "#a78bfa80", background: "#3b1f5e50", padding: "1px 6px", borderRadius: 4 }}>\u23F1 {agingLabel}</span>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)}</div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#a78bfa" }}>\uD83D\uDC64 {b.driver_name} ({b.driver_code}) {b.driver_phone ? `\u00B7 ${b.driver_phone}` : ""}</div>}
+                          </div>
+                          <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa", fontSize: 10 }}>{b.status?.toUpperCase().replace("_"," ")}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px" }}>\u270F\uFE0F Editar</button>
+                          <button onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>\uD83D\uDD04 Reasignar</button>
+                          <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}>Cancelar</button>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
-                        <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️</button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {/* ════════════════════════════════════════════════
                     BUCKET 5: IN PROGRESS (green)
                 ════════════════════════════════════════════════ */}
-                <div style={{ ...S.card, marginBottom: 16 }}>
+                <div id="bucket-in-progress" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>🚗 In Progress</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides activos en ejecución ahora mismo</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#4ade80" }}>\uD83D\uDE97 In Progress</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides activos en ejecuci\u00F3n ahora mismo</div>
                     </div>
                     <span style={{ ...S.badge("#14532d"), color: "#4ade80" }}>{dispatchData?.inProgress?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.inProgress?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin rides en progreso actualmente</div>
-                  ) : (dispatchData.inProgress ?? []).map(b => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                        <div style={{ fontSize: 12, color: "#888" }}>{fmt(b.total_price)}</div>
-                        {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>👤 {b.driver_name} ({b.driver_code})</div>}
-                        <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>ID: {b.id}</div>
+                  ) : (dispatchData.inProgress ?? []).map(b => {
+                    const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : 0
+                    const agingMin = Math.floor(agingMs / 60000)
+                    const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
+                    return (
+                      <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a2a1a", gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                            <span style={{ fontSize: 10, color: "#4ade8080", background: "#14532d50", padding: "1px 6px", borderRadius: 4 }}>\uD83D\uDFE2 {agingLabel}</span>
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                          <div style={{ fontSize: 12, color: "#888" }}>{fmt(b.total_price)}</div>
+                          {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>\uD83D\uDC64 {b.driver_name} ({b.driver_code})</div>}
+                        </div>
+                        <span style={{ ...S.badge(statusColor[b.status] ?? "#14532d"), color: statusText[b.status] ?? "#4ade80" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
                       </div>
-                      <span style={{ ...S.badge(statusColor[b.status] ?? "#14532d"), color: statusText[b.status] ?? "#4ade80" }}>{b.status?.replace("_", " ").toUpperCase()}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {/* ════════════════════════════════════════════════
                     BUCKET 6: COMPLETED (gray — last 24h)
                 ════════════════════════════════════════════════ */}
-                <div style={S.card}>
+                <div id="bucket-completed" style={S.card}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#6b7280" }}>✅ Completed (24h)</div>
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides completados en las últimas 24 horas</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#6b7280" }}>\u2705 Completed (24h)</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Rides completados en las \u00FAltimas 24 horas</div>
                     </div>
                     <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>{dispatchData?.completed?.length ?? 0}</span>
                   </div>
                   {!dispatchData?.completed?.length ? (
-                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides completados en las últimas 24h</div>
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin rides completados en las \u00FAltimas 24h</div>
                   ) : (dispatchData.completed ?? []).map(b => (
                     <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a", gap: 8 }}>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>{b.pickup_zone || b.pickup_address || "?"} → {b.dropoff_zone || b.dropoff_address || "?"}</div>
-                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} · {fmt(b.total_price)}</div>
-                        {b.driver_name && <div style={{ fontSize: 12, color: "#555" }}>👤 {b.driver_name}</div>}
-                        <div style={{ fontSize: 11, color: "#444", fontFamily: "monospace" }}>ID: {b.id}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>{b.pickup_zone || b.pickup_address || "?"} &#8594; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                        <div style={{ fontSize: 12, color: "#555" }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)}</div>
+                        {b.driver_name && <div style={{ fontSize: 12, color: "#555" }}>\uD83D\uDC64 {b.driver_name}</div>}
                       </div>
                       <span style={{ ...S.badge("#1a1a1a"), color: "#6b7280" }}>COMPLETED</span>
                     </div>
                   ))}
                 </div>
-
               </>
             )}
           </div>
