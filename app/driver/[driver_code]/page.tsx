@@ -609,6 +609,9 @@ export default function DriverDashboardByCode() {
   const [reportResult, setReportResult] = useState<{ action: string; success: boolean } | null>(null)
   // ── Upcoming ride detail expand ─────────────────────────────────
   const [expandedRideId, setExpandedRideId] = useState<string | null>(null)
+  // ── Referral share modal ─────────────────────────────────────
+  const [showReferralModal, setShowReferralModal] = useState(false)
+  const [referralCopied, setReferralCopied] = useState(false)
   // ── Dispatch live sync ────────────────────────────────────────
   const [rideUpdatedByDispatch, setRideUpdatedByDispatch] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1046,8 +1049,129 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────────
-  if (showEarlyStartModal && summary?.assigned_ride) {
+  // ── REFERRAL SHARE MODAL ──────────────────────────────────────────
+  if (showReferralModal && summary) {
+    const referralUrl = `${BASE_URL}/?ref=${summary.driver_code}`
+    const shareText = lang === "es"
+      ? `¡Reserva tu viaje de lujo con Sottovento! Usa mi enlace personalizado: ${referralUrl}`
+      : lang === "ht"
+      ? `Rezève vwayaj luksi ou ak Sottovento! Itilize lyen pèsonèl mwen: ${referralUrl}`
+      : `Book your luxury ride with Sottovento! Use my personal link: ${referralUrl}`
+
+    const handleCopyReferral = async () => {
+      try {
+        await navigator.clipboard.writeText(referralUrl)
+        setReferralCopied(true)
+        setTimeout(() => setReferralCopied(false), 2500)
+      } catch {
+        // fallback
+        const el = document.createElement("textarea")
+        el.value = referralUrl
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand("copy")
+        document.body.removeChild(el)
+        setReferralCopied(true)
+        setTimeout(() => setReferralCopied(false), 2500)
+      }
+    }
+
+    const handleNativeShare = async () => {
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: "Sottovento Luxury Ride",
+            text: shareText,
+            url: referralUrl,
+          })
+        } catch { /* user cancelled */ }
+      }
+    }
+
+    const smsUrl = `sms:?body=${encodeURIComponent(shareText)}`
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`
+    const emailUrl = `mailto:?subject=${encodeURIComponent(lang === "es" ? "Reserva tu viaje de lujo" : "Book your luxury ride")}&body=${encodeURIComponent(shareText)}`
+
+    return (
+      <div className="fixed inset-0 bg-black/80 flex items-end justify-center z-[90]"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0px)" }}
+        onClick={() => setShowReferralModal(false)}>
+        <div
+          className="w-full max-w-lg bg-zinc-900 rounded-t-2xl border-t border-zinc-700 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}>
+          {/* Handle bar */}
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-10 h-1 rounded-full bg-zinc-700" />
+          </div>
+          {/* Header */}
+          <div className="px-5 py-3 border-b border-zinc-800">
+            <div className="text-sm font-semibold">
+              {lang === "es" ? "Compartir mi enlace de referido" : lang === "ht" ? "Pataje lyen referans mwen" : "Share My Referral Link"}
+            </div>
+            <div className="text-xs text-zinc-500 mt-0.5">
+              {lang === "es" ? "Cada cliente que reserves queda atribuido a ti" : "Every client you bring is permanently attributed to you"}
+            </div>
+          </div>
+          {/* Referral URL display */}
+          <div className="mx-4 mt-4 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 flex items-center gap-3">
+            <div className="flex-1 text-xs text-zinc-300 truncate font-mono">{referralUrl}</div>
+            <button
+              onClick={handleCopyReferral}
+              className="flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition"
+              style={referralCopied ? { background: "#16a34a", color: "#fff" } : { background: GOLD, color: "#000" }}>
+              {referralCopied ? (lang === "es" ? "✓ Copiado" : "✓ Copied") : (lang === "es" ? "Copiar" : "Copy")}
+            </button>
+          </div>
+          {/* Share options */}
+          <div className="grid grid-cols-2 gap-3 px-4 mt-4 pb-6">
+            <a href={smsUrl}
+              className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 transition">
+              <span className="text-xl">💬</span>
+              <div>
+                <div className="text-sm font-medium">SMS</div>
+                <div className="text-xs text-zinc-500">{lang === "es" ? "Enviar por mensaje" : "Send via text"}</div>
+              </div>
+            </a>
+            <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 transition">
+              <span className="text-xl">📱</span>
+              <div>
+                <div className="text-sm font-medium">WhatsApp</div>
+                <div className="text-xs text-zinc-500">{lang === "es" ? "Enviar por WhatsApp" : "Send via WhatsApp"}</div>
+              </div>
+            </a>
+            <a href={emailUrl}
+              className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 transition">
+              <span className="text-xl">✉️</span>
+              <div>
+                <div className="text-sm font-medium">{lang === "es" ? "Correo" : "Email"}</div>
+                <div className="text-xs text-zinc-500">{lang === "es" ? "Enviar por email" : "Send via email"}</div>
+              </div>
+            </a>
+            {typeof navigator !== "undefined" && "share" in navigator && (
+              <button onClick={handleNativeShare}
+                className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 transition w-full text-left">
+                <span className="text-xl">📤</span>
+                <div>
+                  <div className="text-sm font-medium">{lang === "es" ? "Compartir" : "Share"}</div>
+                  <div className="text-xs text-zinc-500">{lang === "es" ? "Más opciones" : "More options"}</div>
+                </div>
+              </button>
+            )}
+          </div>
+          {/* Close button */}
+          <button
+            onClick={() => setShowReferralModal(false)}
+            className="w-full py-4 text-sm text-zinc-500 border-t border-zinc-800">
+            {lang === "es" ? "Cerrar" : lang === "ht" ? "Femen" : "Close"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────
+  if (showEarlyStartModal && summary?.assigned_ride) {e) {
     const pickupTime = summary.assigned_ride.pickup_datetime
       ? new Date(summary.assigned_ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
       : "scheduled time"
@@ -1348,14 +1472,15 @@ export default function DriverDashboardByCode() {
               </div>
               <span className="text-zinc-400">→</span>
             </Link>
-            <Link href={`/?ref=${summary.driver_code}`} target="_blank"
-              className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition">
+            <button
+              onClick={() => setShowReferralModal(true)}
+              className="w-full flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-4 transition text-left">
               <div>
                 <div className="text-sm font-medium">{t.referralLabel}</div>
                 <div className="text-xs text-zinc-500 mt-0.5">{t.referralSub}</div>
               </div>
-              <span style={{ color: GOLD }}>↗</span>
-            </Link>
+              <span style={{ color: GOLD }}>📤</span>
+            </button>
           </div>
 
           {/* Source ownership */}
