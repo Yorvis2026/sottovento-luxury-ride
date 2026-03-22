@@ -474,10 +474,17 @@ export default function EarningsPage() {
   // ── Render ─────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* Header */}
+      {/* Header — sticky with iOS safe-area-inset-top */}
       <div
-        className="border-b px-4 py-4 flex items-center gap-3"
-        style={{ borderColor: ZINC800 }}
+        className="border-b px-4 flex items-center gap-3 bg-black"
+        style={{
+          borderColor: ZINC800,
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          paddingTop: "max(env(safe-area-inset-top), 16px)",
+          paddingBottom: "16px",
+        }}
       >
         <Link
           href={driverCode ? `/driver/${driverCode}` : "/driver"}
