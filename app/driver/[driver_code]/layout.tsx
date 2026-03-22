@@ -91,7 +91,24 @@ export default function DriverByCodeLayout({
         {/* NOTE: manifest is injected by generateMetadata above (SSR) */}
         {/* Do NOT add a static manifest link here — it would conflict */}
       </head>
-      {children}
+      {/*
+        Safe-area side + bottom insets:
+        - Left/Right: prevents content from touching notch or Dynamic Island edges
+        - Bottom: prevents content from hiding behind the home indicator bar
+        - padding-top is NOT applied here — each sticky header handles it individually
+          using: paddingTop: max(env(safe-area-inset-top), 16px)
+      */}
+      <div
+        style={{
+          paddingLeft:   "env(safe-area-inset-left,   0px)",
+          paddingRight:  "env(safe-area-inset-right,  0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          overflowX:     "hidden",
+          minHeight:     "100dvh",
+        }}
+      >
+        {children}
+      </div>
     </>
   )
 }

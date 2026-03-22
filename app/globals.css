@@ -145,6 +145,33 @@
     text-wrap: balance;
   }
 
+  /* ── iOS Safe Area Utilities ─────────────────────────────── */
+  /* Use .safe-area-x on the outermost container of any PWA panel */
+
+  /* Left + Right + Bottom insets (for main content wrapper) */
+  .safe-area-x {
+    padding-left:   max(env(safe-area-inset-left),   12px);
+    padding-right:  max(env(safe-area-inset-right),  12px);
+  }
+
+  /* Bottom inset only (for bottom nav / last section) */
+  .safe-area-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 12px);
+  }
+
+  /* Top inset only (for sticky headers) */
+  .safe-area-top {
+    padding-top: max(env(safe-area-inset-top), 16px);
+  }
+
+  /* Full safe area wrapper — use on outermost page div */
+  .safe-area-full {
+    padding-top:    env(safe-area-inset-top,    0px);
+    padding-left:   env(safe-area-inset-left,   0px);
+    padding-right:  env(safe-area-inset-right,  0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   .animate-fade-in {
     animation: fadeIn 0.8s ease-in-out;
   }

@@ -81,7 +81,26 @@ export default function DriverLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="format-detection" content="telephone=no" />
       </head>
-      {children}
+      {/*
+        Safe-area wrapper:
+        - padding-left/right: max(env(safe-area-inset-left/right), 0px)
+          → prevents content from touching notch/Dynamic Island edges
+        - padding-bottom: max(env(safe-area-inset-bottom), 0px)
+          → prevents content from hiding behind home indicator
+        - overflow-x: hidden → prevents horizontal scroll on safe-area devices
+        Note: padding-top is handled per-header (sticky headers use safe-area-top)
+      */}
+      <div
+        style={{
+          paddingLeft:   "env(safe-area-inset-left,   0px)",
+          paddingRight:  "env(safe-area-inset-right,  0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          overflowX:     "hidden",
+          minHeight:     "100dvh",
+        }}
+      >
+        {children}
+      </div>
     </>
   )
 }
