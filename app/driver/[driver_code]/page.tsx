@@ -1171,7 +1171,7 @@ export default function DriverDashboardByCode() {
   }
 
   // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────
-  if (showEarlyStartModal && summary?.assigned_ride) {e) {
+  if (showEarlyStartModal && summary?.assigned_ride) {
     const pickupTime = summary.assigned_ride.pickup_datetime
       ? new Date(summary.assigned_ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
       : "scheduled time"
