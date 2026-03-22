@@ -1384,7 +1384,14 @@ export default function DriverDashboardByCode() {
       </div>
 
       {/* ── TABS ── */}
-      <div className="flex border-b border-zinc-800 mt-4 px-4 gap-1">
+      {/* Safe-area horizontal padding prevents tabs from touching screen edges on notch/Dynamic Island devices */}
+      <div
+        className="flex border-b border-zinc-800 mt-4"
+        style={{
+          paddingLeft:  "max(env(safe-area-inset-left),  16px)",
+          paddingRight: "max(env(safe-area-inset-right), 16px)",
+        }}
+      >
         {([
           { key: "overview",  label: "Overview",  badge: null },
           { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
@@ -1393,7 +1400,7 @@ export default function DriverDashboardByCode() {
         ] as { key: "overview" | "upcoming" | "completed" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
           <button key={tab.key}
             onClick={() => setDashTab(tab.key)}
-            className="relative pb-2 pt-1 px-3 text-xs font-medium uppercase tracking-widest transition-all"
+            className="relative pb-2 pt-1 flex-1 text-xs font-medium uppercase tracking-widest transition-all text-center"
             style={{ color: dashTab === tab.key ? GOLD : "#6b7280", borderBottom: dashTab === tab.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>
             {tab.label}
             {tab.badge !== null && (
