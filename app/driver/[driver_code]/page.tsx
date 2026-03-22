@@ -446,6 +446,16 @@ interface CompletedRide {
   completed_at: string | null
   vehicle_type: string
   total_price: number
+  flight_number?: string | null
+  notes?: string | null
+  passengers?: number | null
+  luggage?: number | null
+  client_name?: string | null
+  client_phone?: string | null
+  driver_earnings?: number | null
+  sln_commission?: number | null
+  source_earnings?: number | null
+  payout_status?: string | null
 }
 
 interface DriverSummary {
@@ -609,6 +619,8 @@ export default function DriverDashboardByCode() {
   const [reportResult, setReportResult] = useState<{ action: string; success: boolean } | null>(null)
   // ── Upcoming ride detail expand ─────────────────────────────────
   const [expandedRideId, setExpandedRideId] = useState<string | null>(null)
+  // ── Completed ride detail expand ─────────────────────────────────
+  const [expandedCompletedId, setExpandedCompletedId] = useState<string | null>(null)
   // ── Referral share modal ─────────────────────────────────────
   const [showReferralModal, setShowReferralModal] = useState(false)
   const [referralCopied, setReferralCopied] = useState(false)
@@ -1614,35 +1626,179 @@ export default function DriverDashboardByCode() {
           {completedCount === 0 ? (
             <div className="text-center py-12">
               <div className="text-4xl mb-3">✅</div>
-              <div className="text-zinc-500 text-sm">{lang === "es" ? "No hay viajes completados" : "No completed rides yet"}</div>
+              <div className="text-zinc-500 text-sm">
+                {lang === "es" ? "No hay viajes completados" : lang === "ht" ? "Pa gen vwayaj fèt" : "No completed rides yet"}
+              </div>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 pb-6">
               {summary.completed_rides.map((ride) => {
+                const isExpanded = expandedCompletedId === ride.booking_id
                 const pickupDate = ride.pickup_datetime
-                  ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""
-                const completedDate = ride.completed_at
-                  ? new Date(ride.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                  ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
+                const pickupTime = ride.pickup_datetime
+                  ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                const isNoShow = ride.status === "no_show"
+                const fareColor = isNoShow ? "#f87171" : "#4ade80"
+
+                // Payout status badge
+                const payoutBadge: Record<string, { label: string; color: string }> = {
+                  pending:   { label: lang === "es" ? "⏳ Pago pendiente" : "⏳ Pending payout",    color: "#f59e0b" },
+                  batched:   { label: lang === "es" ? "📦 En lote de pago" : "📦 In payout batch",  color: "#60a5fa" },
+                  paid:      { label: lang === "es" ? "✅ Transferido"      : "✅ Transferred",       color: "#4ade80" },
+                  completed: { label: lang === "es" ? "✅ Completado"       : "✅ Completed",         color: "#4ade80" },
+                }
+                const payout = payoutBadge[ride.payout_status ?? "pending"] ?? payoutBadge.pending
 
                 return (
                   <div key={ride.booking_id}
-                    className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
-                        <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-base font-bold" style={{ color: ride.status === "no_show" ? "#f87171" : "#4ade80" }}>
-                          {ride.status === "no_show" ? "No Show" : `+$${ride.total_price.toFixed(0)}`}
+                    className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+                    {/* CARD HEADER — always visible */}
+                    <button
+                      onClick={() => setExpandedCompletedId(isExpanded ? null : ride.booking_id)}
+                      className="w-full px-4 py-3 text-left"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
+                          <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
+                        </div>
+                        <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
+                          <div className="text-base font-bold" style={{ color: fareColor }}>
+                            {isNoShow ? "No Show" : `+$${ride.total_price.toFixed(0)}`}
+                          </div>
+                          <div className="text-xs" style={{ color: payout.color }}>{payout.label}</div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="text-xs text-zinc-400">{pickupDate}</span>
-                      {completedDate && <span className="text-xs text-zinc-500">Completed {completedDate}</span>}
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type}</span>
-                    </div>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className="text-xs text-zinc-400">{pickupDate}</span>
+                        {pickupTime && <span className="text-xs text-zinc-500">{pickupTime}</span>}
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type}</span>
+                        <span className="text-xs text-zinc-600 font-mono ml-auto">{ride.booking_id.slice(0, 8)}…</span>
+                        <span className="text-xs text-zinc-500 ml-1">{isExpanded ? "▲" : "▼"}</span>
+                      </div>
+                    </button>
+
+                    {/* EXPANDED DETAIL */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-zinc-800 pt-3 space-y-3">
+                        {/* Passenger info */}
+                        {(ride.client_name || ride.client_phone) && (
+                          <div>
+                            <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                              {lang === "es" ? "Pasajero" : "Passenger"}
+                            </div>
+                            {ride.client_name && <div className="text-sm text-white">{ride.client_name}</div>}
+                            {ride.client_phone && (
+                              <a href={`tel:${ride.client_phone}`} className="text-sm" style={{ color: "#60a5fa" }}>
+                                {ride.client_phone}
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Route detail */}
+                        <div>
+                          <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                            {lang === "es" ? "Ruta" : "Route"}
+                          </div>
+                          <div className="text-xs text-zinc-300">
+                            <span className="text-green-400">●</span> {ride.pickup_location}
+                          </div>
+                          <div className="text-xs text-zinc-300 mt-0.5">
+                            <span className="text-red-400">●</span> {ride.dropoff_location}
+                          </div>
+                        </div>
+
+                        {/* Trip details grid */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-zinc-800 rounded-lg p-2">
+                            <div className="text-xs text-zinc-500">{lang === "es" ? "Fecha" : "Date"}</div>
+                            <div className="text-xs text-white mt-0.5">{pickupDate}</div>
+                          </div>
+                          <div className="bg-zinc-800 rounded-lg p-2">
+                            <div className="text-xs text-zinc-500">{lang === "es" ? "Hora" : "Time"}</div>
+                            <div className="text-xs text-white mt-0.5">{pickupTime || "—"}</div>
+                          </div>
+                          <div className="bg-zinc-800 rounded-lg p-2">
+                            <div className="text-xs text-zinc-500">{lang === "es" ? "Vehículo" : "Vehicle"}</div>
+                            <div className="text-xs text-white mt-0.5">{ride.vehicle_type}</div>
+                          </div>
+                          {ride.flight_number && (
+                            <div className="bg-zinc-800 rounded-lg p-2">
+                              <div className="text-xs text-zinc-500">{lang === "es" ? "Vuelo" : "Flight"}</div>
+                              <div className="text-xs text-white mt-0.5">{ride.flight_number}</div>
+                            </div>
+                          )}
+                          {ride.passengers != null && (
+                            <div className="bg-zinc-800 rounded-lg p-2">
+                              <div className="text-xs text-zinc-500">{lang === "es" ? "Pasajeros" : "Passengers"}</div>
+                              <div className="text-xs text-white mt-0.5">{ride.passengers}</div>
+                            </div>
+                          )}
+                          {ride.luggage != null && (
+                            <div className="bg-zinc-800 rounded-lg p-2">
+                              <div className="text-xs text-zinc-500">{lang === "es" ? "Equipaje" : "Luggage"}</div>
+                              <div className="text-xs text-white mt-0.5">{ride.luggage} {lang === "es" ? "piezas" : "pieces"}</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Notes */}
+                        {ride.notes && (
+                          <div className="bg-zinc-800 rounded-lg p-2">
+                            <div className="text-xs text-zinc-500 mb-1">{lang === "es" ? "Notas" : "Notes"}</div>
+                            <div className="text-xs text-zinc-300">{ride.notes}</div>
+                          </div>
+                        )}
+
+                        {/* Earnings breakdown */}
+                        <div className="border border-zinc-700 rounded-lg p-3">
+                          <div className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
+                            {lang === "es" ? "Desglose de pago" : "Earnings breakdown"}
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between">
+                              <span className="text-xs text-zinc-400">{lang === "es" ? "Tarifa total" : "Total fare"}</span>
+                              <span className="text-xs font-medium text-white">${ride.total_price.toFixed(2)}</span>
+                            </div>
+                            {ride.sln_commission != null && (
+                              <div className="flex justify-between">
+                                <span className="text-xs text-zinc-400">{lang === "es" ? "Comisión SLN" : "SLN commission"}</span>
+                                <span className="text-xs text-red-400">−${ride.sln_commission.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {ride.source_earnings != null && ride.source_earnings > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-xs text-zinc-400">{lang === "es" ? "Comisión fuente" : "Source commission"}</span>
+                                <span className="text-xs text-red-400">−${ride.source_earnings.toFixed(2)}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between border-t border-zinc-700 pt-1.5 mt-1">
+                              <span className="text-xs font-medium" style={{ color: "#c9a84c" }}>
+                                {lang === "es" ? "Tus ganancias" : "Your earnings"}
+                              </span>
+                              <span className="text-sm font-bold" style={{ color: "#4ade80" }}>
+                                ${ride.driver_earnings != null ? ride.driver_earnings.toFixed(2) : ride.total_price.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Payout status */}
+                        <div className="flex items-center justify-between rounded-lg px-3 py-2" style={{ backgroundColor: "#1a1a1a" }}>
+                          <span className="text-xs text-zinc-400">{lang === "es" ? "Estado de pago" : "Payout status"}</span>
+                          <span className="text-xs font-medium" style={{ color: payout.color }}>{payout.label}</span>
+                        </div>
+
+                        {/* Booking reference */}
+                        <div className="text-center">
+                          <span className="text-xs text-zinc-600">
+                            {lang === "es" ? "Ref:" : "Ref:"} <span className="font-mono">{ride.booking_id.slice(0, 12)}…</span>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}

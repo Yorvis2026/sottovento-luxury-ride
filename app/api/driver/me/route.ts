@@ -378,19 +378,31 @@ export async function GET(req: NextRequest) {
     try {
       const completedRows = await sql`
         SELECT
-          id AS booking_id,
-          status,
-          pickup_address,
-          dropoff_address,
-          pickup_at,
-          completed_at,
-          vehicle_type,
-          total_price
-        FROM bookings
-        WHERE assigned_driver_id = ${driver.id}
-          AND status IN ('completed', 'no_show')
-        ORDER BY COALESCE(completed_at, pickup_at) DESC NULLS LAST
-        LIMIT 20
+          b.id AS booking_id,
+          b.status,
+          b.pickup_address,
+          b.dropoff_address,
+          b.pickup_at,
+          b.completed_at,
+          b.vehicle_type,
+          b.total_price,
+          b.flight_number,
+          b.notes,
+          b.passengers,
+          b.luggage,
+          COALESCE(cl.full_name, b.client_name_override) AS client_name,
+          COALESCE(cl.phone, b.client_phone_override) AS client_phone,
+          c.executor_amount,
+          c.source_amount,
+          c.platform_amount,
+          c.status AS payout_status
+        FROM bookings b
+        LEFT JOIN clients cl ON cl.id = b.client_id
+        LEFT JOIN commissions c ON c.booking_id = b.id
+        WHERE b.assigned_driver_id = ${driver.id}
+          AND b.status IN ('completed', 'no_show')
+        ORDER BY COALESCE(b.completed_at, b.pickup_at) DESC NULLS LAST
+        LIMIT 50
       `;
       completed_rides = completedRows.map((r) => ({
         booking_id: r.booking_id,
@@ -401,6 +413,16 @@ export async function GET(req: NextRequest) {
         completed_at: r.completed_at,
         vehicle_type: r.vehicle_type ?? "Sedan",
         total_price: Number(r.total_price ?? 0),
+        flight_number: r.flight_number ?? null,
+        notes: r.notes ?? null,
+        passengers: r.passengers ?? null,
+        luggage: r.luggage ?? null,
+        client_name: r.client_name ?? null,
+        client_phone: r.client_phone ?? null,
+        driver_earnings: r.executor_amount ? Number(r.executor_amount) : null,
+        sln_commission: r.platform_amount ? Number(r.platform_amount) : null,
+        source_earnings: r.source_amount ? Number(r.source_amount) : null,
+        payout_status: r.payout_status ?? "pending",
       }));
     } catch { /* non-blocking */ }
 
