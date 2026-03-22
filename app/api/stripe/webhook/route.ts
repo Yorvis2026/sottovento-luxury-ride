@@ -205,8 +205,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     } catch { /* non-blocking */ }
   }
 
+  // ── STEP 2: Automatic completeness validation (Spec Section 2) ──────────
+  // Required fields: pickup_datetime, pickup_address, dropoff_address, vehicle_type
+  // If incomplete → dispatch_status = needs_review, stop dispatch
+  const missingFields: string[] = []
+  if (!pickupAt) missingFields.push("pickup_datetime")
+  if (!pickupLocation || pickupLocation === "TBD") missingFields.push("pickup_address")
+  if (!dropoffLocation || dropoffLocation === "TBD") missingFields.push("dropoff_address")
+  if (!vehicleType) missingFields.push("vehicle_type")
+
+  const isComplete = missingFields.length === 0
+
   // ── STEP 4: Classify dispatch_status ─────────────────────
   // Rules:
+  //   - incomplete booking → needs_review (stop dispatch)
   //   - source_code present AND driver is active → awaiting_source_owner
   //   - source_code present BUT driver not eligible → awaiting_sln_member
   //   - no source_code → awaiting_sln_member
@@ -215,7 +227,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   let dispatchStatus: string
   let dispatchReason: string
 
-  if (serviceType === "corporate" || serviceType === "hourly") {
+  if (!isComplete) {
+    dispatchStatus = "needs_review"
+    dispatchReason = `incomplete_fields: ${missingFields.join(", ")}`
+  } else if (serviceType === "corporate" || serviceType === "hourly") {
     dispatchStatus = "manual_dispatch_required"
     dispatchReason = `service_type=${serviceType}`
   } else if (sourceCode && sourceDriverId && sourceDriverEligible) {
@@ -235,8 +250,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // dispatch_status = classified above
   let finalBookingId = bookingId
 
-  // Offer timer: 120s for source_owner, 60s for sln_member
-  const offerTimeoutSecs = dispatchStatus === "awaiting_source_owner" ? 120 : 60
+  // Spec: 30-minute window for source driver first, 30 minutes for SLN pool
+  const offerTimeoutSecs = 1800 // 30 minutes for all offer stages
   const offerExpiresAt = new Date(Date.now() + offerTimeoutSecs * 1000).toISOString()
 
   try {
@@ -525,7 +540,7 @@ async function triggerSourceOwnerOffer(params: {
             <div style="font-family: monospace; background: #0a0a0a; color: #e5e5e5; padding: 24px; max-width: 600px;">
               <h2 style="color: #C9A84C; margin: 0 0 16px;">NEW RIDE OFFER</h2>
               <p style="color: #aaa;">Hi ${driver.full_name ?? "Driver"},</p>
-              <p style="color: #aaa;">You have a new ride offer. You have <strong style="color: #C9A84C;">${offerTimeoutSecs} seconds</strong> to accept.</p>
+              <p style="color: #aaa;">You have a new ride offer. You have <strong style="color: #C9A84C;">30 minutes</strong> to accept.</p>
               <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
                 <tr><td style="color: #666; padding: 6px 0;">Booking ID</td><td style="color: #fff;">#${bookingId.slice(0, 8).toUpperCase()}</td></tr>
                 <tr><td style="color: #666; padding: 6px 0;">Pickup</td><td style="color: #fff;">${pickupLocation}</td></tr>
@@ -655,6 +670,7 @@ async function sendNotifications(data: {
     awaiting_source_owner: "🟡 SOURCE OWNER",
     awaiting_sln_member: "🟠 SLN MEMBER",
     manual_dispatch_required: "🔴 MANUAL",
+    needs_review: "⚠️ NEEDS REVIEW — INCOMPLETE DATA",
   }
 
   try {

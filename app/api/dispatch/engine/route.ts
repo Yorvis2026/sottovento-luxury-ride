@@ -136,12 +136,13 @@ async function runDispatchEngine() {
       }
 
       // Transition: awaiting_source_owner → awaiting_sln_member
+      // Spec: 30-minute window for SLN pool
       await sql`
         UPDATE bookings
         SET
           dispatch_status = 'awaiting_sln_member',
           offer_sent_at = NOW(),
-          offer_expires_at = NOW() + INTERVAL '60 seconds',
+          offer_expires_at = NOW() + INTERVAL '30 minutes',
           offer_stage = 'sln_member',
           offer_status = 'pending',
           updated_at = NOW()
