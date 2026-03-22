@@ -121,6 +121,28 @@ export default function AdminPanel() {
   const [addingDriver, setAddingDriver] = useState(false)
   const [addDriverMsg, setAddDriverMsg] = useState("")
 
+  // ── Dashboard shortcut filters ──────────────────────────────────────────
+  const [bookingDateFilter, setBookingDateFilter] = useState<"today" | "week" | "month" | "all">("all")
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<string>("all")
+  const [driverStatusFilter, setDriverStatusFilter] = useState<"active" | "all">("all")
+  const [leadSourceFilter, setLeadSourceFilter] = useState<string>("all")
+
+  const goToTab = (target: Tab, opts?: {
+    bookingDate?: "today" | "week" | "month" | "all"
+    bookingStatus?: string
+    driverStatus?: "active" | "all"
+    leadSource?: string
+  }) => {
+    if (opts?.bookingDate !== undefined) setBookingDateFilter(opts.bookingDate)
+    if (opts?.bookingStatus !== undefined) setBookingStatusFilter(opts.bookingStatus)
+    if (opts?.driverStatus !== undefined) setDriverStatusFilter(opts.driverStatus)
+    if (opts?.leadSource !== undefined) setLeadSourceFilter(opts.leadSource)
+    setTab(target)
+    if (target === "bookings") loadBookings()
+    if (target === "drivers") loadDrivers()
+    if (target === "leads") loadLeads()
+  }
+
   const [smsPhone, setSmsPhone] = useState("")
   const [smsSending, setSmsSending] = useState(false)
   const [smsResult, setSmsResult] = useState("")
@@ -463,69 +485,162 @@ export default function AdminPanel() {
               <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
             ) : dashboard ? (
               <>
+                {/* ── METRIC CARDS — interactive navigation shortcuts ── */}
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
                   {[
-                    { label: t("dashToday"), count: dashboard.today.count, rev: dashboard.today.revenue, color: "#c9a84c" },
-                    { label: t("dashWeek"), count: dashboard.week.count, rev: dashboard.week.revenue, color: "#60a5fa" },
-                    { label: t("dashMonth"), count: dashboard.month.count, rev: dashboard.month.revenue, color: "#4ade80" },
+                    {
+                      label: t("dashToday"),
+                      count: dashboard.today.count,
+                      rev: dashboard.today.revenue,
+                      color: "#c9a84c",
+                      hint: lang === "es" ? "Ver reservas de hoy" : "View today\'s bookings",
+                      onClick: () => goToTab("bookings", { bookingDate: "today", bookingStatus: "all" }),
+                    },
+                    {
+                      label: t("dashWeek"),
+                      count: dashboard.week.count,
+                      rev: dashboard.week.revenue,
+                      color: "#60a5fa",
+                      hint: lang === "es" ? "Ver reservas de esta semana" : "View this week\'s bookings",
+                      onClick: () => goToTab("bookings", { bookingDate: "week", bookingStatus: "all" }),
+                    },
+                    {
+                      label: t("dashMonth"),
+                      count: dashboard.month.count,
+                      rev: dashboard.month.revenue,
+                      color: "#4ade80",
+                      hint: lang === "es" ? "Ver reservas de este mes" : "View this month\'s bookings",
+                      onClick: () => goToTab("bookings", { bookingDate: "month", bookingStatus: "all" }),
+                    },
                   ].map(k => (
-                    <div key={k.label} style={S.statCard(k.color + "33")}>
+                    <button
+                      key={k.label}
+                      onClick={k.onClick}
+                      style={{
+                        ...S.statCard(k.color + "33"),
+                        cursor: "pointer",
+                        textAlign: "left",
+                        border: `1px solid ${k.color}44`,
+                        transition: "border-color 0.15s",
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = k.color }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = k.color + "44" }}
+                    >
                       <div style={{ fontSize: 10, color: k.color, letterSpacing: 2, marginBottom: 8 }}>{k.label}</div>
                       <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 2 }}>{k.count}</div>
                       <div style={{ fontSize: 13, color: "#888" }}>{t("dashBookings")}</div>
                       <div style={{ fontSize: 16, fontWeight: 600, color: k.color, marginTop: 6 }}>{fmt(k.rev)}</div>
-                    </div>
+                      <div style={{ fontSize: 10, color: k.color + "aa", marginTop: 8 }}>&#8594; {k.hint}</div>
+                    </button>
                   ))}
-                  <div style={S.statCard("#a78bfa33")}>
+
+                  <button
+                    onClick={() => goToTab("drivers", { driverStatus: "active" })}
+                    style={{
+                      ...S.statCard("#a78bfa33"),
+                      cursor: "pointer",
+                      textAlign: "left",
+                      border: "1px solid #a78bfa44",
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#a78bfa" }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#a78bfa44" }}
+                  >
                     <div style={{ fontSize: 10, color: "#a78bfa", letterSpacing: 2, marginBottom: 8 }}>{t("dashActiveDrivers")}</div>
                     <div style={{ fontSize: 28, fontWeight: 700 }}>{dashboard.activeDrivers}</div>
                     <div style={{ fontSize: 13, color: "#888" }}>{t("dashMembers")}</div>
-                  </div>
-                  <div style={S.statCard("#f59e0b33")}>
+                    <div style={{ fontSize: 10, color: "#a78bfaaa", marginTop: 8 }}>&#8594; {lang === "es" ? "Ver conductores activos" : "View active drivers"}</div>
+                  </button>
+
+                  <button
+                    onClick={() => goToTab("leads", { leadSource: "all" })}
+                    style={{
+                      ...S.statCard("#f59e0b33"),
+                      cursor: "pointer",
+                      textAlign: "left",
+                      border: "1px solid #f59e0b44",
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#f59e0b" }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#f59e0b44" }}
+                  >
                     <div style={{ fontSize: 10, color: "#f59e0b", letterSpacing: 2, marginBottom: 8 }}>{t("dashTotalLeads")}</div>
                     <div style={{ fontSize: 28, fontWeight: 700 }}>{dashboard.totalLeads}</div>
                     <div style={{ fontSize: 13, color: "#888" }}>{t("dashCaptured")}</div>
-                  </div>
+                    <div style={{ fontSize: 10, color: "#f59e0baa", marginTop: 8 }}>&#8594; {lang === "es" ? "Ver todos los leads" : "View all leads"}</div>
+                  </button>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
                   <div style={S.card}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14, color: "#888" }}>{t("dashBookingStatuses")}</div>
                     {dashboard.bookingStatuses.map(s => (
-                      <div key={s.status} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <button
+                        key={s.status}
+                        onClick={() => goToTab("bookings", { bookingStatus: s.status, bookingDate: "all" })}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", borderRadius: 6 }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#1a1a1a" }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent" }}
+                      >
                         <span style={{ ...S.badge(statusColor[s.status] ?? "#1a1a1a"), color: statusText[s.status] ?? "#fff" }}>{s.status?.toUpperCase()}</span>
-                        <span style={{ fontSize: 16, fontWeight: 700 }}>{Number(s.count)}</span>
-                      </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 16, fontWeight: 700 }}>{Number(s.count)}</span>
+                          <span style={{ fontSize: 10, color: "#555" }}>&#8594;</span>
+                        </div>
+                      </button>
                     ))}
                     {dashboard.bookingStatuses.length === 0 && <div style={{ color: "#555", fontSize: 13 }}>{t("dashNoBookings")}</div>}
                   </div>
                   <div style={S.card}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14, color: "#888" }}>{t("dashLeadsBySource")}</div>
                     {dashboard.leadsBySource.map(s => (
-                      <div key={s.lead_source} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <button
+                        key={s.lead_source}
+                        onClick={() => goToTab("leads", { leadSource: s.lead_source || "unknown" })}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", borderRadius: 6 }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#1a1a1a" }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent" }}
+                      >
                         <span style={{ fontSize: 13, color: "#aaa" }}>{s.lead_source || "unknown"}</span>
-                        <span style={{ fontSize: 16, fontWeight: 700, color: "#c9a84c" }}>{Number(s.count)}</span>
-                      </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 16, fontWeight: 700, color: "#c9a84c" }}>{Number(s.count)}</span>
+                          <span style={{ fontSize: 10, color: "#555" }}>&#8594;</span>
+                        </div>
+                      </button>
                     ))}
                     {dashboard.leadsBySource.length === 0 && <div style={{ color: "#555", fontSize: 13 }}>{t("dashNoLeads")}</div>}
                   </div>
                 </div>
 
                 <div style={S.card}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14, color: "#888" }}>{t("dashRecentBookings")}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#888" }}>{t("dashRecentBookings")}</div>
+                    <button
+                      onClick={() => goToTab("bookings", { bookingDate: "all", bookingStatus: "all" })}
+                      style={{ fontSize: 11, color: "#c9a84c", background: "transparent", border: "1px solid #c9a84c44", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}
+                    >
+                      {lang === "es" ? "Ver todas →" : "View all →"}
+                    </button>
+                  </div>
                   {dashboard.recentBookings.length === 0 ? (
                     <div style={{ color: "#555", fontSize: 13 }}>{t("dashNoBookings")}</div>
                   ) : dashboard.recentBookings.map(b => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a1a" }}>
+                    <button
+                      key={b.id}
+                      onClick={() => goToTab("bookings", { bookingStatus: b.status, bookingDate: "all" })}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 6px", width: "100%", background: "transparent", border: "none", borderBottom: "1px solid #1a1a1a", cursor: "pointer", textAlign: "left", borderRadius: 4 }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#111" }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent" }}
+                    >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
                         <div style={{ fontSize: 12, color: "#555" }}>{b.client_name || t("dashUnknownClient")} · {fmtDate(b.created_at)}</div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
+                      <div style={{ textAlign: "right", minWidth: 100 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a84c" }}>{fmt(b.total_price)}</div>
                         <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.toUpperCase()}</span>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </>
@@ -538,9 +653,25 @@ export default function AdminPanel() {
         {/* ======================================================
             2. BOOKINGS
         ====================================================== */}
-        {tab === "bookings" && (
+        {tab === "bookings" && (() => {
+          const now = new Date()
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+          const weekStart = new Date(todayStart); weekStart.setDate(todayStart.getDate() - todayStart.getDay())
+          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+          const filteredBookings = bookings.filter(b => {
+            if (bookingDateFilter !== "all") {
+              const d = new Date(b.pickup_at || b.created_at)
+              if (bookingDateFilter === "today" && d < todayStart) return false
+              if (bookingDateFilter === "week"  && d < weekStart)  return false
+              if (bookingDateFilter === "month" && d < monthStart) return false
+            }
+            if (bookingStatusFilter !== "all" && b.status !== bookingStatusFilter) return false
+            return true
+          })
+          const hasActiveFilter = bookingDateFilter !== "all" || bookingStatusFilter !== "all"
+          return (
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: hasActiveFilter ? 12 : 24 }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 700 }}>{t("bookTitle")}</div>
                 <div style={{ color: "#555", fontSize: 13 }}>{t("bookSubtitle")}</div>
@@ -548,16 +679,38 @@ export default function AdminPanel() {
               <button onClick={loadBookings} style={S.btn()}>{t("refresh")}</button>
             </div>
 
+            {hasActiveFilter && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, padding: "10px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #333", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#888" }}>{lang === "es" ? "Filtros activos:" : "Active filters:"}</span>
+                {bookingDateFilter !== "all" && (
+                  <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>
+                    {bookingDateFilter === "today" ? (lang === "es" ? "HOY" : "TODAY") : bookingDateFilter === "week" ? (lang === "es" ? "ESTA SEMANA" : "THIS WEEK") : (lang === "es" ? "ESTE MES" : "THIS MONTH")}
+                  </span>
+                )}
+                {bookingStatusFilter !== "all" && (
+                  <span style={{ ...S.badge(statusColor[bookingStatusFilter] ?? "#1a1a1a"), color: statusText[bookingStatusFilter] ?? "#fff" }}>{bookingStatusFilter.toUpperCase()}</span>
+                )}
+                <span style={{ fontSize: 12, color: "#c9a84c" }}>{filteredBookings.length} {lang === "es" ? "resultado(s)" : "result(s)"}</span>
+                <button
+                  onClick={() => { setBookingDateFilter("all"); setBookingStatusFilter("all") }}
+                  style={{ marginLeft: "auto", fontSize: 11, color: "#f87171", background: "transparent", border: "1px solid #3b0000", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                >
+                  {lang === "es" ? "Limpiar" : "Clear"} ×
+                </button>
+              </div>
+            )}
+
             {loadingBookings ? (
               <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
-            ) : bookings.length === 0 ? (
+            ) : filteredBookings.length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", padding: 60 }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-                <div style={{ color: "#888" }}>{t("bookNoBookings")}</div>
+                <div style={{ color: "#888" }}>{hasActiveFilter ? (lang === "es" ? "No hay reservas con estos filtros" : "No bookings match these filters") : t("bookNoBookings")}</div>
+                {hasActiveFilter && <button onClick={() => { setBookingDateFilter("all"); setBookingStatusFilter("all") }} style={{ ...S.btn(), marginTop: 12, fontSize: 12 }}>{lang === "es" ? "Ver todas" : "View all"}</button>}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {bookings.map(b => (
+                {filteredBookings.map(b => (
                   <div key={b.id} style={S.card}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       <div style={{ flex: 1 }}>
@@ -599,7 +752,8 @@ export default function AdminPanel() {
               </div>
             )}
           </div>
-        )}
+          )
+        })()}
 
         {/* ======================================================
             3. DISPATCH
@@ -936,16 +1090,30 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {driverStatusFilter !== "all" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, padding: "10px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #333" }}>
+                <span style={{ fontSize: 12, color: "#888" }}>{lang === "es" ? "Filtro activo:" : "Active filter:"}</span>
+                <span style={{ ...S.badge("#14532d"), color: "#4ade80" }}>ACTIVE</span>
+                <span style={{ fontSize: 12, color: "#a78bfa" }}>{drivers.filter(d => d.driver_status === "active").length} {lang === "es" ? "conductor(es)" : "driver(s)"}</span>
+                <button
+                  onClick={() => setDriverStatusFilter("all")}
+                  style={{ marginLeft: "auto", fontSize: 11, color: "#f87171", background: "transparent", border: "1px solid #3b0000", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                >
+                  {lang === "es" ? "Limpiar" : "Clear"} ×
+                </button>
+              </div>
+            )}
+
             {loadingDrivers ? (
               <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
-            ) : drivers.length === 0 ? (
+            ) : drivers.filter(d => driverStatusFilter === "all" || d.driver_status === driverStatusFilter).length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", padding: 60 }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>🚗</div>
                 <div style={{ color: "#888" }}>{t("drvNoDrivers")}</div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {drivers.map(d => (
+                {drivers.filter(d => driverStatusFilter === "all" || d.driver_status === driverStatusFilter).map(d => (
                   <div key={d.id} style={S.card}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
@@ -1020,6 +1188,20 @@ export default function AdminPanel() {
               <button onClick={loadLeads} style={S.btn()}>{t("refresh")}</button>
             </div>
 
+            {leadSourceFilter !== "all" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, padding: "10px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #333" }}>
+                <span style={{ fontSize: 12, color: "#888" }}>{lang === "es" ? "Filtro activo:" : "Active filter:"}</span>
+                <span style={{ ...S.badge("#3b1a00"), color: "#f59e0b" }}>{leadSourceFilter.toUpperCase()}</span>
+                <span style={{ fontSize: 12, color: "#f59e0b" }}>{leads.filter(l => (l.lead_source || "unknown") === leadSourceFilter).length} {lang === "es" ? "lead(s)" : "lead(s)"}</span>
+                <button
+                  onClick={() => setLeadSourceFilter("all")}
+                  style={{ marginLeft: "auto", fontSize: 11, color: "#f87171", background: "transparent", border: "1px solid #3b0000", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                >
+                  {lang === "es" ? "Limpiar" : "Clear"} ×
+                </button>
+              </div>
+            )}
+
             {loadingLeads ? (
               <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
             ) : leads.length === 0 ? (
@@ -1038,7 +1220,7 @@ export default function AdminPanel() {
                   ))}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {leads.map(l => (
+                  {leads.filter(l => leadSourceFilter === "all" || (l.lead_source || "unknown") === leadSourceFilter).map(l => (
                     <div key={l.id} style={S.card}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                         <div style={{ flex: 1 }}>
