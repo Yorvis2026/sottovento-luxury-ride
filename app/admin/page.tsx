@@ -14,7 +14,7 @@ type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "le
 
 // ---- TYPES ----
 type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
-type Booking = { id: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; flight_number?: string; notes?: string; passengers?: number; luggage?: string; driver_reported?: boolean; driver_report_action?: string }
+type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
@@ -30,8 +30,8 @@ const S = {
   statCard: (color?: string) => ({ background: "#111", border: `1px solid ${color ?? "#222"}`, borderRadius: 12, padding: "18px 20px", flex: 1, minWidth: 140 } as React.CSSProperties),
 }
 
-const statusColor: Record<string, string> = { new: "#1e3a5f", offered: "#1e3a5f", accepted: "#14532d", in_progress: "#3b1f5e", completed: "#14532d", cancelled: "#3b0000", contacted: "#1e3a5f", booked: "#14532d", lost: "#3b0000", pending: "#1a2a1a", pending_payment: "#2a1a00", pending_dispatch: "#0c2340" }
-const statusText: Record<string, string> = { new: "#60a5fa", offered: "#60a5fa", accepted: "#4ade80", in_progress: "#a78bfa", completed: "#4ade80", cancelled: "#f87171", contacted: "#60a5fa", booked: "#4ade80", lost: "#f87171", pending: "#aaa", pending_payment: "#f59e0b", pending_dispatch: "#38bdf8" }
+const statusColor: Record<string, string> = { new: "#1e3a5f", needs_review: "#3b2200", ready_for_dispatch: "#0c2340", assigned: "#14532d", driver_confirmed: "#0d3320", in_progress: "#3b1f5e", completed: "#0d2a0d", archived: "#1a1a1a", cancelled: "#3b0000", driver_issue: "#3b0000", offered: "#1e3a5f", accepted: "#14532d", contacted: "#1e3a5f", booked: "#14532d", lost: "#3b0000", pending: "#1a2a1a", pending_payment: "#2a1a00", pending_dispatch: "#0c2340" }
+const statusText: Record<string, string> = { new: "#60a5fa", needs_review: "#f59e0b", ready_for_dispatch: "#38bdf8", assigned: "#4ade80", driver_confirmed: "#86efac", in_progress: "#a78bfa", completed: "#4ade80", archived: "#555", cancelled: "#f87171", driver_issue: "#ef4444", offered: "#60a5fa", accepted: "#4ade80", contacted: "#60a5fa", booked: "#4ade80", lost: "#f87171", pending: "#aaa", pending_payment: "#f59e0b", pending_dispatch: "#38bdf8" }
 const dispatchColor: Record<string, string> = { not_required: "#1a1a1a", awaiting_source_owner: "#1e3a5f", awaiting_sln_member: "#3b1f5e", manual_dispatch_required: "#3b1a00", assigned: "#14532d", expired: "#3b0000", cancelled: "#3b0000" }
 const dispatchText: Record<string, string> = { not_required: "#444", awaiting_source_owner: "#60a5fa", awaiting_sln_member: "#a78bfa", manual_dispatch_required: "#f59e0b", assigned: "#4ade80", expired: "#f87171", cancelled: "#f87171" }
 
@@ -124,6 +124,10 @@ export default function AdminPanel() {
   // ── Dashboard shortcut filters ──────────────────────────────────────────
   const [bookingDateFilter, setBookingDateFilter] = useState<"today" | "week" | "month" | "all">("all")
   const [bookingStatusFilter, setBookingStatusFilter] = useState<string>("all")
+  const [bookingViewMode, setBookingViewMode] = useState<"active" | "completed" | "cancelled" | "archived">("active")
+  const [cancelModal, setCancelModal] = useState<{ bookingId: string; clientName: string } | null>(null)
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancellingBooking, setCancellingBooking] = useState(false)
   const [driverStatusFilter, setDriverStatusFilter] = useState<"active" | "all">("all")
   const [leadSourceFilter, setLeadSourceFilter] = useState<string>("all")
 
@@ -138,7 +142,7 @@ export default function AdminPanel() {
     if (opts?.driverStatus !== undefined) setDriverStatusFilter(opts.driverStatus)
     if (opts?.leadSource !== undefined) setLeadSourceFilter(opts.leadSource)
     setTab(target)
-    if (target === "bookings") loadBookings()
+    if (target === "bookings") loadBookings("active")
     if (target === "drivers") loadDrivers()
     if (target === "leads") loadLeads()
   }
@@ -162,7 +166,7 @@ export default function AdminPanel() {
   // ---- DATA LOADERS ----
   const loadDashboard = useCallback(async () => { setLoadingDash(true); try { const r = await fetch("/api/admin/dashboard"); if (r.ok) setDashboard(await r.json()) } catch { } finally { setLoadingDash(false) } }, [])
   const loadDrivers = useCallback(async () => { setLoadingDrivers(true); try { const r = await fetch("/api/admin/drivers"); if (r.ok) { const d = await r.json(); setDrivers(d.drivers ?? []) } } catch { } finally { setLoadingDrivers(false) } }, [])
-  const loadBookings = useCallback(async () => { setLoadingBookings(true); try { const r = await fetch("/api/admin/bookings"); if (r.ok) { const d = await r.json(); setBookings(d.bookings ?? []) } } catch { } finally { setLoadingBookings(false) } }, [])
+  const loadBookings = useCallback(async (viewMode?: string) => { setLoadingBookings(true); try { const v = viewMode ?? "active"; const r = await fetch(`/api/admin/bookings?view=${v}`); if (r.ok) { const d = await r.json(); setBookings(d.bookings ?? []) } } catch { } finally { setLoadingBookings(false) } }, [])
   const loadLeads = useCallback(async () => { setLoadingLeads(true); try { const r = await fetch("/api/admin/leads"); if (r.ok) { const d = await r.json(); setLeads(d.leads ?? []) } } catch { } finally { setLoadingLeads(false) } }, [])
   const loadFinance = useCallback(async () => { setLoadingFinance(true); try { const r = await fetch("/api/admin/finance"); if (r.ok) setFinance(await r.json()) } catch { } finally { setLoadingFinance(false) } }, [])
   const loadCrown = useCallback(async () => { setLoadingCrown(true); try { const r = await fetch("/api/admin/crown-moment"); if (r.ok) setCrownData(await r.json()) } catch { } finally { setLoadingCrown(false) } }, [])
@@ -286,6 +290,40 @@ export default function AdminPanel() {
 
   const handleDispatchStatus = async (id: string, dispatch_status: string) => {
     try { await fetch("/api/admin/dispatch", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ booking_id: id, dispatch_status }) }); loadDispatch(); loadBookings() } catch { }
+  }
+  // ── Full pipeline action handlers ──────────────────────────────────────────
+  const handleMoveToReview = async (id: string) => {
+    await handleBookingStatus(id, "needs_review", "not_required")
+  }
+  const handleReadyForDispatch = async (id: string) => {
+    await handleBookingStatus(id, "ready_for_dispatch", "manual_dispatch_required")
+  }
+  const handleArchiveBooking = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "archived", dispatch_status: "cancelled" }) })
+      if (res.ok) { loadBookings(bookingViewMode); loadDashboard() }
+      else { const d = await res.json().catch(() => ({})); setGlobalToast({ msg: `❌ ${d.error ?? "Failed to archive"}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+    } catch (e: any) { setGlobalToast({ msg: `❌ Network error: ${e.message}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+  }
+  const handleRestoreBooking = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/bookings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "needs_review", dispatch_status: "not_required" }) })
+      if (res.ok) { setBookingViewMode("active"); loadBookings("active"); loadDashboard() }
+      else { const d = await res.json().catch(() => ({})); setGlobalToast({ msg: `❌ ${d.error ?? "Failed to restore"}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+    } catch (e: any) { setGlobalToast({ msg: `❌ Network error: ${e.message}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+  }
+  const handleConfirmCancel = async () => {
+    if (!cancelModal) return
+    setCancellingBooking(true)
+    try {
+      const res = await fetch(`/api/admin/bookings/${cancelModal.bookingId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled", dispatch_status: "cancelled", edit_fields: { cancellation_reason: cancelReason || "Admin cancelled", cancelled_by: "admin" } })
+      })
+      if (res.ok) { setCancelModal(null); setCancelReason(""); loadBookings(bookingViewMode); loadDashboard() }
+      else { const d = await res.json().catch(() => ({})); setGlobalToast({ msg: `❌ ${d.error ?? "Failed to cancel"}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+    } catch (e: any) { setGlobalToast({ msg: `❌ Network error: ${e.message}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+    finally { setCancellingBooking(false) }
   }
 
   const handleRunReclassify = async () => {
@@ -654,10 +692,13 @@ export default function AdminPanel() {
             2. BOOKINGS
         ====================================================== */}
         {tab === "bookings" && (() => {
+          const ACTIVE_STATES = ["new", "needs_review", "ready_for_dispatch", "assigned", "driver_confirmed", "in_progress", "driver_issue"]
           const now = new Date()
           const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
           const weekStart = new Date(todayStart); weekStart.setDate(todayStart.getDate() - todayStart.getDay())
           const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+          // Client-side filter on top of server-side view
           const filteredBookings = bookings.filter(b => {
             if (bookingDateFilter !== "all") {
               const d = new Date(b.pickup_at || b.created_at)
@@ -669,92 +710,278 @@ export default function AdminPanel() {
             return true
           })
           const hasActiveFilter = bookingDateFilter !== "all" || bookingStatusFilter !== "all"
+
+          const PIPELINE_STATES = [
+            { key: "new",                label: "New",                color: "#60a5fa",  bg: "#1e3a5f" },
+            { key: "needs_review",       label: "Needs Review",       color: "#f59e0b",  bg: "#3b2200" },
+            { key: "ready_for_dispatch", label: "Ready for Dispatch", color: "#38bdf8",  bg: "#0c2340" },
+            { key: "assigned",           label: "Assigned",           color: "#4ade80",  bg: "#14532d" },
+            { key: "driver_confirmed",   label: "Driver Confirmed",   color: "#86efac",  bg: "#0d3320" },
+            { key: "in_progress",        label: "In Progress",        color: "#a78bfa",  bg: "#3b1f5e" },
+            { key: "driver_issue",       label: "Driver Issue",       color: "#ef4444",  bg: "#3b0000" },
+          ]
+
+          const originLabel: Record<string, string> = {
+            public_website: "Website", driver_qr: "Driver QR", driver_referral: "Referral",
+            driver_tablet: "Tablet", hotel_partner: "Hotel", manual_admin: "Admin", unknown: "—"
+          }
+          const paymentColor: Record<string, string> = {
+            pending: "#f59e0b", authorized: "#38bdf8", paid: "#4ade80", failed: "#ef4444", refunded: "#a78bfa"
+          }
+
           return (
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: hasActiveFilter ? 12 : 24 }}>
+            {/* ── Header ── */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{t("bookTitle")}</div>
-                <div style={{ color: "#555", fontSize: 13 }}>{t("bookSubtitle")}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Gestión de Reservas</div>
+                <div style={{ color: "#555", fontSize: 13 }}>Central booking command layer — {filteredBookings.length} showing</div>
               </div>
-              <button onClick={loadBookings} style={S.btn()}>{t("refresh")}</button>
+              <button onClick={() => loadBookings(bookingViewMode)} style={S.btn()}>Refresh</button>
             </div>
 
-            {hasActiveFilter && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, padding: "10px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #333", flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12, color: "#888" }}>{lang === "es" ? "Filtros activos:" : "Active filters:"}</span>
-                {bookingDateFilter !== "all" && (
-                  <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>
-                    {bookingDateFilter === "today" ? (lang === "es" ? "HOY" : "TODAY") : bookingDateFilter === "week" ? (lang === "es" ? "ESTA SEMANA" : "THIS WEEK") : (lang === "es" ? "ESTE MES" : "THIS MONTH")}
-                  </span>
-                )}
-                {bookingStatusFilter !== "all" && (
-                  <span style={{ ...S.badge(statusColor[bookingStatusFilter] ?? "#1a1a1a"), color: statusText[bookingStatusFilter] ?? "#fff" }}>{bookingStatusFilter.toUpperCase()}</span>
-                )}
-                <span style={{ fontSize: 12, color: "#c9a84c" }}>{filteredBookings.length} {lang === "es" ? "resultado(s)" : "result(s)"}</span>
+            {/* ── View Mode Tabs ── */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              {(["active", "completed", "cancelled", "archived"] as const).map(v => (
                 <button
-                  onClick={() => { setBookingDateFilter("all"); setBookingStatusFilter("all") }}
-                  style={{ marginLeft: "auto", fontSize: 11, color: "#f87171", background: "transparent", border: "1px solid #3b0000", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                  key={v}
+                  onClick={() => { setBookingViewMode(v); setBookingDateFilter("all"); setBookingStatusFilter("all"); loadBookings(v) }}
+                  style={{
+                    padding: "7px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    background: bookingViewMode === v ? (v === "active" ? "#c9a84c" : v === "completed" ? "#14532d" : v === "cancelled" ? "#3b0000" : "#1a1a1a") : "#111",
+                    color: bookingViewMode === v ? (v === "active" ? "#000" : v === "completed" ? "#4ade80" : v === "cancelled" ? "#f87171" : "#888") : "#555",
+                    border: bookingViewMode === v ? "none" : "1px solid #222"
+                  }}
                 >
-                  {lang === "es" ? "Limpiar" : "Clear"} ×
+                  {v === "active" ? "Active" : v === "completed" ? "Completed" : v === "cancelled" ? "Cancelled" : "Archived"}
                 </button>
+              ))}
+            </div>
+
+            {/* ── Pipeline Status Summary (active view only) ── */}
+            {bookingViewMode === "active" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+                {PIPELINE_STATES.map(s => {
+                  const cnt = bookings.filter(b => b.status === s.key).length
+                  return (
+                    <div
+                      key={s.key}
+                      onClick={() => setBookingStatusFilter(bookingStatusFilter === s.key ? "all" : s.key)}
+                      style={{
+                        background: bookingStatusFilter === s.key ? s.bg : "#0d0d0d",
+                        border: `1px solid ${bookingStatusFilter === s.key ? s.color + "60" : "#1a1a1a"}`,
+                        borderRadius: 8, padding: "8px 10px", cursor: "pointer"
+                      }}
+                    >
+                      <div style={{ fontSize: 9, color: s.color, letterSpacing: 1, marginBottom: 2 }}>{s.label.toUpperCase()}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: cnt > 0 ? s.color : "#333" }}>{cnt}</div>
+                    </div>
+                  )
+                })}
               </div>
             )}
 
+            {/* ── Date Filter (active view) ── */}
+            {bookingViewMode === "active" && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+                {(["all", "today", "week", "month"] as const).map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setBookingDateFilter(d)}
+                    style={{ padding: "5px 12px", borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                      background: bookingDateFilter === d ? "#1e3a5f" : "#111",
+                      color: bookingDateFilter === d ? "#60a5fa" : "#555",
+                      border: bookingDateFilter === d ? "1px solid #1e3a5f" : "1px solid #1a1a1a" }}
+                  >
+                    {d === "all" ? "All dates" : d === "today" ? "Today" : d === "week" ? "This week" : "This month"}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ── Active filter banner ── */}
+            {hasActiveFilter && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "10px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #333", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#888" }}>Filters:</span>
+                {bookingDateFilter !== "all" && <span style={{ ...S.badge("#1e3a5f"), color: "#60a5fa" }}>{bookingDateFilter.toUpperCase()}</span>}
+                {bookingStatusFilter !== "all" && <span style={{ ...S.badge(statusColor[bookingStatusFilter] ?? "#1a1a1a"), color: statusText[bookingStatusFilter] ?? "#fff" }}>{bookingStatusFilter.toUpperCase()}</span>}
+                <span style={{ fontSize: 12, color: "#c9a84c" }}>{filteredBookings.length} result(s)</span>
+                <button onClick={() => { setBookingDateFilter("all"); setBookingStatusFilter("all") }} style={{ marginLeft: "auto", fontSize: 11, color: "#f87171", background: "transparent", border: "1px solid #3b0000", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>Clear ×</button>
+              </div>
+            )}
+
+            {/* ── Booking list ── */}
             {loadingBookings ? (
-              <div style={{ color: "#555", textAlign: "center", padding: 60 }}>{t("loading")}</div>
+              <div style={{ color: "#555", textAlign: "center", padding: 60 }}>Loading...</div>
             ) : filteredBookings.length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", padding: 60 }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-                <div style={{ color: "#888" }}>{hasActiveFilter ? (lang === "es" ? "No hay reservas con estos filtros" : "No bookings match these filters") : t("bookNoBookings")}</div>
-                {hasActiveFilter && <button onClick={() => { setBookingDateFilter("all"); setBookingStatusFilter("all") }} style={{ ...S.btn(), marginTop: 12, fontSize: 12 }}>{lang === "es" ? "Ver todas" : "View all"}</button>}
+                <div style={{ color: "#888" }}>
+                  {bookingViewMode === "active" ? "No active bookings" : bookingViewMode === "completed" ? "No completed bookings" : bookingViewMode === "cancelled" ? "No cancelled bookings" : "No archived bookings"}
+                </div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {filteredBookings.map(b => (
-                  <div key={b.id} style={S.card}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{b.pickup_zone || b.pickup_address} → {b.dropoff_zone || b.dropoff_address}</div>
-                        <div style={{ fontSize: 12, color: "#888" }}>{fmtDate(b.pickup_at)} · {b.vehicle_type} · {fmt(b.total_price)}</div>
-                        {b.client_name && <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{t("bookClient")}: {b.client_name} {b.client_phone && `· ${b.client_phone}`}</div>}
-                        <div style={{ fontSize: 11, color: "#333", marginTop: 4 }}>ID: {b.id.slice(0, 8)}...</div>
+                {filteredBookings.map(b => {
+                  const pax = b.passenger_count ?? b.passengers ?? 1
+                  const lug = b.luggage_count ?? (b.luggage ? parseInt(b.luggage) || 0 : 0)
+                  const ref = b.booking_ref ?? b.id.slice(0, 8).toUpperCase()
+                  const origin = b.booking_origin ?? b.lead_source ?? "unknown"
+                  return (
+                  <div key={b.id} style={{ ...S.card, borderColor: b.status === "driver_issue" ? "#ef444440" : b.status === "needs_review" ? "#f59e0b30" : "#222" }}>
+
+                    {/* Row 1: Ref + Status + Payment */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#c9a84c", fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>{ref}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>{b.pickup_address || b.pickup_zone || "?"} → {b.dropoff_address || b.dropoff_zone || "?"}</div>
+                        <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{b.pickup_at ? new Date(b.pickup_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "No date"} · {b.vehicle_type}</div>
                       </div>
-                      <div style={{ textAlign: "right", minWidth: 140 }}>
-                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff", display: "block", marginBottom: 4 }}>📋 {b.status?.toUpperCase()}</span>
-                        {b.dispatch_status && <span style={{ ...S.badge(dispatchColor[b.dispatch_status] ?? "#1a1a1a"), color: dispatchText[b.dispatch_status] ?? "#fff", display: "block", marginBottom: 4 }}>⚡ {b.dispatch_status?.replace(/_/g, " ").toUpperCase()}</span>}
-                        <span style={{ color: b.payment_status === "paid" ? "#4ade80" : "#f59e0b", fontSize: 11 }}>{b.payment_status?.toUpperCase()}</span>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: paymentColor[b.payment_status] ?? "#888" }}>{b.payment_status?.toUpperCase()}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#c9a84c" }}>${Number(b.total_price ?? 0).toFixed(2)}</span>
                       </div>
                     </div>
-                    {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>🚗 {t("assign")}: {b.driver_name} ({b.driver_code})</div>}
+
+                    {/* Row 2: Passenger info */}
+                    <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+                      {b.client_name && <div style={{ fontSize: 12, color: "#aaa" }}>👤 {b.client_name}{b.client_phone ? ` · ${b.client_phone}` : ""}</div>}
+                      <div style={{ fontSize: 12, color: "#666" }}>👥 {pax} pax · 🧳 {lug} bags</div>
+                      {b.flight_number && <div style={{ fontSize: 12, color: "#60a5fa" }}>✈️ {b.flight_number}</div>}
+                    </div>
+
+                    {/* Row 3: Driver + Origin + Capture */}
+                    <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+                      {b.driver_name
+                        ? <div style={{ fontSize: 12, color: "#4ade80" }}>🚗 {b.driver_name} ({b.driver_code})</div>
+                        : <div style={{ fontSize: 12, color: "#555" }}>No driver assigned</div>
+                      }
+                      <div style={{ fontSize: 11, color: "#555" }}>Origin: <span style={{ color: "#888" }}>{originLabel[origin] ?? origin}</span></div>
+                      {b.captured_by_driver_code && <div style={{ fontSize: 11, color: "#555" }}>Captured by: <span style={{ color: "#c9a84c" }}>{b.captured_by_driver_code}</span></div>}
+                    </div>
+
+                    {/* Row 4: Notes */}
+                    {b.notes && <div style={{ fontSize: 12, color: "#666", marginBottom: 8, padding: "6px 10px", background: "#0d0d0d", borderRadius: 6 }}>📝 {b.notes}</div>}
+
+                    {/* Row 5: Driver issue alert */}
                     {b.driver_reported && (
-                      <div style={{ marginTop: 8, padding: "8px 12px", background: b.driver_report_action === "driver_rejected_incomplete_ride" ? "#3b0000" : "#3b1a00", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ marginBottom: 8, padding: "8px 12px", background: b.driver_report_action === "driver_rejected_incomplete_ride" ? "#3b0000" : "#3b1a00", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 14 }}>{b.driver_report_action === "driver_rejected_incomplete_ride" ? "🚫" : "⚠️"}</span>
                         <span style={{ fontSize: 12, color: b.driver_report_action === "driver_rejected_incomplete_ride" ? "#f87171" : "#f59e0b", fontWeight: 600 }}>
-                          {b.driver_report_action === "driver_rejected_incomplete_ride"
-                            ? "Conductor rechazó — datos incompletos. URGENTE: editar y reasignar."
-                            : b.driver_report_action === "driver_requested_correction"
-                            ? "Conductor solicitó corrección. Editar y notificar."
-                            : "Conductor reportó datos incompletos. Editar booking."
-                          }
+                          {b.driver_report_action === "driver_rejected_incomplete_ride" ? "Driver rejected — incomplete data. URGENT: edit and reassign." : "Driver requested correction. Edit booking."}
                         </span>
                       </div>
                     )}
-                    <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                      {b.status === "new" && <button onClick={() => handleBookingStatus(b.id, "accepted", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookAccept")}</button>}
-                      {["new", "offered", "accepted"].includes(b.status) && <button onClick={() => handleBookingStatus(b.id, "cancelled", "cancelled")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b0000", color: "#f87171", border: "none" }}>{t("bookCancel")}</button>}
-                      {b.status === "accepted" && <button onClick={() => handleBookingStatus(b.id, "in_progress", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>{t("bookInProgress")}</button>}
-                      {b.status === "in_progress" && <button onClick={() => handleBookingStatus(b.id, "completed", "assigned")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>{t("bookComplete")}</button>}
-                      {(!b.dispatch_status || b.dispatch_status === "awaiting_source_owner") && <button onClick={() => handleDispatchStatus(b.id, "manual_dispatch_required")} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#3b1a00", color: "#f59e0b", border: "none" }}>⚡ Manual Dispatch</button>}
-                      <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
+
+                    {/* Cancellation reason (cancelled view) */}
+                    {b.cancellation_reason && (
+                      <div style={{ marginBottom: 8, padding: "6px 10px", background: "#1a0000", borderRadius: 6, fontSize: 12, color: "#f87171" }}>
+                        Cancelled: {b.cancellation_reason}{b.cancelled_by ? ` (by ${b.cancelled_by})` : ""}
+                      </div>
+                    )}
+
+                    {/* ── Action Buttons ── */}
+                    <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+
+                      {/* Edit — always available */}
+                      <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>
+                        ✏️ Edit
+                      </button>
+
+                      {/* Assign / Reassign driver */}
+                      {["new", "needs_review", "ready_for_dispatch", "assigned", "driver_confirmed", "driver_issue"].includes(b.status) && (
+                        <button
+                          onClick={() => setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })}
+                          style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}
+                        >
+                          {b.driver_name ? "🔄 Reassign" : "👤 Assign Driver"}
+                        </button>
+                      )}
+
+                      {/* Move to Needs Review */}
+                      {["new", "ready_for_dispatch"].includes(b.status) && (
+                        <button onClick={() => handleMoveToReview(b.id)} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#3b2200", color: "#f59e0b", border: "none" }}>
+                          ⚠️ Needs Review
+                        </button>
+                      )}
+
+                      {/* Ready for Dispatch */}
+                      {["new", "needs_review"].includes(b.status) && (
+                        <button onClick={() => handleReadyForDispatch(b.id)} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#0c2340", color: "#38bdf8", border: "none" }}>
+                          📦 Ready to Dispatch
+                        </button>
+                      )}
+
+                      {/* In Progress */}
+                      {b.status === "driver_confirmed" && (
+                        <button onClick={() => handleBookingStatus(b.id, "in_progress", "assigned")} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}>
+                          🚗 Start Ride
+                        </button>
+                      )}
+
+                      {/* Complete */}
+                      {b.status === "in_progress" && (
+                        <button onClick={() => handleBookingStatus(b.id, "completed", "assigned")} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}>
+                          ✅ Complete
+                        </button>
+                      )}
+
+                      {/* Archive (completed bookings) */}
+                      {b.status === "completed" && (
+                        <button onClick={() => handleArchiveBooking(b.id)} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#1a1a1a", color: "#555", border: "1px solid #333" }}>
+                          📦 Archive
+                        </button>
+                      )}
+
+                      {/* Restore (archived/cancelled) */}
+                      {["archived", "cancelled"].includes(b.status) && (
+                        <button onClick={() => handleRestoreBooking(b.id)} style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#1e3a5f", color: "#60a5fa", border: "none" }}>
+                          ↩️ Restore
+                        </button>
+                      )}
+
+                      {/* Cancel — active bookings only */}
+                      {!["completed", "cancelled", "archived"].includes(b.status) && (
+                        <button
+                          onClick={() => { setCancelModal({ bookingId: b.id, clientName: b.client_name ?? "this booking" }); setCancelReason("") }}
+                          style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#3b0000", color: "#f87171", border: "none" }}
+                        >
+                          ❌ Cancel
+                        </button>
+                      )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
+              </div>
+            )}
+
+            {/* ── Cancel Booking Modal ── */}
+            {cancelModal && (
+              <div style={{ position: "fixed", inset: 0, background: "#000000cc", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                <div style={{ background: "#111", border: "1px solid #3b0000", borderRadius: 16, padding: 28, maxWidth: 420, width: "100%" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f87171", marginBottom: 8 }}>❌ Cancel Booking</div>
+                  <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>Cancelling booking for <strong style={{ color: "#fff" }}>{cancelModal.clientName}</strong>. This cannot be undone.</div>
+                  <label style={S.label}>Cancellation reason (optional)</label>
+                  <textarea
+                    value={cancelReason}
+                    onChange={e => setCancelReason(e.target.value)}
+                    placeholder="e.g. Client requested cancellation, No show, Duplicate booking..."
+                    style={{ ...S.input, height: 80, resize: "vertical" as const, marginBottom: 16 }}
+                  />
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={handleConfirmCancel} disabled={cancellingBooking} style={{ ...S.btn(), flex: 1, background: "#3b0000", color: "#f87171", border: "none" }}>
+                      {cancellingBooking ? "Cancelling..." : "Confirm Cancel"}
+                    </button>
+                    <button onClick={() => { setCancelModal(null); setCancelReason("") }} style={{ ...S.btn(), flex: 1 }}>Back</button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
           )
         })()}
-
         {/* ======================================================
             3. DISPATCH
         ====================================================== */}
