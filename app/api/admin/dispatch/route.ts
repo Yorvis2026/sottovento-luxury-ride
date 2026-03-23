@@ -160,6 +160,51 @@ export async function GET() {
       }
     }
 
+    // ── AUTO-ASSIGN to capturing driver ────────────────────────────────────
+    // Business rule: if a booking is ready_for_dispatch AND has captured_by_driver_code
+    // AND has no assigned_driver_id yet → auto-assign to that driver.
+    // This runs after classification so it does not block the response.
+    // Bookings auto-assigned here will appear in the 'assigned' bucket on next load.
+    const autoAssignCandidates = readyForDispatch.filter(
+      (r: any) => r.captured_by_driver_code && !r.assigned_driver_id
+    );
+    if (autoAssignCandidates.length > 0) {
+      for (const candidate of autoAssignCandidates) {
+        try {
+          // Look up driver by driver_code
+          const [driverRow] = await sql`
+            SELECT id FROM drivers
+            WHERE UPPER(driver_code) = UPPER(${candidate.captured_by_driver_code})
+              AND driver_status = 'active'
+            LIMIT 1
+          `;
+          if (driverRow?.id) {
+            // Atomic update: assign driver + transition to assigned status
+            await sql`
+              UPDATE bookings
+              SET
+                assigned_driver_id = ${driverRow.id}::uuid,
+                status = 'assigned',
+                dispatch_status = 'assigned',
+                updated_at = NOW()
+              WHERE id = ${candidate.id}::uuid
+                AND assigned_driver_id IS NULL
+            `;
+            // Move from readyForDispatch to assigned in this response
+            const idx = readyForDispatch.indexOf(candidate);
+            if (idx !== -1) readyForDispatch.splice(idx, 1);
+            candidate.assigned_driver_id = driverRow.id;
+            candidate.status = 'assigned';
+            candidate.dispatch_status = 'assigned';
+            candidate.auto_assigned = true;
+            assigned.push(candidate);
+          }
+        } catch {
+          // Auto-assign failure must never block the dispatch response
+        }
+      }
+    }
+
     return NextResponse.json({
       driverIssue,
       needsReview,

@@ -207,6 +207,26 @@ export async function PATCH(
       }
     }
 
+    // ── Pre-assignment validation gate (must run BEFORE status update to avoid
+    //    partial state where status='assigned' but assigned_driver_id is NULL) ──
+    if (assigned_driver_id !== undefined && assigned_driver_id) {
+      const [bookingCheck] = await sql`
+        SELECT pickup_at, pickup_address, dropoff_address, total_price
+        FROM bookings WHERE id = ${id}::uuid LIMIT 1
+      `;
+      const missingFields: string[] = [];
+      if (!bookingCheck?.pickup_at) missingFields.push("pickup_time");
+      if (!bookingCheck?.pickup_address || bookingCheck.pickup_address === "TBD") missingFields.push("pickup_address");
+      if (!bookingCheck?.dropoff_address || bookingCheck.dropoff_address === "TBD") missingFields.push("dropoff_address");
+      if (!bookingCheck?.total_price || Number(bookingCheck.total_price) === 0) missingFields.push("total_price");
+      if (missingFields.length > 0) {
+        return NextResponse.json(
+          { error: `Cannot assign driver: booking is missing required fields: ${missingFields.join(", ")}. Please edit the booking first.`, missingFields },
+          { status: 422 }
+        );
+      }
+    }
+
     if (status) {
       const inferredDispatch = dispatch_status ?? inferDispatchStatus(status);
       try {
@@ -243,32 +263,41 @@ export async function PATCH(
       }
     }
 
-    // Assign driver + send email notification
+    // Assign driver + write status/dispatch atomically in a single UPDATE
     if (assigned_driver_id !== undefined) {
-      // ── Pre-assignment validation gate (Section 3.3) ──────────────
       if (assigned_driver_id) {
-        const [bookingCheck] = await sql`
-          SELECT pickup_at, pickup_address, dropoff_address, total_price
-          FROM bookings WHERE id = ${id}::uuid LIMIT 1
-        `;
-        const missingFields: string[] = [];
-        if (!bookingCheck?.pickup_at) missingFields.push("pickup_time");
-        if (!bookingCheck?.pickup_address || bookingCheck.pickup_address === "TBD") missingFields.push("pickup_address");
-        if (!bookingCheck?.dropoff_address || bookingCheck.dropoff_address === "TBD") missingFields.push("dropoff_address");
-        if (!bookingCheck?.total_price || Number(bookingCheck.total_price) === 0) missingFields.push("total_price");
-        if (missingFields.length > 0) {
-          return NextResponse.json(
-            { error: `Cannot assign driver: booking is missing required fields: ${missingFields.join(", ")}. Please edit the booking first.`, missingFields },
-            { status: 422 }
-          );
+        // Atomic update: assigned_driver_id + status + dispatch_status in one query
+        // This prevents the partial state where status='assigned' but assigned_driver_id is NULL
+        const assignStatus = status ?? "assigned";
+        const assignDispatch = dispatch_status ?? "assigned";
+        try {
+          await sql`
+            UPDATE bookings
+            SET
+              assigned_driver_id = ${assigned_driver_id}::uuid,
+              status = ${assignStatus},
+              dispatch_status = ${assignDispatch},
+              updated_at = NOW()
+            WHERE id = ${id}::uuid
+          `;
+        } catch (e: any) {
+          // Fallback if dispatch_status column doesn't exist
+          if (e.message?.includes("dispatch_status")) {
+            await sql`
+              UPDATE bookings
+              SET assigned_driver_id = ${assigned_driver_id}::uuid, status = ${assignStatus}, updated_at = NOW()
+              WHERE id = ${id}::uuid
+            `;
+          } else throw e;
         }
+      } else {
+        // Unassign driver (assigned_driver_id = null)
+        await sql`
+          UPDATE bookings
+          SET assigned_driver_id = NULL, updated_at = NOW()
+          WHERE id = ${id}::uuid
+        `;
       }
-
-      await sql`
-        UPDATE bookings
-        SET assigned_driver_id = ${assigned_driver_id}::uuid, updated_at = NOW()
-        WHERE id = ${id}::uuid
-      `;
 
       // Send email notification to driver (non-blocking)
       if (assigned_driver_id) {
