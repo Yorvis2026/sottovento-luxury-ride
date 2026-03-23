@@ -1062,11 +1062,9 @@ export default function AdminPanel() {
                   {!dispatchData?.driverIssue?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin issues de conductor activos</div>
                   ) : (dispatchData.driverIssue ?? []).map(b => {
-                    const missingFields: string[] = []
-                    if (!b.pickup_address && !b.pickup_zone) missingFields.push("pickup")
-                    if (!b.dropoff_address && !b.dropoff_zone) missingFields.push("dropoff")
-                    if (!b.client_phone) missingFields.push("tel. cliente")
-                    if (!b.pickup_at) missingFields.push("fecha/hora")
+                    const missingFields: string[] = (b as any).missing_critical ?? []
+                    const missingOptionalFields: string[] = (b as any).missing_optional ?? []
+                    const hasMissingOptional: boolean = (b as any).missing_optional_info ?? missingOptionalFields.length > 0
                     const isReady = missingFields.length === 0
                     const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
@@ -1092,7 +1090,12 @@ export default function AdminPanel() {
                             {(b as any).driver_issue_notes && <div style={{ fontSize: 11, color: "#fca5a5", marginTop: 4, padding: "4px 8px", background: "#3b000050", borderRadius: 4 }}>Nota: {(b as any).driver_issue_notes}</div>}
                             {missingFields.length > 0 && (
                               <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b000050", border: "1px solid #ef444440", fontSize: 11, color: "#fca5a5" }}>
-                                Faltan: {missingFields.join(", ")}
+                                ⚠️ Faltan críticos: {missingFields.join(", ")}
+                              </div>
+                            )}
+                            {hasMissingOptional && (
+                              <div style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, background: "#1a1a2a50", border: "1px solid #60a5fa30", fontSize: 11, color: "#93c5fd" }}>
+                                ℹ️ Missing optional info: {missingOptionalFields.join(", ")}
                               </div>
                             )}
                           </div>
@@ -1153,11 +1156,10 @@ export default function AdminPanel() {
                   {!dispatchData?.needsReview?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin bookings pendientes de revisión</div>
                   ) : (dispatchData.needsReview ?? []).map(b => {
-                    const missingFields: string[] = []
-                    if (!b.pickup_address && !b.pickup_zone) missingFields.push("pickup")
-                    if (!b.dropoff_address && !b.dropoff_zone) missingFields.push("dropoff")
-                    if (!b.client_phone) missingFields.push("tel. cliente")
-                    if (!b.pickup_at) missingFields.push("fecha/hora")
+                    // Use server-computed critical fields; fall back to client-side check
+                    const missingFields: string[] = (b as any).missing_critical ?? []
+                    const missingOptionalFields: string[] = (b as any).missing_optional ?? []
+                    const hasMissingOptional: boolean = (b as any).missing_optional_info ?? missingOptionalFields.length > 0
                     const agingMs = Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
@@ -1179,7 +1181,12 @@ export default function AdminPanel() {
                             {b.client_phone && <div style={{ fontSize: 12, color: "#aaa" }}>📞 {b.client_phone}</div>}
                             {missingFields.length > 0 && (
                               <div style={{ marginTop: 6, padding: "5px 8px", borderRadius: 6, background: "#3b1a0050", border: "1px solid #f59e0b40", fontSize: 11, color: "#fcd34d" }}>
-                                Faltan: {missingFields.join(", ")}
+                                ⚠️ Faltan críticos: {missingFields.join(", ")}
+                              </div>
+                            )}
+                            {hasMissingOptional && (
+                              <div style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, background: "#1a1a2a50", border: "1px solid #60a5fa30", fontSize: 11, color: "#93c5fd" }}>
+                                ℹ️ Missing optional info: {missingOptionalFields.join(", ")}
                               </div>
                             )}
                           </div>
@@ -1237,6 +1244,8 @@ export default function AdminPanel() {
                   {!dispatchData?.readyForDispatch?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin bookings listos para despacho</div>
                   ) : (dispatchData.readyForDispatch ?? []).map(b => {
+                    const missingOptionalFields: string[] = (b as any).missing_optional ?? []
+                    const hasMissingOptional: boolean = (b as any).missing_optional_info ?? missingOptionalFields.length > 0
                     const agingMs = Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
@@ -1255,6 +1264,11 @@ export default function AdminPanel() {
                               {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
                             </div>
                             {b.client_phone && <div style={{ fontSize: 12, color: "#aaa" }}>📞 {b.client_phone}</div>}
+                            {hasMissingOptional && (
+                              <div style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, background: "#1a1a2a50", border: "1px solid #60a5fa30", fontSize: 11, color: "#93c5fd" }}>
+                                ℹ️ Missing optional info: {missingOptionalFields.join(", ")}
+                              </div>
+                            )}
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                             <span style={{ ...S.badge("#0c2340"), color: "#60a5fa", fontSize: 10 }}>READY</span>
@@ -1308,6 +1322,8 @@ export default function AdminPanel() {
                   {!dispatchData?.assigned?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin bookings asignados actualmente</div>
                   ) : (dispatchData.assigned ?? []).map(b => {
+                    const missingOptionalFields: string[] = (b as any).missing_optional ?? []
+                    const hasMissingOptional: boolean = (b as any).missing_optional_info ?? missingOptionalFields.length > 0
                     const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : Date.now() - new Date(b.created_at).getTime()
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
@@ -1331,6 +1347,11 @@ export default function AdminPanel() {
                                 {b.driver_phone && (
                                   <a href={`tel:${b.driver_phone}`} style={{ color: "#60a5fa", marginLeft: 8 }}>📞 {b.driver_phone}</a>
                                 )}
+                              </div>
+                            )}
+                            {hasMissingOptional && (
+                              <div style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, background: "#1a1a2a50", border: "1px solid #60a5fa30", fontSize: 11, color: "#93c5fd" }}>
+                                ℹ️ Missing optional info: {missingOptionalFields.join(", ")}
                               </div>
                             )}
                           </div>
@@ -1395,6 +1416,8 @@ export default function AdminPanel() {
                   {!dispatchData?.inProgress?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin rides en progreso actualmente</div>
                   ) : (dispatchData.inProgress ?? []).map(b => {
+                    const missingOptionalFields: string[] = (b as any).missing_optional ?? []
+                    const hasMissingOptional: boolean = (b as any).missing_optional_info ?? missingOptionalFields.length > 0
                     const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : 0
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
@@ -1412,6 +1435,11 @@ export default function AdminPanel() {
                               {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
                             </div>
                             {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>👤 {b.driver_name} ({b.driver_code})</div>}
+                            {hasMissingOptional && (
+                              <div style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, background: "#1a1a2a50", border: "1px solid #60a5fa30", fontSize: 11, color: "#93c5fd" }}>
+                                ℹ️ Missing optional info: {missingOptionalFields.join(", ")}
+                              </div>
+                            )}
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                             <span style={{ ...S.badge(statusColor[b.status] ?? "#14532d"), color: statusText[b.status] ?? "#4ade80" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>

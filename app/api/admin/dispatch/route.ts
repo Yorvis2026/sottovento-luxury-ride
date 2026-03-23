@@ -110,6 +110,32 @@ export async function GET() {
         lastAction === "driver_reported_incomplete" ||
         lastAction === "driver_requested_correction";
 
+      // ── CRITICAL fields: missing any → needs_review ────────────────────
+      // clientPhone, pickupLocation, dropoffLocation, pickupDate/Time, vehicleType,
+      // booking_origin, captured_by, payment_status == paid
+      const missingCritical: string[] = [];
+      if (!r.client_phone)                                       missingCritical.push("tel. cliente");
+      if (!r.pickup_address && !r.pickup_zone)                   missingCritical.push("pickup");
+      if (!r.dropoff_address && !r.dropoff_zone)                 missingCritical.push("dropoff");
+      if (!r.pickup_at)                                          missingCritical.push("fecha/hora");
+      if (!r.vehicle_type)                                       missingCritical.push("vehículo");
+      if (!r.booking_origin || r.booking_origin === "unknown")   missingCritical.push("booking_origin");
+      if (!r.captured_by_driver_code)                            missingCritical.push("captured_by");
+      if (r.payment_status !== "paid")                           missingCritical.push("pago pendiente");
+
+      // ── OPTIONAL fields: missing any → booking_flag only, no dispatch change ──
+      const missingOptional: string[] = [];
+      if (!r.client_email)                                       missingOptional.push("email");
+      if (!r.flight_number)                                      missingOptional.push("vuelo");
+      if (!r.luggage_count && r.luggage_count !== 0)             missingOptional.push("equipaje");
+      if (!r.passenger_count || r.passenger_count <= 0)         missingOptional.push("pasajeros");
+      if (!r.notes)                                              missingOptional.push("notas");
+
+      // Attach computed flags to the row object for UI consumption
+      (r as any).missing_critical = missingCritical;
+      (r as any).missing_optional = missingOptional;
+      (r as any).missing_optional_info = missingOptional.length > 0;
+
       if (hasDriverIssue) {
         driverIssue.push(r);
       } else if (s === "completed") {
@@ -123,11 +149,8 @@ export async function GET() {
       } else if (s === "needs_review") {
         needsReview.push(r);
       } else if (s === "new") {
-        const missingPickup = !r.pickup_address && !r.pickup_zone;
-        const missingDropoff = !r.dropoff_address && !r.dropoff_zone;
-        const missingClient = !r.client_phone && !r.client_name;
-        const missingDate = !r.pickup_at;
-        if (missingPickup || missingDropoff || missingClient || missingDate) {
+        // New bookings: classify based on CRITICAL fields only
+        if (missingCritical.length > 0) {
           needsReview.push(r);
         } else {
           readyForDispatch.push(r);
