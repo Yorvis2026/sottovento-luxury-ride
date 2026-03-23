@@ -16,7 +16,7 @@ type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "le
 type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
 type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
-type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
+type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; needsReview: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
 type CrownData = { stats: { total: number; converted: number; today: number; thisWeek: number; thisMonth: number }; recentLeads: Lead[] }
 
@@ -218,6 +218,7 @@ export default function AdminPanel() {
       total_price: String(b.total_price ?? ""),
       client_name: b.client_name ?? "",
       client_phone: b.client_phone ?? "",
+      client_email: b.client_email ?? "",
     })
     setEditMsg("")
   }
@@ -607,6 +608,24 @@ export default function AdminPanel() {
                     <div style={{ fontSize: 28, fontWeight: 700 }}>{dashboard.totalLeads}</div>
                     <div style={{ fontSize: 13, color: "#888" }}>{t("dashCaptured")}</div>
                     <div style={{ fontSize: 10, color: "#f59e0baa", marginTop: 8 }}>&#8594; {lang === "es" ? "Ver todos los leads" : "View all leads"}</div>
+                  </button>
+
+                  <button
+                    onClick={() => goToTab("dispatch")}
+                    style={{
+                      ...S.statCard((dashboard.needsReview ?? 0) > 0 ? "#f59e0b33" : undefined),
+                      cursor: "pointer",
+                      textAlign: "left",
+                      border: `1px solid ${(dashboard.needsReview ?? 0) > 0 ? "#f59e0b44" : "#222"}`,
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = (dashboard.needsReview ?? 0) > 0 ? "#f59e0b" : "#444" }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = (dashboard.needsReview ?? 0) > 0 ? "#f59e0b44" : "#222" }}
+                  >
+                    <div style={{ fontSize: 10, color: (dashboard.needsReview ?? 0) > 0 ? "#f59e0b" : "#555", letterSpacing: 2, marginBottom: 8 }}>NEEDS REVIEW</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: (dashboard.needsReview ?? 0) > 0 ? "#f59e0b" : "#fff" }}>{dashboard.needsReview ?? 0}</div>
+                    <div style={{ fontSize: 13, color: "#888" }}>{lang === "es" ? "Requieren atención" : "Require attention"}</div>
+                    <div style={{ fontSize: 10, color: "#f59e0baa", marginTop: 8 }}>&#8594; {lang === "es" ? "Ver en Dispatch" : "View in Dispatch"}</div>
                   </button>
                 </div>
 
@@ -2284,6 +2303,10 @@ export default function AdminPanel() {
                   <label style={S.label}>Teléfono del Cliente</label>
                   <input value={editFields.client_phone ?? ""} onChange={e => setEditFields(f => ({ ...f, client_phone: e.target.value }))} style={S.input} placeholder="+14073830647" />
                 </div>
+              </div>
+              <div>
+                <label style={S.label}>Email del Cliente</label>
+                <input type="email" value={editFields.client_email ?? ""} onChange={e => setEditFields(f => ({ ...f, client_email: e.target.value }))} style={S.input} placeholder="cliente@email.com" />
               </div>
 
               {/* Ride Info */}
