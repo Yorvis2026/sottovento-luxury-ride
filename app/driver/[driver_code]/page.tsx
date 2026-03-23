@@ -605,8 +605,10 @@ export default function DriverDashboardByCode() {
   const [smsSending, setSmsSending] = useState(false)
   const [smsSent, setSmsSent] = useState(false)
   const [dashTab, setDashTab] = useState<"overview" | "upcoming" | "completed" | "earnings">("overview")
-  // ── Temporal guardrail modal ──────────────────────────────────
+    // ── Temporal guardrail modals ─────────────────────────────
   const [showEarlyStartModal, setShowEarlyStartModal] = useState(false)
+  const [showOverdueModal, setShowOverdueModal] = useState(false)
+  const [overdueMinutes, setOverdueMinutes] = useState<number>(0)
   const [pendingTransition, setPendingTransition] = useState<RideStatus | null>(null)
   // ── GPS state ─────────────────────────────────────────────────
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null)
@@ -706,6 +708,26 @@ export default function DriverDashboardByCode() {
         playAlert()
         // Vibrate if supported (pattern: 3 pulses)
         try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 500]) } catch {}
+        // Browser Notification API — fires even when tab is in background
+        if (rideChanged && activeRide) {
+          try {
+            if (typeof Notification !== 'undefined') {
+              const sendBrowserNotif = () => {
+                new Notification('SLN — New Ride Assigned', {
+                  body: `Pickup: ${activeRide.pickup_location ?? 'TBD'} → ${activeRide.dropoff_location ?? 'TBD'}`,
+                  icon: '/favicon.ico',
+                  tag: 'sln-new-ride',
+                  requireInteraction: true,
+                })
+              }
+              if (Notification.permission === 'granted') {
+                sendBrowserNotif()
+              } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(p => { if (p === 'granted') sendBrowserNotif() })
+              }
+            }
+          } catch {}
+        }
         // Show dominant modal for new ride assignment
         if (rideChanged && activeRide) {
           setNewRideAlertData({
@@ -882,17 +904,27 @@ export default function DriverDashboardByCode() {
     setTransitioning(false)
   }
 
-  // ── Transition with temporal guardrail ──────────────────────────
+  // ── Transition with temporal guardrail ──────────────────────
   const transitionRide = async (newStatus: RideStatus) => {
     if (!summary?.assigned_ride || transitioning) return
 
-    // GUARDRAIL: if driver tries to start heading (en_route) but pickup is far away
-    if (newStatus === "en_route" && summary.assigned_ride.pickup_datetime) {
+    if (summary.assigned_ride.pickup_datetime) {
       const minutesUntil = (new Date(summary.assigned_ride.pickup_datetime).getTime() - Date.now()) / 60000
-      // If more than 90 min away, show confirmation modal
-      if (minutesUntil > 90) {
+
+      // GUARDRAIL A: early start — driver tries to go en_route but pickup is >90 min away
+      if (newStatus === "en_route" && minutesUntil > 90) {
         setPendingTransition(newStatus)
         setShowEarlyStartModal(true)
+        return
+      }
+
+      // GUARDRAIL B: overdue — driver tries to go en_route but pickup already passed by >30 min
+      // Show a warning so driver is aware, but allow them to proceed
+      if (newStatus === "en_route" && minutesUntil < -30) {
+        const overdue = Math.abs(Math.round(minutesUntil))
+        setOverdueMinutes(overdue)
+        setShowOverdueModal(true)
+        setPendingTransition(newStatus)
         return
       }
     }
@@ -1259,7 +1291,65 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── COMPLETION OVERLAY (v5 — shows +$amount) ────────────────────────
+  // ── OVERDUE MODAL (pickup already passed by >30 min) ──────────────────
+  if (showOverdueModal) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/90 px-6 z-50"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-red-500/40 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+            <div className="text-2xl">🔴</div>
+            <div>
+              <div className="text-sm font-semibold text-red-400">
+                {lang === "es" ? "Servicio con retraso" : "Overdue Pickup"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {lang === "es" ? "El horario de recogida ya pasó" : "Scheduled pickup time has passed"}
+              </div>
+            </div>
+          </div>
+          {/* Body */}
+          <div className="px-5 py-4">
+            <div className="text-sm text-zinc-300 mb-3">
+              {lang === "es"
+                ? `El pickup estaba programado hace ${overdueMinutes > 60 ? `${Math.floor(overdueMinutes/60)}h ${overdueMinutes%60}m` : `${overdueMinutes} min`}.`
+                : `Pickup was scheduled ${overdueMinutes > 60 ? `${Math.floor(overdueMinutes/60)}h ${overdueMinutes%60}m` : `${overdueMinutes} min`} ago.`}
+            </div>
+            <div className="text-xs text-red-400/80 bg-red-500/10 rounded-lg px-3 py-2 mb-4">
+              {lang === "es"
+                ? "Notifica al pasajero y al despacho antes de continuar."
+                : "Notify the passenger and dispatch before proceeding."}
+            </div>
+          </div>
+          {/* Actions */}
+          <div className="px-5 pb-5 space-y-2">
+            <button
+              onClick={() => {
+                setShowOverdueModal(false)
+                if (pendingTransition) {
+                  executeTransition(pendingTransition, "overdue_start")
+                  setPendingTransition(null)
+                }
+              }}
+              className="w-full py-3.5 rounded-xl text-sm font-semibold border border-red-500/60 text-red-400 transition-all active:scale-95">
+              {lang === "es" ? "Continuar de todas formas" : "Continue Anyway"}
+            </button>
+            <button
+              onClick={() => {
+                setShowOverdueModal(false)
+                setPendingTransition(null)
+              }}
+              className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm transition-all active:scale-95">
+              {lang === "es" ? "Cancelar" : "Cancel"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── COMPLETION OVERLAY (v5 — shows +$amount) ──────────────────────
   if (showCompleted) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950"

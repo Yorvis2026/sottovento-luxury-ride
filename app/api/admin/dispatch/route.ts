@@ -110,21 +110,33 @@ export async function GET() {
         lastAction === "driver_reported_incomplete" ||
         lastAction === "driver_requested_correction";
 
-      // ── CRITICAL fields: missing any → needs_review ────────────────────
-      // clientPhone, pickupLocation, dropoffLocation, pickupDate/Time, vehicleType,
-      // booking_origin, captured_by, payment_status == paid
+       // ── CRITICAL fields: missing any → needs_review ─────────────────
+      // Per Issue 4 refinement:
+      //   CRITICAL: client_phone, pickup_location, dropoff_location, pickup_at,
+      //             captured_by_driver_code (only when booking comes from network/tablet),
+      //             payment_status == paid
+      //   NOT critical: vehicle_type, booking_origin, passenger_count, email, flight_number
+      const isNetworkOrTabletBooking =
+        r.booking_origin === 'tablet' ||
+        r.booking_origin === 'driver_qr' ||
+        r.booking_origin === 'driver_referral' ||
+        r.booking_origin === 'driver_tablet' ||
+        r.booking_origin === 'hotel_partner' ||
+        (r.captured_by_driver_code && r.captured_by_driver_code !== 'public_site');
+
       const missingCritical: string[] = [];
       if (!r.client_phone)                                       missingCritical.push("tel. cliente");
       if (!r.pickup_address && !r.pickup_zone)                   missingCritical.push("pickup");
       if (!r.dropoff_address && !r.dropoff_zone)                 missingCritical.push("dropoff");
       if (!r.pickup_at)                                          missingCritical.push("fecha/hora");
-      if (!r.vehicle_type)                                       missingCritical.push("vehículo");
-      if (!r.booking_origin || r.booking_origin === "unknown")   missingCritical.push("booking_origin");
-      if (!r.captured_by_driver_code)                            missingCritical.push("captured_by");
       if (r.payment_status !== "paid")                           missingCritical.push("pago pendiente");
+      // captured_by is only critical for network/tablet bookings (attribution required)
+      if (isNetworkOrTabletBooking && !r.captured_by_driver_code) missingCritical.push("captured_by");
 
       // ── OPTIONAL fields: missing any → booking_flag only, no dispatch change ──
+      // vehicle_type, booking_origin, passenger_count, email, flight_number, luggage, notes
       const missingOptional: string[] = [];
+      if (!r.vehicle_type)                                       missingOptional.push("vehículo");
       if (!r.client_email)                                       missingOptional.push("email");
       if (!r.flight_number)                                      missingOptional.push("vuelo");
       if (!r.luggage_count && r.luggage_count !== 0)             missingOptional.push("equipaje");
