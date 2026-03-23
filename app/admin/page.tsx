@@ -276,7 +276,7 @@ export default function AdminPanel() {
       const res = await fetch(`/api/admin/bookings/${bookingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "accepted", dispatch_status: "assigned", assigned_driver_id: driverId })
+        body: JSON.stringify({ status: "assigned", dispatch_status: "assigned", assigned_driver_id: driverId })
       })
       const data = await res.json()
       if (res.ok) {

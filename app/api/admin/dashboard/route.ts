@@ -12,30 +12,37 @@ const ACTIVE_STATUSES = [
 // GET /api/admin/dashboard — SLN Dashboard stats
 export async function GET() {
   try {
-    // Bookings today — using America/New_York (Florida) timezone
-    // CURRENT_DATE AT TIME ZONE converts today's midnight in ET to UTC for comparison
+    // ── Timezone-safe date boundaries (America/New_York = Florida EDT/EST) ──
+    // Strategy: convert NOW() to Florida local time, truncate to day/week/month,
+    // then cast back to timestamptz so the comparison works against UTC-stored created_at.
+    //
+    // date_trunc('day', NOW() AT TIME ZONE 'America/New_York') gives us midnight in ET
+    // as a plain timestamp (no tz). Casting it AT TIME ZONE 'America/New_York' converts
+    // that plain midnight back to a UTC timestamptz for the WHERE clause.
+
+    // Bookings today — midnight ET → UTC
     const todayBookings = await sql`
       SELECT COUNT(*) AS count, COALESCE(SUM(total_price), 0) AS revenue
       FROM bookings
-      WHERE created_at >= (CURRENT_DATE::timestamp AT TIME ZONE 'America/New_York')
+      WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York'
         AND status = ANY(ARRAY['new','needs_review','ready_for_dispatch','assigned',
                                'driver_confirmed','in_progress','driver_issue',
                                'pending_dispatch','pending','pending_payment','completed'])
     `;
-    // Bookings this week (Florida timezone)
+    // Bookings this week — start of ISO week (Monday) in ET → UTC
     const weekBookings = await sql`
       SELECT COUNT(*) AS count, COALESCE(SUM(total_price), 0) AS revenue
       FROM bookings
-      WHERE created_at >= (date_trunc('week', CURRENT_DATE)::timestamp AT TIME ZONE 'America/New_York')
+      WHERE created_at >= date_trunc('week', NOW() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York'
         AND status = ANY(ARRAY['new','needs_review','ready_for_dispatch','assigned',
                                'driver_confirmed','in_progress','driver_issue',
                                'pending_dispatch','pending','pending_payment','completed'])
     `;
-    // Bookings this month (Florida timezone)
+    // Bookings this month — 1st of month in ET → UTC
     const monthBookings = await sql`
       SELECT COUNT(*) AS count, COALESCE(SUM(total_price), 0) AS revenue
       FROM bookings
-      WHERE created_at >= (date_trunc('month', CURRENT_DATE)::timestamp AT TIME ZONE 'America/New_York')
+      WHERE created_at >= date_trunc('month', NOW() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York'
         AND status = ANY(ARRAY['new','needs_review','ready_for_dispatch','assigned',
                                'driver_confirmed','in_progress','driver_issue',
                                'pending_dispatch','pending','pending_payment','completed'])
