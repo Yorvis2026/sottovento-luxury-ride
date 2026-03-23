@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
       sourceCode,
       passengers,
       luggage,
+      bookingOrigin,
+      capturedBy,
     } = body
 
     // ── serverBookingValidation() — Capa 2: server-side pre-checkout validation ──
@@ -171,6 +173,8 @@ export async function POST(req: NextRequest) {
           passengers,
           luggage,
           trip_type,
+          booking_origin,
+          captured_by_driver_code,
           created_at,
           updated_at
         ) VALUES (
@@ -194,6 +198,8 @@ export async function POST(req: NextRequest) {
           ${passengers ? Number(passengers) : null},
           ${luggage ?? null},
           ${tripType},
+          ${bookingOrigin ?? 'website'},
+          ${capturedBy ?? 'public_site'},
           NOW(),
           NOW()
         )
@@ -249,6 +255,8 @@ export async function POST(req: NextRequest) {
         source_driver_id:  sourceDriverId ?? "",
         passengers:        String(passengers ?? ""),
         luggage:           luggage ?? "",
+        booking_origin:    bookingOrigin ?? "website",
+        captured_by:       capturedBy ?? "public_site",
       },
       success_url: `https://sottoventoluxuryride.com/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: "https://sottoventoluxuryride.com",

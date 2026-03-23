@@ -288,6 +288,8 @@ function BookingInner() {
           luggage: formData.luggage,
           // Source tracking
           sourceCode: searchParams.get("ref") || searchParams.get("driver") || "",
+          bookingOrigin: "website",
+          capturedBy: searchParams.get("ref") || searchParams.get("driver") || "public_site",
         }),
       })
       const data = await response.json()

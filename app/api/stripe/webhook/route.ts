@@ -79,6 +79,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     sourceDriverEligible = true
   }
 
+  // Determine initial booking status: ready_for_dispatch if all required fields present
+  const hasRequiredFields = !!(clientName && clientPhone && clientEmail && pickupLocation && dropoffLocation && vehicleType && pickupDate && pickupTime)
+  const initialBookingStatus = hasRequiredFields ? 'ready_for_dispatch' : 'needs_review'
+
   const now = new Date().toISOString()
   const offerTimeoutSecs = 120
   const offerExpiresAt = new Date(Date.now() + offerTimeoutSecs * 1000).toISOString()
@@ -94,10 +98,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         SET
           payment_status = 'paid',
           status = 'new',
-          dispatch_status = 'needs_review',
-          booking_origin = ${metadata.tablet_code ? 'tablet' : 'public_website'},
-          lead_source = ${metadata.tablet_code ? 'tablet' : 'public_website'},
-          captured_by_driver_code = ${metadata.source_code || null},
+          dispatch_status = ${initialBookingStatus},
+          booking_origin = ${metadata.tablet_code ? 'tablet' : (metadata.booking_origin || 'website')},
+          lead_source = ${metadata.tablet_code ? 'tablet' : (metadata.booking_origin || 'website')},
+          captured_by_driver_code = ${metadata.captured_by || metadata.source_code || 'public_site'},
           paid_at = ${now}::timestamptz,
           stripe_session_id = ${stripeSessionId},
           stripe_payment_intent = ${paymentIntentId},
@@ -132,7 +136,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           offer_expires_at, offer_stage, offer_status,
           created_at, updated_at
         ) VALUES (
-          'paid', 'new', 'needs_review',
+          'paid', 'new', ${initialBookingStatus},
           ${pickupLocation}, ${dropoffLocation}, ${pickupZone}, ${dropoffZone},
           ${pickupAt ? pickupAt : null}::timestamptz,
           ${vehicleType}, ${fare},
@@ -141,9 +145,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           ${flightNumber}, ${notes}, ${sourceCode},
           ${sourceDriverId ? `${sourceDriverId}::uuid` : null},
           ${passengers}, ${luggage}, ${tripType},
-          ${metadata.tablet_code ? 'tablet' : 'public_website'},
-          ${metadata.tablet_code ? 'tablet' : 'public_website'},
-          ${metadata.source_code || null},
+          ${metadata.tablet_code ? 'tablet' : (metadata.booking_origin || 'website')},
+          ${metadata.tablet_code ? 'tablet' : (metadata.booking_origin || 'website')},
+          ${metadata.captured_by || metadata.source_code || 'public_site'},
           ${now}::timestamptz, ${stripeSessionId}, ${paymentIntentId},
           ${offerExpiresAt}::timestamptz,
           ${dispatchStatus === "awaiting_source_owner" ? "source_owner" : "sln_member"},
