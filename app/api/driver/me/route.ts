@@ -8,14 +8,13 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 //
 // Returns driver data with:
 //  - stats: computed from COMPLETED rides (executor earnings)
-//  - assigned_ride: only rides in ACTIVE_WINDOW (pickup_at <= NOW + 90min)
-//                   OR already in LIVE_FLOW (en_route, arrived, in_trip)
-//  - upcoming_rides: future rides outside active window
+//  - assigned_ride: rides with pickup_at <= NOW (current/past) OR in LIVE_FLOW
+//  - upcoming_rides: future rides with pickup_at > NOW
 //  - completed_rides: last 20 completed rides
 //
-// RIDE MODE LOGIC:
-//  UPCOMING      → pickup_at > NOW + 90min
-//  ACTIVE_WINDOW → pickup_at <= NOW + 90min AND status in (accepted, assigned)
+// RIDE MODE LOGIC (simple timeline model):
+//  UPCOMING      → pickup_at > NOW AND status in (accepted, assigned)
+//  ACTIVE_WINDOW → pickup_at <= NOW OR pickup_at IS NULL AND status in (accepted, assigned)
 //  LIVE_FLOW     → status in (en_route, arrived, in_trip)
 //  COMPLETED     → status = completed
 // ============================================================
@@ -180,10 +179,10 @@ export async function GET(req: NextRequest) {
       } catch { /* dispatch columns not yet migrated */ }
     }
 
-    // ── Assigned ride: ACTIVE_WINDOW or LIVE_FLOW only ───────
-    // ACTIVE_WINDOW: pickup_at <= NOW + 90min (ride is actionable)
-    // LIVE_FLOW: en_route, arrived, in_trip (already executing)
-    // DO NOT show rides that are days away as full-screen execution
+    // ── Assigned ride: current/past pickup OR LIVE_FLOW ────────
+    // Simple timeline model: pickup_at <= NOW → assigned (actionable)
+    //                        pickup_at > NOW  → upcoming (future)
+    // LIVE_FLOW: en_route, arrived, in_trip always shown regardless of time
     let assigned_ride = null;
     try {
       const assignedRows = await sql`
@@ -210,15 +209,13 @@ export async function GET(req: NextRequest) {
             -- LIVE_FLOW: already executing regardless of time
             status IN ('en_route', 'arrived', 'in_trip')
             OR
-            -- ACTIVE_WINDOW: within 90min of pickup OR pickup already passed (up to 4h ago)
+            -- ACTIVE_WINDOW: pickup is now or in the past (ride is actionable)
+            -- Simple model: future rides → upcoming, current/past rides → assigned
             (
               status IN ('accepted', 'assigned')
               AND (
                 pickup_at IS NULL
-                OR (
-                  pickup_at <= NOW() + INTERVAL '90 minutes'
-                  AND pickup_at >= NOW() - INTERVAL '4 hours'
-                )
+                OR pickup_at <= NOW()
               )
             )
           )
@@ -344,7 +341,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN clients c ON c.id = b.client_id
         WHERE b.assigned_driver_id = ${driver.id}
           AND b.status IN ('accepted', 'assigned')
-          AND b.pickup_at > NOW() + INTERVAL '90 minutes'
+          AND b.pickup_at > NOW()
         ORDER BY b.pickup_at ASC
         LIMIT 10
       `;
