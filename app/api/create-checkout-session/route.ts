@@ -216,6 +216,12 @@ export async function POST(req: NextRequest) {
     const pickupLabel = pickupLocation || pickupZone
     const dropoffLabel = dropoffLocation || dropoffZone
 
+    // FIX: Explicitly include captured_by_driver_code so the webhook
+    // can classify driver-captured bookings as offer_pending without
+    // relying on the DB fallback. Also force booking_origin='tablet'
+    // when the booking was captured by a specific driver (not public_site).
+    const isDriverCapturedSession = !!(capturedBy && capturedBy !== 'public_site' && capturedBy !== 'PUBLIC_SITE')
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
@@ -235,28 +241,31 @@ export async function POST(req: NextRequest) {
       ],
       // ── Full metadata for webhook finalization ──────────────
       metadata: {
-        booking_id:        bookingId ?? "",
-        client_id:         clientId ?? "",
-        client_name:       name ?? "",
-        client_email:      email ?? "",
-        client_phone:      phone ?? "",
-        pickup_zone:       pickupZone ?? "",
-        dropoff_zone:      dropoffZone ?? "",
-        pickup_location:   pickupLabel ?? "",
-        dropoff_location:  dropoffLabel ?? "",
-        pickup_date:       date ?? "",
-        pickup_time:       time ?? "",
-        vehicle_type:      vehicle ?? "",
-        trip_type:         tripType ?? "oneway",
-        fare:              String(price),
-        flight_number:     flightNumber ?? "",
-        notes:             notes ?? "",
-        source_code:       sourceCode ?? "",
-        source_driver_id:  sourceDriverId ?? "",
-        passengers:        String(passengers ?? ""),
-        luggage:           luggage ?? "",
-        booking_origin:    bookingOrigin ?? "website",
-        captured_by:       capturedBy ?? "public_site",
+        booking_id:              bookingId ?? "",
+        client_id:               clientId ?? "",
+        client_name:             name ?? "",
+        client_email:            email ?? "",
+        client_phone:            phone ?? "",
+        pickup_zone:             pickupZone ?? "",
+        dropoff_zone:            dropoffZone ?? "",
+        pickup_location:         pickupLabel ?? "",
+        dropoff_location:        dropoffLabel ?? "",
+        pickup_date:             date ?? "",
+        pickup_time:             time ?? "",
+        vehicle_type:            vehicle ?? "",
+        trip_type:               tripType ?? "oneway",
+        fare:                    String(price),
+        flight_number:           flightNumber ?? "",
+        notes:                   notes ?? "",
+        source_code:             sourceCode ?? "",
+        source_driver_id:        sourceDriverId ?? "",
+        passengers:              String(passengers ?? ""),
+        luggage:                 luggage ?? "",
+        // Driver-capture fields — used by webhook for auto-assign classification
+        captured_by:             capturedBy ?? "public_site",
+        captured_by_driver_code: isDriverCapturedSession ? (capturedBy ?? "") : "",
+        booking_origin:          isDriverCapturedSession ? "tablet" : (bookingOrigin ?? "website"),
+        tablet_code:             isDriverCapturedSession ? (capturedBy ?? "") : "",
       },
       success_url: `https://sottoventoluxuryride.com/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: "https://sottoventoluxuryride.com",
