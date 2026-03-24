@@ -79,9 +79,48 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     sourceDriverEligible = true
   }
 
-  // Determine initial booking status: ready_for_dispatch if all required fields present
-  const hasRequiredFields = !!(clientName && clientPhone && clientEmail && pickupLocation && dropoffLocation && vehicleType && pickupDate && pickupTime)
-  const initialBookingStatus = hasRequiredFields ? 'ready_for_dispatch' : 'needs_review'
+  // Determine initial booking status.
+  // RULE: driver-captured bookings (tablet/QR) with payment confirmed are operationally valid.
+  // They must NEVER be classified as needs_review if the following critical fields are present:
+  //   payment_status = paid, captured_by_driver_code != null/public_site,
+  //   pickup_location EXISTS, dropoff_location EXISTS, pickup_at EXISTS, vehicle_type EXISTS.
+  // For driver-captured bookings, missing email or phone is acceptable — driver captured the lead.
+  // For public_site bookings, all fields must be present for ready_for_dispatch.
+  const capturedByRaw = (metadata.captured_by || metadata.source_code || '').trim().toUpperCase()
+  const isDriverCaptured = !!(capturedByRaw && capturedByRaw !== 'PUBLIC_SITE')
+
+  // Critical fields for public_site bookings (strict).
+  // FIX: bookings pre-created via tablet use pickup_at stored in DB, not pickupDate/pickupTime in metadata.
+  // Accept (pickupDate && pickupTime) OR pickup_at (derived below as pickupAt) as valid date evidence.
+  // pickupAt is computed after this block, so we check the raw metadata values here directly.
+  const hasPickupTime = !!(pickupDate && pickupTime) || !!(metadata.pickup_at)
+  const hasRequiredFields = !!(clientName && clientPhone && clientEmail && pickupLocation && dropoffLocation && vehicleType && hasPickupTime)
+
+  // Critical fields for driver-captured bookings (relaxed — driver already validated the lead)
+  // pickup_at may be in DB already (pre-created booking path) even if pickupDate metadata is empty
+  const hasDriverCapturedCriticalFields = !!(pickupLocation && dropoffLocation && vehicleType)
+
+  // BYPASS: driver-captured + paid + critical fields present → offer_pending, never needs_review
+  const isDriverCapturedBypass = isDriverCaptured && hasDriverCapturedCriticalFields
+
+  const initialBookingStatus = isDriverCapturedBypass
+    ? 'offer_pending'   // driver-captured: go straight to offer_pending
+    : hasRequiredFields
+      ? 'ready_for_dispatch'
+      : 'needs_review'
+
+  console.log('[webhook] booking classification:', JSON.stringify({
+    isDriverCaptured,
+    isDriverCapturedBypass,
+    hasRequiredFields,
+    hasPickupTime,
+    hasDriverCapturedCriticalFields,
+    initialBookingStatus,
+    captured_by: capturedByRaw,
+    pickup_date_meta: pickupDate || '(empty)',
+    pickup_time_meta: pickupTime || '(empty)',
+    pickup_at_meta: metadata.pickup_at || '(empty)',
+  }))
 
   const now = new Date().toISOString()
   const offerTimeoutSecs = 120
@@ -90,10 +129,33 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   let finalBookingId = bookingId
 
-  // ── STEP 2: Finalize Booking in DB ────────────────────────
+   // ── STEP 2: Finalize Booking in DB ────────────────────
   try {
     if (bookingId) {
-      await sql`
+      // AUDIT: read current booking state before update to detect blocking conditions
+      let preUpdateStatus: string | null = null
+      try {
+        const [preState] = await sql`
+          SELECT status, dispatch_status, payment_status, assigned_driver_id, captured_by_driver_code
+          FROM bookings WHERE id = ${bookingId}::uuid LIMIT 1
+        `
+        preUpdateStatus = preState?.status ?? null
+        console.log('[webhook] STEP2 pre-update state:', JSON.stringify({
+          booking_id: bookingId,
+          status: preState?.status,
+          dispatch_status: preState?.dispatch_status,
+          payment_status: preState?.payment_status,
+          assigned_driver_id: preState?.assigned_driver_id,
+          captured_by_driver_code: preState?.captured_by_driver_code,
+        }))
+      } catch { /* non-blocking */ }
+
+      // FIXED: Expanded status condition to include 'new' and any pre-payment state.
+      // Previously, if the booking was already in 'new' status (e.g., from a retry or
+      // race condition), the UPDATE silently skipped and finalBookingId pointed to a
+      // booking that was NOT updated with payment_status='paid'.
+      // The auto-assign block then ran on an unfinalized booking.
+      const updateResult = await sql`
         UPDATE bookings
         SET
           payment_status = 'paid',
@@ -120,8 +182,46 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           offer_status = 'pending',
           updated_at = NOW()
         WHERE id = ${bookingId}::uuid
-          AND status IN ('pending_payment', 'pending', 'pending_dispatch')
+          AND status IN ('pending_payment', 'pending', 'pending_dispatch', 'new')
+          AND payment_status != 'paid'
+        RETURNING id, status, dispatch_status
       `
+
+      if (updateResult.length === 0) {
+        // Booking was NOT updated — either already paid (idempotent) or status mismatch
+        // Read current state to determine which case
+        const [currentState] = await sql`
+          SELECT status, dispatch_status, payment_status, assigned_driver_id
+          FROM bookings WHERE id = ${bookingId}::uuid LIMIT 1
+        `
+        console.log('[webhook] STEP2 UPDATE skipped — current state:', JSON.stringify({
+          booking_id: bookingId,
+          pre_status: preUpdateStatus,
+          current_status: currentState?.status,
+          current_dispatch: currentState?.dispatch_status,
+          current_payment: currentState?.payment_status,
+          current_assigned: currentState?.assigned_driver_id,
+        }))
+        if (currentState?.payment_status === 'paid') {
+          // Already processed — idempotent, continue to auto-assign check
+          console.log('[webhook] STEP2: booking already paid, proceeding to auto-assign check')
+        } else {
+          // Status mismatch — booking in unexpected state, log and continue
+          console.warn('[webhook] STEP2 WARNING: booking not updated, unexpected status:', currentState?.status, 'for booking:', bookingId)
+          await auditLog(bookingId, 'webhook_step2_skipped', {
+            pre_status: preUpdateStatus,
+            current_status: currentState?.status,
+            current_payment: currentState?.payment_status,
+            stripe_session: stripeSessionId,
+          })
+        }
+      } else {
+        console.log('[webhook] STEP2 SUCCESS: booking finalized:', JSON.stringify({
+          booking_id: bookingId,
+          new_status: updateResult[0]?.status,
+          new_dispatch: updateResult[0]?.dispatch_status,
+        }))
+      }
     } else {
       const newBooking = await sql`
         INSERT INTO bookings (
@@ -184,7 +284,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // ── STEP 9: Audit log — dispatch_status_assigned ──────────
   await auditLog(finalBookingId!, "dispatch_status_assigned", {
-    dispatch_status: "needs_review",
+    dispatch_status: initialBookingStatus, // corrected: reflects actual written value
     reason: dispatchReason,
     source_code: sourceCode,
     source_driver_id: sourceDriverId,
@@ -194,10 +294,185 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   await dispatchLog(
     finalBookingId!,
     "not_required",
-    "needs_review",
+    initialBookingStatus, // corrected: reflects actual written value
     `payment_confirmed: ${dispatchReason}`,
     { stripe_session_id: stripeSessionId, fare, source_code: sourceCode }
   )
+
+  // ── AUTO-ASSIGN: Capturing driver (tablet/QR bookings) ──────
+  // Business rule: if booking was captured by a specific driver (tablet/QR/referral),
+  // immediately assign it to that driver as an offer_pending without admin intervention.
+  // Runs AFTER booking is finalized. Must NOT override an existing manual assignment.
+  //
+  // FIXED: Use TRIM + UPPER for case-insensitive, whitespace-safe matching.
+  // FIXED: Removed pickupDate as a blocking gate — booking may have pickup_at in DB
+  //        even if pickupDate metadata is empty (pre-created booking path).
+  // FIXED: Fallback to reading captured_by_driver_code directly from DB to handle
+  //        cases where metadata.captured_by was not forwarded correctly by frontend.
+  const capturedByCode = (metadata.captured_by || metadata.source_code || '').trim()
+  const capturedByCodeNormalized = capturedByCode.toUpperCase()
+
+  // Determine if this booking has a valid capturing driver code
+  // Also check the DB directly in case metadata was incomplete
+  let resolvedCapturedByCode = capturedByCodeNormalized
+  if (!resolvedCapturedByCode || resolvedCapturedByCode === 'PUBLIC_SITE') {
+    // Fallback: read captured_by_driver_code from the DB record
+    try {
+      const [dbBooking] = await sql`
+        SELECT captured_by_driver_code FROM bookings
+        WHERE id = ${finalBookingId}::uuid LIMIT 1
+      `
+      const dbCode = (dbBooking?.captured_by_driver_code || '').trim().toUpperCase()
+      if (dbCode && dbCode !== 'PUBLIC_SITE') {
+        resolvedCapturedByCode = dbCode
+        console.log('[webhook] auto-assign: resolved captured_by from DB:', resolvedCapturedByCode)
+      }
+    } catch { /* non-blocking */ }
+  }
+
+  // CRITICAL FIX: pickupLocation from metadata may be an empty string "" which evaluates
+  // to false in JS, silently blocking auto-assign even when pickup_address is in the DB.
+  // Solution: trim and check, then fall back to reading from the DB record if empty.
+  let resolvedPickupLocation = (pickupLocation ?? '').trim()
+  let resolvedDropoffLocation = (dropoffLocation ?? '').trim()
+
+  if ((!resolvedPickupLocation || !resolvedDropoffLocation) && finalBookingId) {
+    try {
+      const [dbAddr] = await sql`
+        SELECT pickup_address, dropoff_address FROM bookings
+        WHERE id = ${finalBookingId}::uuid LIMIT 1
+      `
+      if (!resolvedPickupLocation && dbAddr?.pickup_address) {
+        resolvedPickupLocation = (dbAddr.pickup_address ?? '').trim()
+        console.log('[webhook] auto-assign: resolved pickup_address from DB:', resolvedPickupLocation)
+      }
+      if (!resolvedDropoffLocation && dbAddr?.dropoff_address) {
+        resolvedDropoffLocation = (dbAddr.dropoff_address ?? '').trim()
+        console.log('[webhook] auto-assign: resolved dropoff_address from DB:', resolvedDropoffLocation)
+      }
+    } catch { /* non-blocking */ }
+  }
+
+  if (
+    finalBookingId &&
+    resolvedCapturedByCode &&
+    resolvedCapturedByCode !== 'PUBLIC_SITE' &&
+    resolvedPickupLocation &&
+    resolvedDropoffLocation
+    // NOTE: pickupDate is NOT required here — pickup_at may already be in DB
+    // NOTE: clientPhone is NOT required here — already validated in hasRequiredFields
+  ) {
+    console.log('[webhook] auto-assign: attempting for captured_by_code:', resolvedCapturedByCode, 'booking:', finalBookingId)
+    try {
+      const [capturingDriver] = await sql`
+        SELECT id, full_name, driver_status FROM drivers
+        WHERE UPPER(TRIM(driver_code)) = ${resolvedCapturedByCode}
+        LIMIT 1
+      `
+
+      if (!capturingDriver) {
+        console.warn('[webhook] auto-assign: driver not found for code:', resolvedCapturedByCode)
+        await auditLog(finalBookingId!, 'auto_assign_driver_not_found', {
+          captured_by_code: resolvedCapturedByCode,
+          reason: 'no_driver_matching_code',
+        })
+      } else if (capturingDriver.driver_status !== 'active') {
+        console.warn('[webhook] auto-assign: driver found but not active:', resolvedCapturedByCode, 'status:', capturingDriver.driver_status)
+        await auditLog(finalBookingId!, 'auto_assign_driver_not_active', {
+          captured_by_code: resolvedCapturedByCode,
+          driver_id: capturingDriver.id,
+          driver_status: capturingDriver.driver_status,
+        })
+      } else {
+        // Driver found and active — proceed with atomic assignment
+        const updateResult = await sql`
+          UPDATE bookings
+          SET
+            assigned_driver_id = ${capturingDriver.id}::uuid,
+            status = 'assigned',
+            dispatch_status = 'offer_pending',
+            updated_at = NOW()
+          WHERE id = ${finalBookingId}::uuid
+            AND assigned_driver_id IS NULL
+          RETURNING id
+        `
+
+        if (updateResult.length === 0) {
+          console.warn('[webhook] auto-assign: booking already assigned, skipping offer creation for', finalBookingId)
+        } else {
+          // Create dispatch_offer record so driver panel can show Accept/Reject
+          await sql`
+            INSERT INTO dispatch_offers (
+              booking_id, driver_id, offer_round,
+              is_source_offer, status, sent_at, expires_at
+            ) VALUES (
+              ${finalBookingId}::uuid,
+              ${capturingDriver.id}::uuid,
+              1,
+              true,
+              'pending',
+              NOW(),
+              NOW() + interval '24 hours'
+            )
+            ON CONFLICT DO NOTHING
+          `
+
+          await auditLog(finalBookingId!, 'auto_assigned_capturing_driver', {
+            driver_id: capturingDriver.id,
+            driver_name: capturingDriver.full_name,
+            captured_by_code: resolvedCapturedByCode,
+            dispatch_status: 'offer_pending',
+          })
+          console.log('[webhook] auto-assign SUCCESS: driver', capturingDriver.full_name, '(', capturingDriver.id, ') assigned to booking', finalBookingId)
+        }
+      }
+    } catch (autoAssignErr: any) {
+      // Auto-assign failure must never block the booking confirmation
+      console.error('[webhook] auto-assign capturing driver failed:', autoAssignErr.message)
+      await auditLog(finalBookingId!, 'auto_assign_error', {
+        captured_by_code: resolvedCapturedByCode,
+        error: autoAssignErr.message,
+      })
+    }
+  } else {
+    console.log('[webhook] auto-assign: skipped —', JSON.stringify({
+      reason: !resolvedCapturedByCode || resolvedCapturedByCode === 'PUBLIC_SITE'
+        ? 'no_valid_captured_by_code'
+        : !resolvedPickupLocation
+          ? 'pickup_location_empty_after_db_fallback'
+          : 'dropoff_location_empty_after_db_fallback',
+      raw_captured_by: capturedByCode,
+      resolved_captured_by: resolvedCapturedByCode,
+      pickup_resolved: resolvedPickupLocation || '(empty)',
+      dropoff_resolved: resolvedDropoffLocation || '(empty)',
+      booking: finalBookingId,
+    }))
+  }
+
+  // AUDIT: Read final booking state after auto-assign to confirm persistence
+  // This log is the definitive check: if status/dispatch_status differ from expected,
+  // it means something between STEP 2 and here overwrote the state.
+  try {
+    const [finalState] = await sql`
+      SELECT status, dispatch_status, payment_status, assigned_driver_id, captured_by_driver_code
+      FROM bookings WHERE id = ${finalBookingId}::uuid LIMIT 1
+    `
+    console.log('[webhook] FINAL STATE after auto-assign:', JSON.stringify({
+      booking_id: finalBookingId,
+      status: finalState?.status,
+      dispatch_status: finalState?.dispatch_status,
+      payment_status: finalState?.payment_status,
+      assigned_driver_id: finalState?.assigned_driver_id,
+      captured_by: finalState?.captured_by_driver_code,
+    }))
+    await auditLog(finalBookingId!, 'webhook_final_state', {
+      status: finalState?.status,
+      dispatch_status: finalState?.dispatch_status,
+      payment_status: finalState?.payment_status,
+      assigned_driver_id: finalState?.assigned_driver_id,
+      captured_by: finalState?.captured_by_driver_code,
+    })
+  } catch { /* non-blocking */ }
 
   // ── STEP 5+7: Auto-dispatch — source-owner offer ──────────
   if (dispatchStatus === "awaiting_source_owner" && sourceDriverId) {

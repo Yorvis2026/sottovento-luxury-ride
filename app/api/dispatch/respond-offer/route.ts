@@ -26,11 +26,11 @@ const sql = neon(process.env.DATABASE_URL!);
 
 export async function POST(req: NextRequest) {
   try {
-    const body: RespondOfferRequest = await req.json();
+    const body: any = await req.json();
 
-    if (!body.offer_id || !body.driver_id || !body.response) {
+    if ((!body.offer_id && !body.booking_id) || !body.driver_id || !body.response) {
       return NextResponse.json(
-        { error: "Missing required fields: offer_id, driver_id, response" },
+        { error: "Missing required fields: (offer_id or booking_id), driver_id, response" },
         { status: 400 }
       );
     }
@@ -43,10 +43,23 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- Load offer ----
-    const offerRows = await sql`
-      SELECT * FROM dispatch_offers WHERE id = ${body.offer_id} LIMIT 1
-    `;
-    const offer = offerRows[0] ?? null;
+    let offer: any = null;
+    if (body.offer_id) {
+      const offerRows = await sql`
+        SELECT * FROM dispatch_offers WHERE id = ${body.offer_id} LIMIT 1
+      `;
+      offer = offerRows[0] ?? null;
+    } else if (body.booking_id) {
+      // For direct assignments (offer_pending), find the latest pending offer for this booking/driver
+      const offerRows = await sql`
+        SELECT * FROM dispatch_offers 
+        WHERE booking_id = ${body.booking_id} 
+          AND driver_id = ${body.driver_id}
+          AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      offer = offerRows[0] ?? null;
+    }
 
     if (!offer) {
       return NextResponse.json({ error: "Offer not found" }, { status: 404 });
@@ -87,6 +100,7 @@ export async function POST(req: NextRequest) {
 
     if (body.response === "accepted") {
       // ---- ACCEPT ----
+      // Section 2: offer_pending → accepted (driver confirmed the ride)
       await sql`
         UPDATE dispatch_offers
         SET status = 'accepted', responded_at = ${respondedAt}::timestamptz
@@ -99,7 +113,8 @@ export async function POST(req: NextRequest) {
           assigned_driver_id = ${body.driver_id}::uuid,
           offer_accepted = true,
           offer_accepted_at = ${respondedAt}::timestamptz,
-          status = 'assigned',
+          status = 'accepted',
+          dispatch_status = 'accepted',
           updated_at = NOW()
         WHERE id = ${booking.id}
       `;
@@ -145,11 +160,24 @@ export async function POST(req: NextRequest) {
       };
       return NextResponse.json(response);
     } else {
-      // ---- DECLINE ----
+      // ---- DECLINE / REJECT ----
+      // Section 2: Driver rejected the offer.
+      // Clear assigned_driver_id and return booking to ready_for_dispatch
+      // so admin dispatch pipeline can reassign.
       await sql`
         UPDATE dispatch_offers
         SET status = 'declined', responded_at = ${respondedAt}::timestamptz
         WHERE id = ${offer.id}
+      `;
+
+      await sql`
+        UPDATE bookings
+        SET
+          assigned_driver_id = NULL,
+          status = 'ready_for_dispatch',
+          dispatch_status = 'ready_for_dispatch',
+          updated_at = NOW()
+        WHERE id = ${booking.id}
       `;
 
       // Dispatch to network (next round)

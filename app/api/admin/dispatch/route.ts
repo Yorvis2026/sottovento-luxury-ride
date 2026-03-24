@@ -148,27 +148,59 @@ export async function GET() {
       (r as any).missing_optional = missingOptional;
       (r as any).missing_optional_info = missingOptional.length > 0;
 
+      // BYPASS: driver-captured + paid + critical fields present → never needs_review
+      // Business rule: tablet/QR bookings are operationally valid leads.
+      // If payment_status=paid AND captured_by_driver_code is set AND critical fields exist,
+      // the booking must go to assigned (if already assigned) or readyForDispatch, never needsReview.
+      const isDriverCapturedPaid =
+        r.payment_status === 'paid' &&
+        r.captured_by_driver_code &&
+        r.captured_by_driver_code !== 'public_site' &&
+        r.captured_by_driver_code !== 'PUBLIC_SITE' &&
+        (r.pickup_address || r.pickup_zone) &&
+        (r.dropoff_address || r.dropoff_zone);
+
       if (hasDriverIssue) {
         driverIssue.push(r);
       } else if (s === "completed") {
         completed.push(r);
       } else if (s === "in_progress" || ["en_route", "arrived", "in_trip"].includes(s)) {
         inProgress.push(r);
-      } else if (s === "assigned" || s === "driver_confirmed" || s === "accepted") {
+      } else if (s === "assigned" || s === "driver_confirmed" || s === "accepted" || s === "offer_pending") {
+        // offer_pending: driver has been assigned but hasn't confirmed yet
         assigned.push(r);
       } else if (s === "ready_for_dispatch" || s === "offered" || s === "pending_dispatch") {
         readyForDispatch.push(r);
-      } else if (s === "needs_review") {
-        needsReview.push(r);
-      } else if (s === "new") {
-        // New bookings: classify based on CRITICAL fields only
-        if (missingCritical.length > 0) {
+      } else if (s === "needs_review" || s === "new") {
+        // BYPASS: driver-captured paid bookings skip needs_review entirely
+        if (isDriverCapturedPaid) {
+          // Has assigned driver → assigned bucket; otherwise → readyForDispatch for auto-assign
+          if (r.assigned_driver_id) {
+            assigned.push(r);
+          } else {
+            readyForDispatch.push(r);
+          }
+        } else if (s === "needs_review") {
           needsReview.push(r);
         } else {
-          readyForDispatch.push(r);
+          // s === 'new': classify based on CRITICAL fields only
+          if (missingCritical.length > 0) {
+            needsReview.push(r);
+          } else {
+            readyForDispatch.push(r);
+          }
         }
       } else {
-        needsReview.push(r);
+        // Unknown status: driver-captured paid bookings still bypass needs_review
+        if (isDriverCapturedPaid) {
+          if (r.assigned_driver_id) {
+            assigned.push(r);
+          } else {
+            readyForDispatch.push(r);
+          }
+        } else {
+          needsReview.push(r);
+        }
       }
     }
 
@@ -191,23 +223,43 @@ export async function GET() {
             LIMIT 1
           `;
           if (driverRow?.id) {
-            // Atomic update: assign driver + transition to assigned status
+            // Atomic update: assign driver + transition to offer_pending
+            // FIXED: use dispatch_status='offer_pending' so the ride appears
+            // in the driver panel as an offer requiring Accept/Reject.
             await sql`
               UPDATE bookings
               SET
                 assigned_driver_id = ${driverRow.id}::uuid,
                 status = 'assigned',
-                dispatch_status = 'assigned',
+                dispatch_status = 'offer_pending',
                 updated_at = NOW()
               WHERE id = ${candidate.id}::uuid
                 AND assigned_driver_id IS NULL
             `;
+            // Also create a dispatch_offer record for the driver panel
+            try {
+              await sql`
+                INSERT INTO dispatch_offers (
+                  booking_id, driver_id, offer_round,
+                  is_source_offer, status, sent_at, expires_at
+                ) VALUES (
+                  ${candidate.id}::uuid,
+                  ${driverRow.id}::uuid,
+                  1,
+                  true,
+                  'pending',
+                  NOW(),
+                  NOW() + interval '24 hours'
+                )
+                ON CONFLICT DO NOTHING
+              `;
+            } catch { /* non-blocking */ }
             // Move from readyForDispatch to assigned in this response
             const idx = readyForDispatch.indexOf(candidate);
             if (idx !== -1) readyForDispatch.splice(idx, 1);
             candidate.assigned_driver_id = driverRow.id;
             candidate.status = 'assigned';
-            candidate.dispatch_status = 'assigned';
+            candidate.dispatch_status = 'offer_pending';
             candidate.auto_assigned = true;
             assigned.push(candidate);
           }

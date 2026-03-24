@@ -53,7 +53,7 @@ async function sendDriverNotificationEmail(opts: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Sottovento Dispatch <dispatch@sottoventoluxuryride.com>",
+        from: "Sottovento Luxury Ride <noreply@sottoventoluxuryride.com>",
         to: [opts.driverEmail],
         subject: "🚗 New Ride Assigned — Sottovento",
         html: `
@@ -268,8 +268,11 @@ export async function PATCH(
       if (assigned_driver_id) {
         // Atomic update: assigned_driver_id + status + dispatch_status in one query
         // This prevents the partial state where status='assigned' but assigned_driver_id is NULL
+        // Section 2: When admin assigns a driver, set dispatch_status to 'offer_pending'
+        // so the driver receives the Accept/Reject offer stage before the ride becomes active.
+        // Admin can override by explicitly passing dispatch_status in the request body.
         const assignStatus = status ?? "assigned";
-        const assignDispatch = dispatch_status ?? "assigned";
+        const assignDispatch = dispatch_status ?? "offer_pending";
         try {
           await sql`
             UPDATE bookings
@@ -280,6 +283,25 @@ export async function PATCH(
               updated_at = NOW()
             WHERE id = ${id}::uuid
           `;
+
+          // Section 2: Ensure a dispatch_offer exists for the driver to respond to
+          if (assignDispatch === "offer_pending") {
+            await sql`
+              INSERT INTO dispatch_offers (
+                booking_id, driver_id, offer_round,
+                is_source_offer, status, sent_at, expires_at
+              ) VALUES (
+                ${id}::uuid,
+                ${assigned_driver_id}::uuid,
+                1,
+                false,
+                'pending',
+                NOW(),
+                NOW() + interval '24 hours'
+              )
+              ON CONFLICT DO NOTHING
+            `;
+          }
         } catch (e: any) {
           // Fallback if dispatch_status column doesn't exist
           if (e.message?.includes("dispatch_status")) {

@@ -113,7 +113,11 @@ export async function GET(req: NextRequest) {
         WHERE do.driver_id = ${driver.id}
           AND do.status = 'pending'
           AND (do.expires_at IS NULL OR do.expires_at > NOW())
-          AND b.status NOT IN ('cancelled', 'completed', 'assigned')
+          -- CRITICAL FIX: 'assigned' was excluded here, but auto-assigned bookings have
+          -- status='assigned' AND dispatch_status='offer_pending'. They ARE valid offers.
+          -- Only exclude 'assigned' if dispatch_status is NOT 'offer_pending'.
+          AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
+          AND NOT (b.status = 'assigned' AND (b.dispatch_status IS NULL OR b.dispatch_status != 'offer_pending'))
         ORDER BY do.created_at DESC
         LIMIT 1
       `;
@@ -154,7 +158,11 @@ export async function GET(req: NextRequest) {
             OR (dispatch_status = 'awaiting_source_owner' AND source_driver_id = ${driver.id})
             OR (dispatch_status = 'awaiting_sln_member' AND assigned_driver_id = ${driver.id})
           )
-          AND status NOT IN ('cancelled', 'completed', 'assigned')
+          -- CRITICAL FIX: 'assigned' was excluded here, but auto-assigned bookings have
+          -- status='assigned' AND dispatch_status='offer_pending'. They ARE valid offers.
+          -- Only exclude 'assigned' if dispatch_status is NOT 'offer_pending'.
+          AND status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
+          AND NOT (status = 'assigned' AND (dispatch_status IS NULL OR dispatch_status != 'offer_pending'))
           AND (offer_expires_at IS NULL OR offer_expires_at > NOW())
           ORDER BY created_at DESC
           LIMIT 1
@@ -185,10 +193,17 @@ export async function GET(req: NextRequest) {
     // LIVE_FLOW: en_route, arrived, in_trip always shown regardless of time
     let assigned_ride = null;
     try {
+      // Section 3 + 4: Corrected active ride query.
+      // MUST exclude: completed, cancelled, archived (finalized rides must disappear).
+      // MUST include: offer_pending (driver needs to accept/reject),
+      //               accepted, assigned (confirmed, awaiting execution),
+      //               en_route, arrived, in_trip (live flow).
+      // Returns only the single most relevant active ride.
       const assignedRows = await sql`
         SELECT
           id AS booking_id,
           status,
+          dispatch_status,
           pickup_address,
           dropoff_address,
           pickup_zone,
@@ -205,28 +220,44 @@ export async function GET(req: NextRequest) {
           updated_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
+          -- Primary guard: exclude all finalized states by status
+          AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
+          -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
+          AND (dispatch_status IS NULL OR dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show'))
           AND (
+            -- OFFER_PENDING: driver must accept/reject — ALWAYS shown regardless of time.
+            -- CRITICAL FIX: dispatch_status='offer_pending' must be visible even for future rides.
+            -- A booking assigned for tomorrow with offer_pending must appear in the driver panel.
+            -- Previously, the ACTIVE_WINDOW time gate was blocking these rides.
+            status = 'offer_pending'
+            OR
+            dispatch_status = 'offer_pending'
+            OR
             -- LIVE_FLOW: already executing regardless of time
+            -- These statuses are always resumable regardless of pickup time
             status IN ('en_route', 'arrived', 'in_trip')
             OR
-            -- ACTIVE_WINDOW: pickup is now or in the past (ride is actionable)
-            -- Simple model: future rides → upcoming, current/past rides → assigned
+            -- ACTIVE_WINDOW: accepted/assigned rides within a strict time window.
+            -- CRITICAL: pickup_at must exist AND be within the last 6 hours OR upcoming 90 minutes.
+            -- This prevents stale assigned rides from reappearing days after their pickup time.
+            -- pickup_at IS NULL is intentionally excluded here to avoid permanent ghost rides.
             (
               status IN ('accepted', 'assigned')
-              AND (
-                pickup_at IS NULL
-                OR pickup_at <= NOW()
-              )
+              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
+              AND pickup_at IS NOT NULL
+              AND pickup_at >= NOW() - INTERVAL '6 hours'
+              AND pickup_at <= NOW() + INTERVAL '90 minutes'
             )
           )
         ORDER BY
           CASE status
-            WHEN 'in_trip'  THEN 1
-            WHEN 'arrived'  THEN 2
-            WHEN 'en_route' THEN 3
-            WHEN 'assigned' THEN 4
-            WHEN 'accepted' THEN 5
-            ELSE 6
+            WHEN 'in_trip'       THEN 1
+            WHEN 'arrived'       THEN 2
+            WHEN 'en_route'      THEN 3
+            WHEN 'offer_pending' THEN 4
+            WHEN 'accepted'      THEN 5
+            WHEN 'assigned'      THEN 6
+            ELSE 7
           END,
           pickup_at ASC
         LIMIT 1
@@ -271,9 +302,15 @@ export async function GET(req: NextRequest) {
 
         let ride_mode = "active_window";
         if (["en_route", "arrived", "in_trip"].includes(r.status)) {
+          // LIVE_FLOW: driver is already executing the ride
           ride_mode = "live_flow";
-        } else if (minutesUntilPickup !== null && minutesUntilPickup > ACTIVATION_BUFFER_MINUTES) {
-          ride_mode = "active_window"; // shouldn't happen due to query, but safety
+        } else if (r.status === "offer_pending") {
+          // OFFER_PENDING: driver must accept/reject before proceeding
+          ride_mode = "offer_pending";
+        } else if (r.status === "accepted" || r.status === "assigned") {
+          // ACTIVE_WINDOW: confirmed ride, not yet executing
+          // Always 'active_window' regardless of time — never live_flow for pre-trip states
+          ride_mode = "active_window";
         }
 
         // ── Fetch bookings_count for repeat client detection ──
@@ -291,6 +328,7 @@ export async function GET(req: NextRequest) {
         assigned_ride = {
           booking_id: r.booking_id,
           status: r.status ?? "assigned",
+          dispatch_status: r.dispatch_status ?? r.status ?? "assigned",
           pickup_location: r.pickup_address ?? "TBD",
           dropoff_location: r.dropoff_address ?? "TBD",
           pickup_zone: r.pickup_zone ?? null,
@@ -316,16 +354,25 @@ export async function GET(req: NextRequest) {
         };
       }
     } catch (assignErr: any) {
-      console.error("[driver/me] assigned_ride error:", assignErr?.message);
+      console.error("[driver/me] assigned_ride query error:", assignErr?.message);
+    }
+
+    // Safety check: if assigned_ride somehow returned a completed ride, discard it
+    if (assigned_ride && ['completed', 'cancelled', 'archived', 'no_show'].includes((assigned_ride as any).status)) {
+      console.warn('[driver/me] SAFETY: discarding finalized ride from assigned_ride', (assigned_ride as any).booking_id, (assigned_ride as any).status);
+      assigned_ride = null;
     }
 
     // ── Upcoming rides: outside active window ────────────────
     let upcoming_rides: Record<string, unknown>[] = [];
     try {
+      // Section 4: upcoming_rides must include offer_pending and accepted/assigned future rides.
+      // MUST exclude completed, cancelled, archived.
       const upcomingRows = await sql`
         SELECT
           b.id AS booking_id,
           b.status,
+          b.dispatch_status,
           b.pickup_address,
           b.dropoff_address,
           b.pickup_at,
@@ -340,7 +387,11 @@ export async function GET(req: NextRequest) {
         FROM bookings b
         LEFT JOIN clients c ON c.id = b.client_id
         WHERE b.assigned_driver_id = ${driver.id}
-          AND b.status IN ('accepted', 'assigned')
+          -- Primary guard: exclude all finalized states by status
+          AND b.status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
+          -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
+          AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show'))
+          AND b.status IN ('offer_pending', 'accepted', 'assigned')
           AND b.pickup_at > NOW()
         ORDER BY b.pickup_at ASC
         LIMIT 10
@@ -353,12 +404,13 @@ export async function GET(req: NextRequest) {
         return {
           booking_id: r.booking_id,
           status: r.status,
+          dispatch_status: r.dispatch_status ?? r.status,
           pickup_location: r.pickup_address ?? "TBD",
           dropoff_location: r.dropoff_address ?? "TBD",
           pickup_datetime: r.pickup_at,
           vehicle_type: r.vehicle_type ?? "Sedan",
           total_price: Number(r.total_price ?? 0),
-          ride_window_state: "upcoming",
+          ride_window_state: r.status === "offer_pending" ? "offer_pending" : "upcoming",
           minutes_until_pickup: minutesUntil,
           flight_number: r.flight_number ?? null,
           passengers: r.passengers ?? null,

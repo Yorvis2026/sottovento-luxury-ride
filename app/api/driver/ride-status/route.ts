@@ -27,11 +27,12 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // ============================================================
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  accepted:  ["en_route", "cancelled"],  // admin-assigned rides start as 'accepted'
-  assigned:  ["en_route", "cancelled"],
-  en_route:  ["arrived", "cancelled"],
-  arrived:   ["in_trip", "no_show", "cancelled"],
-  in_trip:   ["completed", "cancelled"],
+  offer_pending: ["accepted", "cancelled"],  // driver must accept before ride becomes active
+  accepted:      ["en_route", "cancelled"],  // admin-assigned or accepted rides
+  assigned:      ["en_route", "cancelled"],  // legacy: direct assignment without offer stage
+  en_route:      ["arrived", "cancelled"],
+  arrived:       ["in_trip", "no_show", "cancelled"],
+  in_trip:       ["completed", "cancelled"],
 };
 
 const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
@@ -120,7 +121,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Dynamic update using raw SQL with the correct column
-    if (new_status === "en_route") {
+    if (new_status === "accepted") {
+      // Driver accepted the offer: transition from offer_pending → accepted
+      await sql`
+        UPDATE bookings
+        SET status = 'accepted',
+            dispatch_status = 'accepted',
+            updated_at = NOW()
+        WHERE id = ${booking_id}
+      `;
+    } else if (new_status === "en_route") {
       await sql`
         UPDATE bookings
         SET status = 'en_route',

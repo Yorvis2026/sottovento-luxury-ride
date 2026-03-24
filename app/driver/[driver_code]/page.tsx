@@ -374,7 +374,7 @@ const T: Record<Lang, Record<string, string>> = {
 }
 
 // ─── TYPES ────────────────────────────────────────────────────
-type RideStatus = "accepted" | "assigned" | "en_route" | "arrived" | "in_trip" | "completed" | "cancelled" | "no_show"
+type RideStatus = "offer_pending" | "accepted" | "assigned" | "en_route" | "arrived" | "in_trip" | "completed" | "cancelled" | "no_show"
 
 interface ActiveOffer {
   offer_id: string
@@ -414,7 +414,7 @@ interface ActiveRide {
   arrived_at?: string | null
   completed_at?: string | null
   bookings_count?: number
-  ride_mode?: "active_window" | "live_flow" | "upcoming"
+  ride_mode?: "active_window" | "live_flow" | "upcoming" | "offer_pending"
   minutes_until_pickup?: number | null
   updated_at?: string | null
 }
@@ -455,8 +455,7 @@ interface CompletedRide {
   driver_earnings?: number | null
   sln_commission?: number | null
   source_earnings?: number | null
-  payout_status?: string | null
-}
+  dispatch_status?: string | null
 
 interface DriverSummary {
   driver_id: string
@@ -729,12 +728,13 @@ export default function DriverDashboardByCode() {
           } catch {}
         }
         // Show dominant modal for new ride assignment
-        if (rideChanged && activeRide) {
+        // v6: Only show if it's NOT an offer_pending (which has its own full-screen UI)
+        if (rideChanged && activeRide && activeRide.status !== "offer_pending" && activeRide.ride_mode !== "offer_pending") {
           setNewRideAlertData({
-            pickup: activeRide.pickup_location ?? "TBD",
-            dropoff: activeRide.dropoff_location ?? "TBD",
-            fare: activeRide.total_price ?? 0,
-            pickup_time: activeRide.pickup_datetime ?? null,
+            pickup: activeRide.pickup_location,
+            dropoff: activeRide.dropoff_location,
+            fare: activeRide.total_price,
+            pickup_time: activeRide.pickup_datetime,
           })
           setShowNewRideAlert(true)
         }
@@ -821,6 +821,30 @@ export default function DriverDashboardByCode() {
         body: JSON.stringify({
           offer_id: summary.active_offer.offer_id,
           driver_id: summary.driver_id,
+          response,
+        }),
+      })
+      const data = await res.json()
+      if (response === "accepted" && !data.error) {
+        setRespondResult("accepted")
+        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 1500)
+      } else {
+        setRespondResult(response)
+        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
+      }
+    } catch { setResponding(false) }
+  }
+
+  const respondOfferDirect = async (bookingId: string, response: "accepted" | "declined") => {
+    if (responding) return
+    setResponding(true)
+    try {
+      const res = await fetch("/api/dispatch/respond-offer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: bookingId,
+          driver_id: summary?.driver_id,
           response,
         }),
       })
@@ -1409,12 +1433,54 @@ export default function DriverDashboardByCode() {
 
   // ════════════════════════════════════════════════════════════
   // PRIORITY 2: RIDE FLOW SCREEN
-  // Only show full-screen execution for LIVE_FLOW or ACTIVE_WINDOW rides
-  // UPCOMING rides (pickup > 90min away) stay in dashboard Upcoming tab
+  // Strict re-entry rules:
+  //   offer_pending  → OfferScreen only (driver must accept before entering flow)
+  //   en_route       → RideFlowScreen (live, resumable)
+  //   arrived        → RideFlowScreen (live, resumable)
+  //   in_trip        → RideFlowScreen (live, resumable)
+  //   accepted       → RideFlowScreen in pre-trip (assigned) view only
+  //   assigned       → RideFlowScreen in pre-trip (assigned) view only
+  //   completed      → NEVER shown here (excluded by backend query)
+  //   upcoming       → stays in dashboard Upcoming tab
   // ════════════════════════════════════════════════════════════
   if (summary.assigned_ride && summary.assigned_ride.ride_mode !== "upcoming") {
-    return (
-      <RideFlowScreen
+    // GUARD: never render RideFlowScreen for finalized rides (safety net)
+    if (["completed", "cancelled", "archived", "no_show"].includes(summary.assigned_ride.status)) {
+      // This should never happen if backend is correct, but discard silently
+      // and fall through to dashboard
+    } else if (summary.assigned_ride.status === "offer_pending" || summary.assigned_ride.ride_mode === "offer_pending") {
+      // OFFER_PENDING: show offer screen, driver must explicitly accept before entering flow
+      return (
+        <OfferScreen
+          offer={{
+            offer_id: "direct_" + summary.assigned_ride.booking_id,
+            booking_id: summary.assigned_ride.booking_id,
+            pickup_location: summary.assigned_ride.pickup_location,
+            dropoff_location: summary.assigned_ride.dropoff_location,
+            pickup_datetime: summary.assigned_ride.pickup_datetime,
+            vehicle_type: summary.assigned_ride.vehicle_type,
+            total_price: summary.assigned_ride.total_price,
+            expires_at: null,
+            dispatch_status: "offer_pending",
+            client_name: summary.assigned_ride.client_name,
+            bookings_count: summary.assigned_ride.bookings_count
+          }}
+          driverName={summary.driver_name}
+          lang={lang}
+          onLang={setLangAndSave}
+          onAccept={() => respondOfferDirect(summary.assigned_ride!.booking_id, "accepted")}
+          onDecline={() => respondOfferDirect(summary.assigned_ride!.booking_id, "declined")}
+          onExpired={() => {}}
+          responding={responding}
+          t={t}
+        />
+      )
+    } else if (["accepted", "assigned", "en_route", "arrived", "in_trip"].includes(summary.assigned_ride.status)) {
+      // RESUMABLE: only these statuses may enter RideFlowScreen
+      // 'accepted' and 'assigned' enter in pre-trip view (no live flow buttons active)
+      // 'en_route', 'arrived', 'in_trip' enter in live flow view
+      return (
+        <RideFlowScreen
         ride={summary.assigned_ride}
         driverName={summary.driver_name}
         driverId={summary.driver_id}
@@ -1433,7 +1499,8 @@ export default function DriverDashboardByCode() {
         rideUpdatedByDispatch={rideUpdatedByDispatch}
         t={t}
       />
-    )
+      )
+    }
   }
 
   // ════════════════════════════════════════════════════════════
