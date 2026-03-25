@@ -6,6 +6,13 @@ export async function GET(req: NextRequest) {
   const results: any = {};
   
   try {
+    // Check dispatch_offers columns
+    const doCols = await sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'dispatch_offers' ORDER BY ordinal_position
+    `;
+    results.dispatch_offers_columns = doCols.map((c: any) => c.column_name);
+
     const bookingId = '3f3bad18-c920-467a-9296-d1d1cff7fad0';
     const driverId = 'f2cb4bc6-1962-4b35-bd7d-3ff6f4e806c3';
     
