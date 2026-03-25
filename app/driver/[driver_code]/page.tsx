@@ -737,7 +737,13 @@ export default function DriverDashboardByCode() {
         }
         // Show dominant modal for new ride assignment
         // v6: Only show if it's NOT an offer_pending (which has its own full-screen UI)
-        if (rideChanged && activeRide && activeRide.status !== "offer_pending" && activeRide.ride_mode !== "offer_pending") {
+        // v7: Also exclude rides that are already accepted/assigned (status='accepted'/'assigned')
+        //     when the driver opens the app — prevRideIdRef=null means first load, not new assignment.
+        //     Only fire for genuinely new ride assignments during an active session.
+        const isFirstLoad = hadNoRide // prevRideIdRef was null before this poll
+        const isAlreadyAccepted = activeRide.status === "accepted" || activeRide.status === "assigned"
+        const isOfferGated = activeRide.ride_mode === "offer_pending" || activeRide.status === "offer_pending"
+        if (rideChanged && activeRide && !isOfferGated && !(isFirstLoad && isAlreadyAccepted)) {
           setNewRideAlertData({
             pickup: activeRide.pickup_location,
             dropoff: activeRide.dropoff_location,

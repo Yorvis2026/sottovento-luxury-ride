@@ -317,6 +317,11 @@ export async function GET(req: NextRequest) {
         if (["en_route", "arrived", "in_trip"].includes(r.status)) {
           // LIVE_FLOW: driver is already executing the ride
           ride_mode = "live_flow";
+        } else if (r.dispatch_status === "offer_pending") {
+          // OFFER_PENDING GATE: dispatch_status='offer_pending' means driver MUST accept/reject first.
+          // This takes priority over status (covers status='new', 'assigned', 'offer_pending').
+          // Prevents showNewRideAlert from firing before the driver has responded.
+          ride_mode = "offer_pending";
         } else if (r.status === "accepted") {
           // ACCEPTED: driver confirmed the ride. dispatch_status may lag behind.
           // SLN RULE: operational controls only appear when within 40 min of pickup.
@@ -328,10 +333,8 @@ export async function GET(req: NextRequest) {
           } else {
             ride_mode = "active_window";
           }
-        } else if (r.status === "offer_pending" || (r.status === "assigned" && r.dispatch_status === "offer_pending")) {
-          // OFFER_PENDING: driver must accept/reject before proceeding
-          // Only applies when status is explicitly 'offer_pending'
-          // OR status='assigned' with dispatch_status='offer_pending' (auto-assigned, not yet responded)
+        } else if (r.status === "offer_pending") {
+          // Explicit offer_pending status (legacy path)
           ride_mode = "offer_pending";
         } else if (r.status === "assigned") {
           // SCHEDULED: confirmed ride, not yet in operational window
