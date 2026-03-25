@@ -219,7 +219,7 @@ export const dispatchOffers = {
     const rows = await sql`
       INSERT INTO dispatch_offers (
         booking_id, driver_id, offer_round,
-        is_source_offer, status, sent_at, expires_at
+        is_source_offer, response, sent_at, expires_at
       ) VALUES (
         ${data.booking_id},
         ${data.driver_id},
@@ -247,7 +247,7 @@ export const dispatchOffers = {
     const rows = await sql`
       SELECT * FROM dispatch_offers
       WHERE booking_id = ${bookingId}
-        AND status = 'pending'
+        AND response = 'pending'
       ORDER BY offer_round ASC
       LIMIT 1
     `;
@@ -261,7 +261,7 @@ export const dispatchOffers = {
     await sql`
       UPDATE dispatch_offers
       SET
-        status = COALESCE(${data.status ?? null}, status),
+        response = COALESCE(${data.status ?? null}, response),
         responded_at = COALESCE(${data.responded_at ?? null}::timestamptz, responded_at)
       WHERE id = ${id}
     `;

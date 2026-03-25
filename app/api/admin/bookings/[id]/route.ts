@@ -289,7 +289,7 @@ export async function PATCH(
             await sql`
               INSERT INTO dispatch_offers (
                 booking_id, driver_id, offer_round,
-                is_source_offer, status, sent_at, expires_at
+                is_source_offer, response, sent_at, expires_at
               ) VALUES (
                 ${id}::uuid,
                 ${assigned_driver_id}::uuid,

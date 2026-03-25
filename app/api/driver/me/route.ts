@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
         FROM dispatch_offers do
         JOIN bookings b ON b.id = do.booking_id
         WHERE do.driver_id = ${driver.id}
-          AND do.status = 'pending'
+          AND do.response = 'pending'
           AND (do.expires_at IS NULL OR do.expires_at > NOW())
           -- CRITICAL FIX: 'assigned' was excluded here, but auto-assigned bookings have
           -- status='assigned' AND dispatch_status='offer_pending'. They ARE valid offers.

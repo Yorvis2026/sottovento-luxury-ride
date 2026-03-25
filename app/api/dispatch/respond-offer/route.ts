@@ -9,12 +9,15 @@ import type { RespondOfferRequest, RespondOfferResponse } from "@/lib/dispatch/t
 //
 // Called when a driver accepts or declines a dispatch offer.
 //
+// IMPORTANT: dispatch_offers table uses column "response" (not "status")
+// Values: 'pending' | 'accepted' | 'declined' | 'timeout'
+//
 // Flow (ACCEPT):
 // 1. Validate offer is active and not expired
 // 2. Mark offer as accepted
 // 3. Assign driver to booking
 // 4. Confirm commission split
-// 5. Update booking status to "assigned"
+// 5. Update booking status to "accepted"
 //
 // Flow (DECLINE / TIMEOUT):
 // 1. Mark offer as declined/timeout
@@ -53,14 +56,15 @@ export async function POST(req: NextRequest) {
       offer = offerRows[0] ?? null;
     } else if (body.booking_id) {
       // For direct assignments (offer_pending), find the latest offer for this booking/driver.
-      // CRITICAL FIX: include 'timeout' status — if the 15-min window expired but the driver
+      // CRITICAL FIX: include 'timeout' response — if the 15-min window expired but the driver
       // taps Accept before the system processes the timeout, the offer row may already be 'timeout'.
       // We allow acceptance of recently-timed-out offers to prevent the offer screen from looping.
+      // NOTE: dispatch_offers uses column "response" (not "status")
       const offerRows = await sql`
         SELECT * FROM dispatch_offers 
-        WHERE booking_id = ${body.booking_id} 
-          AND driver_id = ${body.driver_id}
-          AND status IN ('pending', 'timeout')
+        WHERE booking_id = ${body.booking_id}::uuid
+          AND driver_id = ${body.driver_id}::uuid
+          AND response IN ('pending', 'timeout')
         ORDER BY created_at DESC LIMIT 1
       `;
       offer = offerRows[0] ?? null;
@@ -81,7 +85,7 @@ export async function POST(req: NextRequest) {
           // Booking is valid and assigned to this driver — proceed without offer row
           offerMissing = true;
           offer = { id: null, booking_id: body.booking_id, driver_id: body.driver_id,
-                    status: 'pending', offer_round: 1, is_source_offer: true,
+                    response: 'pending', offer_round: 1, is_source_offer: true,
                     expires_at: new Date(Date.now() + 60000).toISOString() };
           console.log('[respond-offer] no dispatch_offer row found — using booking-level fallback for', body.booking_id);
         }
@@ -94,10 +98,10 @@ export async function POST(req: NextRequest) {
     if (offer.driver_id !== body.driver_id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
-    // Allow 'timeout' status for acceptance (driver tapped Accept during/after expiry window)
-    if (offer.status !== "pending" && offer.status !== "timeout" && !offerMissing) {
+    // Allow 'timeout' response for acceptance (driver tapped Accept during/after expiry window)
+    if (offer.response !== "pending" && offer.response !== "timeout" && !offerMissing) {
       return NextResponse.json(
-        { error: "Offer already responded to", current_status: offer.status },
+        { error: "Offer already responded to", current_status: offer.response },
         { status: 409 }
       );
     }
@@ -113,7 +117,7 @@ export async function POST(req: NextRequest) {
       if (offer.id) {
         await sql`
           UPDATE dispatch_offers
-          SET status = 'timeout', responded_at = NOW()
+          SET response = 'timeout', responded_at = NOW()
           WHERE id = ${offer.id}
         `;
       }
@@ -139,17 +143,17 @@ export async function POST(req: NextRequest) {
       if (offer.id) {
         await sql`
           UPDATE dispatch_offers
-          SET status = 'accepted', responded_at = ${respondedAt}::timestamptz
+          SET response = 'accepted', responded_at = ${respondedAt}::timestamptz
           WHERE id = ${offer.id}
         `;
       } else {
         // offerMissing=true: no dispatch_offer row — mark any pending offers for this booking as accepted
         await sql`
           UPDATE dispatch_offers
-          SET status = 'accepted', responded_at = ${respondedAt}::timestamptz
+          SET response = 'accepted', responded_at = ${respondedAt}::timestamptz
           WHERE booking_id = ${offer.booking_id}::uuid
             AND driver_id = ${body.driver_id}::uuid
-            AND status IN ('pending', 'timeout')
+            AND response IN ('pending', 'timeout')
         `;
       }
 
@@ -212,7 +216,7 @@ export async function POST(req: NextRequest) {
       // so admin dispatch pipeline can reassign.
       await sql`
         UPDATE dispatch_offers
-        SET status = 'declined', responded_at = ${respondedAt}::timestamptz
+        SET response = 'declined', responded_at = ${respondedAt}::timestamptz
         WHERE id = ${offer.id}
       `;
 
@@ -278,13 +282,13 @@ export async function PUT(req: NextRequest) {
     `;
     const offer = offerRows[0] ?? null;
 
-    if (!offer || offer.status !== "pending") {
+    if (!offer || offer.response !== "pending") {
       return NextResponse.json({ message: "Offer already resolved" });
     }
 
     await sql`
       UPDATE dispatch_offers
-      SET status = 'timeout', responded_at = NOW()
+      SET response = 'timeout', responded_at = NOW()
       WHERE id = ${offer_id}
     `;
 

@@ -404,7 +404,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           await sql`
             INSERT INTO dispatch_offers (
               booking_id, driver_id, offer_round,
-              is_source_offer, status, sent_at, expires_at
+              is_source_offer, response, sent_at, expires_at
             ) VALUES (
               ${finalBookingId}::uuid,
               ${capturingDriver.id}::uuid,
