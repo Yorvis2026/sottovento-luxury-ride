@@ -818,6 +818,18 @@ export default function DriverDashboardByCode() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [loadData])
+  // ── Heartbeat: trigger server-side cron every 60s while panel is visible ─
+  // Simulates Vercel Pro cron frequency on Hobby plan.
+  // Covers: offer expiry for drivers who closed the app / lost signal.
+  // Fire-and-forget — does NOT block render, does NOT affect UX.
+  useEffect(() => {
+    const heartbeat = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetch('/api/cron/expire-driver-offers', { method: 'GET' }).catch(() => {})
+      }
+    }, 60000)
+    return () => clearInterval(heartbeat)
+  }, [])
   // ── GPS: continuous watchPosition for live tracking ──────────────────────
   const gpsWatchRef = useRef<number | null>(null)
   useEffect(() => {
