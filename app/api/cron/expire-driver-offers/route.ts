@@ -50,21 +50,21 @@ export async function GET(request: Request) {
     // ── Step 1: Find all expired pending offers ─────────────
     const expiredOffers = await sql`
       SELECT
-        do.id          AS offer_id,
-        do.booking_id,
-        do.driver_id,
-        do.offer_round,
-        do.response,
-        do.expires_at,
+        dof.id          AS offer_id,
+        dof.booking_id,
+        dof.driver_id,
+        dof.offer_round,
+        dof.response,
+        dof.expires_at,
         b.status       AS booking_status,
         b.dispatch_status,
         b.assigned_driver_id
-      FROM dispatch_offers do
-      JOIN bookings b ON b.id = do.booking_id
-      WHERE do.response = 'pending'
-        AND do.expires_at IS NOT NULL
-        AND do.expires_at < NOW()
-      ORDER BY do.expires_at ASC
+      FROM dispatch_offers dof
+      JOIN bookings b ON b.id = dof.booking_id
+      WHERE dof.response = 'pending'
+        AND dof.expires_at IS NOT NULL
+        AND dof.expires_at < NOW()
+      ORDER BY dof.expires_at ASC
     `;
 
     console.log(`[cron-expire] found ${expiredOffers.length} expired pending offers`);
