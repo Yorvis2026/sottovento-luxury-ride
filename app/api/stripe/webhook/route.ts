@@ -412,7 +412,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
               true,
               'pending',
               NOW(),
-              NOW() + interval '24 hours'
+              NOW() + interval '15 minutes'  -- source-driver exclusive window
             )
             ON CONFLICT DO NOTHING
           `

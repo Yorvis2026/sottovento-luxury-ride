@@ -456,6 +456,9 @@ interface CompletedRide {
   sln_commission?: number | null
   source_earnings?: number | null
   dispatch_status?: string | null
+  ride_mode?: string | null
+  captured_by_driver_code?: string | null
+  minutes_until_pickup?: number | null
 }
 
 interface DriverSummary {
@@ -2589,7 +2592,39 @@ function RideFlowScreen({
               </div>
             )}
 
-            {cfg.primaryAction ? (
+            {/* OPERATIONAL WINDOW GUARD:
+               active_window  → ride is scheduled but not yet within 60 min. Show scheduled card.
+               operational_window_open / live_flow → show primary action button.
+            */}
+            {isEnRouteAction && ride.ride_mode === "active_window" ? (
+              // Scheduled state: ride accepted but not yet in operational window
+              <div className="rounded-2xl border px-5 py-4 text-center"
+                style={{ borderColor: GOLD + "30", backgroundColor: "#0f0f00" }}>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">
+                  {lang === "es" ? "Viaje programado" : lang === "ht" ? "Vwayaj pwograme" : "Scheduled Ride"}
+                </div>
+                {ride.pickup_datetime && (
+                  <div className="text-2xl font-bold mb-1" style={{ color: GOLD }}>
+                    {new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  </div>
+                )}
+                {ride.minutes_until_pickup !== null && ride.minutes_until_pickup !== undefined && (
+                  <div className="text-sm text-zinc-400">
+                    {ride.minutes_until_pickup > 60
+                      ? `${Math.floor(ride.minutes_until_pickup / 60)}h ${ride.minutes_until_pickup % 60}m ${lang === "es" ? "para el servicio" : "until pickup"}`
+                      : `${ride.minutes_until_pickup}m ${lang === "es" ? "para el servicio" : "until pickup"}`
+                    }
+                  </div>
+                )}
+                <div className="text-xs text-zinc-600 mt-2">
+                  {lang === "es"
+                    ? "Los controles operacionales se activarán 60 min antes del servicio"
+                    : lang === "ht"
+                    ? "Kontwòl operasyonèl yo pral aktive 60 min anvan sèvis la"
+                    : "Operational controls activate 60 min before pickup"}
+                </div>
+              </div>
+            ) : cfg.primaryAction ? (
               <button
                 onClick={() => cfg.primaryAction && onTransition(cfg.primaryAction)}
                 disabled={transitioning || (isEnRouteAction && !dataReady)}

@@ -217,7 +217,8 @@ export async function GET(req: NextRequest) {
           notes,
           passengers,
           luggage,
-          updated_at
+          updated_at,
+          captured_by_driver_code
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
           -- Primary guard: exclude all finalized states by status
@@ -304,13 +305,20 @@ export async function GET(req: NextRequest) {
         if (["en_route", "arrived", "in_trip"].includes(r.status)) {
           // LIVE_FLOW: driver is already executing the ride
           ride_mode = "live_flow";
-        } else if (r.status === "offer_pending") {
+        } else if (r.status === "offer_pending" || r.dispatch_status === "offer_pending") {
           // OFFER_PENDING: driver must accept/reject before proceeding
+          // Covers both status='offer_pending' and status='assigned' with dispatch_status='offer_pending'
           ride_mode = "offer_pending";
         } else if (r.status === "accepted" || r.status === "assigned") {
-          // ACTIVE_WINDOW: confirmed ride, not yet executing
-          // Always 'active_window' regardless of time — never live_flow for pre-trip states
-          ride_mode = "active_window";
+          // SCHEDULED: confirmed ride, not yet in operational window
+          // Operational controls appear only when pickup_at is within OPERATIONAL_THRESHOLD
+          const OPERATIONAL_THRESHOLD_MINUTES = 60; // configurable
+          const minutesUntil = minutesUntilPickup;
+          if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
+            ride_mode = "operational_window_open";
+          } else {
+            ride_mode = "active_window"; // scheduled, not yet actionable
+          }
         }
 
         // ── Fetch bookings_count for repeat client detection ──
@@ -351,6 +359,7 @@ export async function GET(req: NextRequest) {
           ride_mode,
           minutes_until_pickup: minutesUntilPickup !== null ? Math.round(minutesUntilPickup) : null,
           updated_at: r.updated_at ?? null,
+          captured_by_driver_code: r.captured_by_driver_code ?? null,
         };
       }
     } catch (assignErr: any) {

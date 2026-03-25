@@ -170,12 +170,15 @@ export async function POST(req: NextRequest) {
         WHERE id = ${offer.id}
       `;
 
+      // Release to network pool:
+      // - Clear assigned_driver_id so no driver is locked to this booking
+      // - Set dispatch_status = 'offer_pending' so network drivers can see it
+      // - status remains 'assigned' to preserve lifecycle integrity
       await sql`
         UPDATE bookings
         SET
           assigned_driver_id = NULL,
-          status = 'ready_for_dispatch',
-          dispatch_status = 'ready_for_dispatch',
+          dispatch_status = 'offer_pending',
           updated_at = NOW()
         WHERE id = ${booking.id}
       `;
@@ -256,7 +259,23 @@ export async function PUT(req: NextRequest) {
 // ============================================================
 
 async function dispatchToNetwork(bookingId: string, round: number): Promise<void> {
-  // TODO: Query available active drivers, exclude already-offered drivers,
-  // create new dispatch_offers rows, send push notifications
-  console.log(`[dispatch] Network fallback — Booking ${bookingId} — Round ${round}`);
+  // Release to network pool:
+  // Mark booking as available for any active network driver to claim.
+  // Clears assigned_driver_id and sets dispatch_status = 'offer_pending'
+  // so the booking surfaces in the network driver panel.
+  // Future rounds may create new dispatch_offers rows for targeted broadcast.
+  try {
+    await sql`
+      UPDATE bookings
+      SET
+        assigned_driver_id = NULL,
+        dispatch_status = 'offer_pending',
+        updated_at = NOW()
+      WHERE id = ${bookingId}::uuid
+        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
+    `;
+    console.log(`[dispatch] release_to_network_pool — Booking ${bookingId} — Round ${round}`);
+  } catch (err: any) {
+    console.error(`[dispatch] release_to_network_pool error — Booking ${bookingId}:`, err?.message);
+  }
 }
