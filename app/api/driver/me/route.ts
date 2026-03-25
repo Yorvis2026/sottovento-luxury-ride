@@ -305,11 +305,23 @@ export async function GET(req: NextRequest) {
         if (["en_route", "arrived", "in_trip"].includes(r.status)) {
           // LIVE_FLOW: driver is already executing the ride
           ride_mode = "live_flow";
-        } else if (r.status === "offer_pending" || r.dispatch_status === "offer_pending") {
+        } else if (r.status === "accepted") {
+          // ACCEPTED: driver confirmed the ride. dispatch_status may lag behind.
+          // CRITICAL: 'accepted' status ALWAYS takes priority over dispatch_status='offer_pending'.
+          // This prevents offer screen from re-appearing if dispatch_status write was partial.
+          const OPERATIONAL_THRESHOLD_MINUTES = 60;
+          const minutesUntil = minutesUntilPickup;
+          if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
+            ride_mode = "operational_window_open";
+          } else {
+            ride_mode = "active_window";
+          }
+        } else if (r.status === "offer_pending" || (r.status === "assigned" && r.dispatch_status === "offer_pending")) {
           // OFFER_PENDING: driver must accept/reject before proceeding
-          // Covers both status='offer_pending' and status='assigned' with dispatch_status='offer_pending'
+          // Only applies when status is explicitly 'offer_pending'
+          // OR status='assigned' with dispatch_status='offer_pending' (auto-assigned, not yet responded)
           ride_mode = "offer_pending";
-        } else if (r.status === "accepted" || r.status === "assigned") {
+        } else if (r.status === "assigned") {
           // SCHEDULED: confirmed ride, not yet in operational window
           // Operational controls appear only when pickup_at is within OPERATIONAL_THRESHOLD
           const OPERATIONAL_THRESHOLD_MINUTES = 60; // configurable

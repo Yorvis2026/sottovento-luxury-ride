@@ -855,7 +855,9 @@ export default function DriverDashboardByCode() {
       const data = await res.json()
       if (response === "accepted" && !data.error) {
         setRespondResult("accepted")
-        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 1500)
+        // 2500ms delay: gives DB time to propagate dispatch_status='accepted'
+        // before re-fetch. Prevents offer screen from re-appearing during transition.
+        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2500)
       } else {
         setRespondResult(response)
         setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
@@ -1452,8 +1454,10 @@ export default function DriverDashboardByCode() {
     if (["completed", "cancelled", "archived", "no_show"].includes(summary.assigned_ride.status)) {
       // This should never happen if backend is correct, but discard silently
       // and fall through to dashboard
-    } else if (summary.assigned_ride.status === "offer_pending" || summary.assigned_ride.ride_mode === "offer_pending") {
+    } else if (!respondResult && (summary.assigned_ride.status === "offer_pending" || summary.assigned_ride.ride_mode === "offer_pending")) {
       // OFFER_PENDING: show offer screen, driver must explicitly accept before entering flow
+      // GUARD: !respondResult prevents OfferScreen from re-rendering during the accept/decline
+      // transition window (between setRespondResult(null) and loadData() completing).
       return (
         <OfferScreen
           offer={{
