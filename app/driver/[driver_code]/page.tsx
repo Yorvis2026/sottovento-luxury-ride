@@ -806,8 +806,19 @@ export default function DriverDashboardByCode() {
     pollRef.current = setInterval(loadData, POLL_INTERVAL)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadData])
-
-  // ── GPS: continuous watchPosition for live tracking ────────────────────
+  // ── Visibility: immediate loadData when driver returns to app tab ──────────────
+  // Ensures offer appears instantly when driver opens the PWA from background.
+  // Without this, the driver would wait up to POLL_INTERVAL (5s) to see a new offer.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadData()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [loadData])
+  // ── GPS: continuous watchPosition for live tracking ──────────────────────
   const gpsWatchRef = useRef<number | null>(null)
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -911,11 +922,25 @@ export default function DriverDashboardByCode() {
     } catch { setResponding(false) }
   }
 
-  const handleOfferExpired = useCallback(() => {
+  const handleOfferExpired = useCallback(async () => {
     if (respondResult) return
     setRespondResult("expired")
+    // SLN: 15-min window expired — call the timeout endpoint to:
+    // 1. Mark dispatch_offer.response = 'timeout'
+    // 2. Release booking to network pool (clears assigned_driver_id, dispatch_status='offer_pending')
+    // This is the real release_to_network_pool — not just a UI dismiss.
+    const offerId = summary?.active_offer?.offer_id
+    if (offerId) {
+      try {
+        await fetch('/api/dispatch/respond-offer', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offer_id: offerId }),
+        })
+      } catch { /* non-blocking: server will process on next poll */ }
+    }
     setTimeout(() => { setRespondResult(null); loadData() }, 2500)
-  }, [respondResult, loadData])
+  }, [respondResult, loadData, summary?.active_offer?.offer_id])
 
   // ── GPS: get current position ──────────────────────────────────
   const getGPS = useCallback((): Promise<{ lat: number; lng: number } | null> => {
@@ -1172,11 +1197,12 @@ export default function DriverDashboardByCode() {
   // ── REFERRAL SHARE MODAL ──────────────────────────────────────────
   if (showReferralModal && summary) {
     const referralUrl = `${BASE_URL}/?ref=${summary.driver_code}`
-    const shareText = lang === "es"
-      ? `¡Reserva tu viaje de lujo con Sottovento! Usa mi enlace personalizado: ${referralUrl}`
-      : lang === "ht"
-      ? `Rezève vwayaj luksi ou ak Sottovento! Itilize lyen pèsonèl mwen: ${referralUrl}`
-      : `Book your luxury ride with Sottovento! Use my personal link: ${referralUrl}`
+    // SLN RULE: outbound invite/share message is always in English by default.
+    // This is a client-facing message sent via WhatsApp/SMS/email to potential clients.
+    // It must NOT use the driver's UI language (lang) — clients may speak any language.
+    // Rule: client.language ?? booking.language ?? 'en'
+    // Since we don't have client context here, default to English always.
+    const shareText = `Book your luxury ride with Sottovento! Use my personal link: ${referralUrl}`
 
     const handleCopyReferral = async () => {
       try {
@@ -1210,7 +1236,8 @@ export default function DriverDashboardByCode() {
 
     const smsUrl = `sms:?body=${encodeURIComponent(shareText)}`
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`
-    const emailUrl = `mailto:?subject=${encodeURIComponent(lang === "es" ? "Reserva tu viaje de lujo" : "Book your luxury ride")}&body=${encodeURIComponent(shareText)}`
+    // SLN RULE: email subject also in English (client-facing, not driver-facing)
+    const emailUrl = `mailto:?subject=${encodeURIComponent("Book your luxury ride with Sottovento")}&body=${encodeURIComponent(shareText)}`
 
     return (
       <div className="fixed inset-0 bg-black/80 flex items-end justify-center z-[90]"
@@ -1752,7 +1779,7 @@ export default function DriverDashboardByCode() {
                   ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
                 const minutesUntil = ride.pickup_datetime
                   ? Math.round((new Date(ride.pickup_datetime).getTime() - Date.now()) / 60000) : null
-                const isNearWindow = minutesUntil !== null && minutesUntil <= 40
+                const isNearWindow = minutesUntil !== null && minutesUntil <= 120 // 2h operational window
                 const isExpanded = expandedRideId === ride.booking_id
 
                 return (
@@ -2650,7 +2677,7 @@ function RideFlowScreen({
             )}
 
             {/* OPERATIONAL WINDOW GUARD:
-               active_window  → ride is scheduled but not yet within 40 min. Show scheduled card.
+               active_window  → ride is scheduled but not yet within 2h. Show scheduled card.
                operational_window_open / live_flow → show primary action button.
             */}
             {isEnRouteAction && ride.ride_mode === "active_window" ? (
@@ -2675,10 +2702,10 @@ function RideFlowScreen({
                 )}
                 <div className="text-xs text-zinc-600 mt-2">
                   {lang === "es"
-                    ? "Los controles operacionales se activarán 40 min antes del servicio"
+                    ? "Los controles operacionales se activarán 2 horas antes del servicio"
                     : lang === "ht"
-                    ? "Kontwòl operasyonèl yo pral aktive 40 min anvan sèvis la"
-                    : "Operational controls activate 40 min before pickup"}
+                    ? "Kontwòl operasyonèl yo pral aktive 2 è anvan sèvis la"
+                    : "Operational controls activate 2 hours before pickup"}
                 </div>
               </div>
             ) : cfg.primaryAction ? (

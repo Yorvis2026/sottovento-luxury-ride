@@ -294,6 +294,21 @@ export async function PUT(req: NextRequest) {
       WHERE id = ${offer_id}
     `;
 
+    // SLN: 15-min window expired — release booking to network pool.
+    // Clear assigned_driver_id and set dispatch_status='offer_pending' so:
+    // 1. The booking surfaces in the admin dispatch panel for reassignment.
+    // 2. Network drivers can see it in their panel.
+    // 3. The source driver's panel no longer shows this booking as an active offer.
+    await sql`
+      UPDATE bookings
+      SET
+        assigned_driver_id = NULL,
+        dispatch_status = 'offer_pending',
+        updated_at = NOW()
+      WHERE id = ${offer.booking_id}::uuid
+        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+    `;
+
     await dispatchToNetwork(offer.booking_id, offer.offer_round + 1);
 
     return NextResponse.json({

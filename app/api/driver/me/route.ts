@@ -242,16 +242,16 @@ export async function GET(req: NextRequest) {
             status IN ('en_route', 'arrived', 'in_trip')
             OR
             -- ACTIVE_WINDOW: accepted/assigned rides within a strict time window.
-            -- SLN RULE: 'accepted' rides only enter assigned_ride when within 40 min of pickup.
-            --            Before that they stay in upcoming_rides (no operational controls).
-            -- 'assigned' (offer_pending resolved) keeps 90-min window for backward compat.
+            -- SLN PREMIUM RULE: minimum booking window is 2 hours.
+            -- 'accepted'/'assigned' rides enter assigned_ride only when within 2h of pickup.
+            -- Before that they stay in upcoming_rides (no operational controls).
             -- pickup_at IS NULL is intentionally excluded here to avoid permanent ghost rides.
             (
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND pickup_at IS NOT NULL
               AND pickup_at >= NOW() - INTERVAL '6 hours'
-              AND pickup_at <= NOW() + INTERVAL '40 minutes'
+              AND pickup_at <= NOW() + INTERVAL '120 minutes'
             )
             OR
             (
@@ -259,7 +259,7 @@ export async function GET(req: NextRequest) {
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND pickup_at IS NOT NULL
               AND pickup_at >= NOW() - INTERVAL '6 hours'
-              AND pickup_at <= NOW() + INTERVAL '90 minutes'
+              AND pickup_at <= NOW() + INTERVAL '120 minutes'
             )
           )
         ORDER BY
@@ -323,10 +323,10 @@ export async function GET(req: NextRequest) {
           // Prevents showNewRideAlert from firing before the driver has responded.
           ride_mode = "offer_pending";
         } else if (r.status === "accepted") {
-          // ACCEPTED: driver confirmed the ride. dispatch_status may lag behind.
-          // SLN RULE: operational controls only appear when within 40 min of pickup.
-          // Before that, ride_mode = 'active_window' → shows scheduled card, no buttons.
-          const OPERATIONAL_THRESHOLD_MINUTES = 40;
+          // ACCEPTED: driver confirmed the ride.
+          // SLN PREMIUM RULE: operational controls only appear when within 2h of pickup.
+          // Before that, ride_mode = 'active_window' → shows in Próximos, no buttons.
+          const OPERATIONAL_THRESHOLD_MINUTES = 120; // 2 hours
           const minutesUntil = minutesUntilPickup;
           if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
             ride_mode = "operational_window_open";
@@ -338,8 +338,8 @@ export async function GET(req: NextRequest) {
           ride_mode = "offer_pending";
         } else if (r.status === "assigned") {
           // SCHEDULED: confirmed ride, not yet in operational window
-          // SLN RULE: same 40-min threshold for consistency
-          const OPERATIONAL_THRESHOLD_MINUTES = 40;
+          // SLN PREMIUM RULE: same 2h threshold for consistency
+          const OPERATIONAL_THRESHOLD_MINUTES = 120; // 2 hours
           const minutesUntil = minutesUntilPickup;
           if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
             ride_mode = "operational_window_open";
