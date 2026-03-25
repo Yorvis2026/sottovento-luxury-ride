@@ -456,6 +456,7 @@ interface CompletedRide {
   sln_commission?: number | null
   source_earnings?: number | null
   dispatch_status?: string | null
+}
 
 interface DriverSummary {
   driver_id: string
