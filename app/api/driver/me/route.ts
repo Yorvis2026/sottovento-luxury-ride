@@ -113,11 +113,14 @@ export async function GET(req: NextRequest) {
         WHERE do.driver_id = ${driver.id}
           AND do.response = 'pending'
           AND (do.expires_at IS NULL OR do.expires_at > NOW())
-          -- CRITICAL FIX: 'assigned' was excluded here, but auto-assigned bookings have
-          -- status='assigned' AND dispatch_status='offer_pending'. They ARE valid offers.
-          -- Only exclude 'assigned' if dispatch_status is NOT 'offer_pending'.
+          -- Exclude all finalized or already-accepted bookings
           AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
-          AND NOT (b.status = 'assigned' AND (b.dispatch_status IS NULL OR b.dispatch_status != 'offer_pending'))
+          -- Exclude 'assigned' bookings unless they are explicitly awaiting driver response
+          AND NOT (b.status = 'assigned' AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('offer_pending')))
+          -- DEDUP GUARD: exclude bookings already accepted by this driver (dispatch_status=accepted)
+          AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled')
+          -- DEDUP GUARD: exclude bookings where this driver is already assigned and accepted
+          AND NOT (b.assigned_driver_id = ${driver.id} AND b.offer_accepted = true)
         ORDER BY do.created_at DESC
         LIMIT 1
       `;

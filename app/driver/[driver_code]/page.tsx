@@ -635,6 +635,10 @@ export default function DriverDashboardByCode() {
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
   const prevRideUpdatedAtRef = useRef<string | null>(null)
+  // DEDUP GUARD: track the last booking_id that was accepted by this driver.
+  // After acceptance, block any offer screen for this booking_id until the backend
+  // confirms status='accepted' (prevents race condition re-render of OfferScreen).
+  const lastAcceptedBookingIdRef = useRef<string | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
@@ -755,7 +759,20 @@ export default function DriverDashboardByCode() {
       prevRideIdRef.current = newRideId
       prevOfferIdRef.current = newOfferId
       prevRideUpdatedAtRef.current = newUpdatedAt
-
+      // DEDUP GUARD: clear lastAcceptedBookingIdRef once backend confirms status='accepted'
+      // for that booking (either in assigned_ride or upcoming_rides).
+      // This allows future offers for a different booking to appear normally.
+      if (lastAcceptedBookingIdRef.current) {
+        const acceptedId = lastAcceptedBookingIdRef.current
+        const confirmedInAssigned = activeRide?.booking_id === acceptedId &&
+          (activeRide?.status === 'accepted' || activeRide?.dispatch_status === 'accepted')
+        const confirmedInUpcoming = (d.upcoming_rides ?? []).some(
+          (r: any) => r.booking_id === acceptedId && (r.status === 'accepted' || r.dispatch_status === 'accepted')
+        )
+        if (confirmedInAssigned || confirmedInUpcoming) {
+          lastAcceptedBookingIdRef.current = null
+        }
+      }
       setSummary({
         driver_id: d.id,
         driver_name: d.full_name,
@@ -828,8 +845,12 @@ export default function DriverDashboardByCode() {
           response,
         }),
       })
-      const data = await res.json()
+       const data = await res.json()
       if (response === "accepted" && !data.error) {
+        // DEDUP GUARD: record accepted booking_id to block re-render of OfferScreen
+        if (summary.active_offer?.booking_id) {
+          lastAcceptedBookingIdRef.current = summary.active_offer.booking_id
+        }
         setRespondResult("accepted")
         setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 1500)
       } else {
@@ -838,7 +859,6 @@ export default function DriverDashboardByCode() {
       }
     } catch { setResponding(false) }
   }
-
   const respondOfferDirect = async (bookingId: string, response: "accepted" | "declined") => {
     if (responding) return
     setResponding(true)
@@ -861,6 +881,8 @@ export default function DriverDashboardByCode() {
         // Any other error (500, 410 expired+dispatched) = show as declined/expired.
         const isSuccess = res.ok || res.status === 409
         if (isSuccess) {
+          // DEDUP GUARD: record accepted booking_id to block re-render of OfferScreen
+          lastAcceptedBookingIdRef.current = bookingId
           setRespondResult("accepted")
           // 2500ms delay: gives DB time to propagate dispatch_status='accepted'
           // before re-fetch. Prevents offer screen from re-appearing during transition.
@@ -1439,7 +1461,11 @@ export default function DriverDashboardByCode() {
   // ══════════════════════════════════════════════════════════════
   // PRIORITY 1: OFFER SCREEN
   // ══════════════════════════════════════════════════════════════
-  if (summary.active_offer && !respondResult) {
+  // DEDUP GUARD: suppress OfferScreen if this booking was already accepted in this session.
+  // Prevents race condition where backend hasn't propagated status='accepted' yet.
+  const isOfferAlreadyAccepted = summary.active_offer?.booking_id != null &&
+    summary.active_offer.booking_id === lastAcceptedBookingIdRef.current
+  if (summary.active_offer && !respondResult && !isOfferAlreadyAccepted) {
     return (
       <OfferScreen
         offer={summary.active_offer}
@@ -1472,7 +1498,10 @@ export default function DriverDashboardByCode() {
     if (["completed", "cancelled", "archived", "no_show"].includes(summary.assigned_ride.status)) {
       // This should never happen if backend is correct, but discard silently
       // and fall through to dashboard
-    } else if (!respondResult && (summary.assigned_ride.status === "offer_pending" || summary.assigned_ride.ride_mode === "offer_pending")) {
+    } else if (!respondResult &&
+      (summary.assigned_ride.status === "offer_pending" || summary.assigned_ride.ride_mode === "offer_pending") &&
+      // DEDUP GUARD: suppress OfferScreen if this booking was already accepted in this session
+      summary.assigned_ride.booking_id !== lastAcceptedBookingIdRef.current) {
       // OFFER_PENDING: show offer screen, driver must explicitly accept before entering flow
       // GUARD: !respondResult prevents OfferScreen from re-rendering during the accept/decline
       // transition window (between setRespondResult(null) and loadData() completing).

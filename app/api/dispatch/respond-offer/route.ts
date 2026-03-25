@@ -140,20 +140,22 @@ export async function POST(req: NextRequest) {
       // ---- ACCEPT ----
       // Section 2: offer_pending → accepted (driver confirmed the ride)
       // Only update dispatch_offers if the offer row actually exists (id != null)
+      // CRITICAL FIX: Always close ALL pending/timeout dispatch_offer rows for this booking.
+      // Using WHERE id = offer.id only closes the specific row found, leaving any other
+      // pending rows open — those can re-surface as active offers on the next poll.
+      // Closing by booking_id ensures no stale offer rows remain after acceptance.
+      await sql`
+        UPDATE dispatch_offers
+        SET response = 'accepted', responded_at = ${respondedAt}::timestamptz
+        WHERE booking_id = ${offer.booking_id}::uuid
+          AND response IN ('pending', 'timeout')
+      `;
       if (offer.id) {
+        // Also ensure the specific offer row is marked (covers edge case where booking_id mismatch)
         await sql`
           UPDATE dispatch_offers
           SET response = 'accepted', responded_at = ${respondedAt}::timestamptz
           WHERE id = ${offer.id}
-        `;
-      } else {
-        // offerMissing=true: no dispatch_offer row — mark any pending offers for this booking as accepted
-        await sql`
-          UPDATE dispatch_offers
-          SET response = 'accepted', responded_at = ${respondedAt}::timestamptz
-          WHERE booking_id = ${offer.booking_id}::uuid
-            AND driver_id = ${body.driver_id}::uuid
-            AND response IN ('pending', 'timeout')
         `;
       }
 
