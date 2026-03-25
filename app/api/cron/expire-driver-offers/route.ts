@@ -115,36 +115,38 @@ export async function GET(request: Request) {
 
         console.log(`[cron-expire] timeout applied — offer ${offer.offer_id}`);
 
-        // ── Step 3: Release booking to network pool ──────────
-        // Identical logic to PUT /api/dispatch/respond-offer
-        // IDEMPOTENCY: WHERE status NOT IN (finalized) prevents touching
-        // bookings that were already accepted/completed/cancelled.
-        // If assigned_driver_id is already NULL, the UPDATE is a no-op (safe).
+        // ── Step 3: Mark booking as expired (spec §6 step 1) ────
         await sql`
           UPDATE bookings
           SET
-            assigned_driver_id = NULL,
-            dispatch_status = 'offer_pending',
-            updated_at = NOW()
+            dispatch_status = 'expired',
+            updated_at      = NOW()
           WHERE id = ${offer.booking_id}::uuid
+            AND dispatch_status = 'offer_pending'
             AND status NOT IN (
               'completed', 'cancelled', 'archived', 'no_show',
               'accepted', 'en_route', 'arrived', 'in_trip'
             )
         `;
 
-        console.log(`[cron-expire] released to network — booking ${offer.booking_id}`);
+        // ── Step 4: Move expired booking to network pool (spec §6 step 2) ─
+        await sql`
+          UPDATE bookings
+          SET
+            assigned_driver_id = NULL,
+            dispatch_status    = 'network_pool_pending',
+            updated_at         = NOW()
+          WHERE id = ${offer.booking_id}::uuid
+            AND dispatch_status = 'expired'
+        `;
 
-        // ── Step 4: dispatchToNetwork (same as PUT handler) ──
-        // Sets dispatch_status='offer_pending' (already done above) and logs.
-        // This call is intentionally lightweight — no new offer rows created yet.
-        await dispatchToNetwork(offer.booking_id, (offer.offer_round ?? 1) + 1);
+        console.log(`[cron-expire] expired → network_pool_pending — booking ${offer.booking_id}`);
 
         results.push({
           offer_id: offer.offer_id,
           booking_id: offer.booking_id,
           status: "timeout_applied",
-          detail: `released to network pool (round ${(offer.offer_round ?? 1) + 1})`,
+          detail: `expired → network_pool_pending (round ${(offer.offer_round ?? 1) + 1})`,
         });
       } catch (offerErr: any) {
         console.error(`[cron-expire] error processing offer ${offer.offer_id}:`, offerErr?.message);
@@ -185,19 +187,10 @@ export async function GET(request: Request) {
 // Helper: release_to_network_pool
 // Identical to the helper in respond-offer/route.ts
 // ============================================================
+// dispatchToNetwork kept for compatibility but Steps 3+4 above handle the
+// expired → network_pool_pending transition directly.
 async function dispatchToNetwork(bookingId: string, round: number): Promise<void> {
-  try {
-    await sql`
-      UPDATE bookings
-      SET
-        assigned_driver_id = NULL,
-        dispatch_status = 'offer_pending',
-        updated_at = NOW()
-      WHERE id = ${bookingId}::uuid
-        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
-    `;
-    console.log(`[cron-expire] release_to_network_pool — Booking ${bookingId} — Round ${round}`);
-  } catch (err: any) {
-    console.error(`[cron-expire] release_to_network_pool error — Booking ${bookingId}:`, err?.message);
-  }
+  // No-op in cron context: transition already done in Steps 3+4.
+  // Kept for structural parity with respond-offer/route.ts.
+  console.log(`[cron-expire] network_pool_pending set — Booking ${bookingId} — Round ${round}`);
 }

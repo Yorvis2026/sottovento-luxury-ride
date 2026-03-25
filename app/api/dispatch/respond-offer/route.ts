@@ -162,12 +162,15 @@ export async function POST(req: NextRequest) {
       await sql`
         UPDATE bookings
         SET
-          assigned_driver_id = ${body.driver_id}::uuid,
-          offer_accepted = true,
-          offer_accepted_at = ${respondedAt}::timestamptz,
-          status = 'accepted',
-          dispatch_status = 'accepted',
-          updated_at = NOW()
+          assigned_driver_id    = ${body.driver_id}::uuid,
+          offered_driver_id     = COALESCE(offered_driver_id, ${body.driver_id}::uuid),
+          accepted_driver_id    = ${body.driver_id}::uuid,
+          executor_driver_id    = ${body.driver_id}::uuid,
+          offer_accepted        = true,
+          offer_accepted_at     = ${respondedAt}::timestamptz,
+          status                = 'accepted',
+          dispatch_status       = 'assigned',
+          updated_at            = NOW()
         WHERE id = ${booking.id}
       `;
 
@@ -212,26 +215,23 @@ export async function POST(req: NextRequest) {
       };
       return NextResponse.json(response);
     } else {
-      // ---- DECLINE / REJECT ----
-      // Section 2: Driver rejected the offer.
-      // Clear assigned_driver_id and return booking to ready_for_dispatch
-      // so admin dispatch pipeline can reassign.
+      // ---- DECLINE / REJECT (spec §5) ----
+      // Release to network pool:
+      // - Clear assigned_driver_id so no driver is locked to this booking
+      // - Set dispatch_status = 'network_pool_pending' (spec value)
+      // - Do NOT touch offered_driver_id / source_driver_id / attribution fields
       await sql`
         UPDATE dispatch_offers
         SET response = 'declined', responded_at = ${respondedAt}::timestamptz
-        WHERE id = ${offer.id}
+        WHERE booking_id = ${booking.id}::uuid
+          AND response IN ('pending', 'timeout')
       `;
-
-      // Release to network pool:
-      // - Clear assigned_driver_id so no driver is locked to this booking
-      // - Set dispatch_status = 'offer_pending' so network drivers can see it
-      // - status remains 'assigned' to preserve lifecycle integrity
       await sql`
         UPDATE bookings
         SET
           assigned_driver_id = NULL,
-          dispatch_status = 'offer_pending',
-          updated_at = NOW()
+          dispatch_status    = 'network_pool_pending',
+          updated_at         = NOW()
         WHERE id = ${booking.id}
       `;
 

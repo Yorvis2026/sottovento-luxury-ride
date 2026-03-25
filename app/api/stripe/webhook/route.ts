@@ -385,13 +385,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         })
       } else {
         // Driver found and active — proceed with atomic assignment
+        // spec §3: set offered_driver_id = source_driver_id on initial offer
         const updateResult = await sql`
           UPDATE bookings
           SET
             assigned_driver_id = ${capturingDriver.id}::uuid,
-            status = 'assigned',
-            dispatch_status = 'offer_pending',
-            updated_at = NOW()
+            offered_driver_id  = ${capturingDriver.id}::uuid,
+            status             = 'assigned',
+            dispatch_status    = 'offer_pending',
+            updated_at         = NOW()
           WHERE id = ${finalBookingId}::uuid
             AND assigned_driver_id IS NULL
           RETURNING id
