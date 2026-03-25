@@ -44,21 +44,48 @@ export async function POST(req: NextRequest) {
 
     // ---- Load offer ----
     let offer: any = null;
+    let offerMissing = false; // true when no dispatch_offer row exists but booking is still valid
+
     if (body.offer_id) {
       const offerRows = await sql`
         SELECT * FROM dispatch_offers WHERE id = ${body.offer_id} LIMIT 1
       `;
       offer = offerRows[0] ?? null;
     } else if (body.booking_id) {
-      // For direct assignments (offer_pending), find the latest pending offer for this booking/driver
+      // For direct assignments (offer_pending), find the latest offer for this booking/driver.
+      // CRITICAL FIX: include 'timeout' status — if the 15-min window expired but the driver
+      // taps Accept before the system processes the timeout, the offer row may already be 'timeout'.
+      // We allow acceptance of recently-timed-out offers to prevent the offer screen from looping.
       const offerRows = await sql`
         SELECT * FROM dispatch_offers 
         WHERE booking_id = ${body.booking_id} 
           AND driver_id = ${body.driver_id}
-          AND status = 'pending'
+          AND status IN ('pending', 'timeout')
         ORDER BY created_at DESC LIMIT 1
       `;
       offer = offerRows[0] ?? null;
+
+      // Fallback: if no dispatch_offer row exists at all, check if booking is still
+      // in offer_pending state and assigned to this driver — allow direct acceptance.
+      if (!offer && body.response === "accepted") {
+        const bookingCheck = await sql`
+          SELECT id, status, dispatch_status, assigned_driver_id
+          FROM bookings
+          WHERE id = ${body.booking_id}::uuid
+            AND assigned_driver_id = ${body.driver_id}::uuid
+            AND dispatch_status IN ('offer_pending', 'assigned')
+            AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
+          LIMIT 1
+        `;
+        if (bookingCheck[0]) {
+          // Booking is valid and assigned to this driver — proceed without offer row
+          offerMissing = true;
+          offer = { id: null, booking_id: body.booking_id, driver_id: body.driver_id,
+                    status: 'pending', offer_round: 1, is_source_offer: true,
+                    expires_at: new Date(Date.now() + 60000).toISOString() };
+          console.log('[respond-offer] no dispatch_offer row found — using booking-level fallback for', body.booking_id);
+        }
+      }
     }
 
     if (!offer) {
@@ -67,7 +94,8 @@ export async function POST(req: NextRequest) {
     if (offer.driver_id !== body.driver_id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
-    if (offer.status !== "pending") {
+    // Allow 'timeout' status for acceptance (driver tapped Accept during/after expiry window)
+    if (offer.status !== "pending" && offer.status !== "timeout" && !offerMissing) {
       return NextResponse.json(
         { error: "Offer already responded to", current_status: offer.status },
         { status: 409 }
@@ -77,12 +105,18 @@ export async function POST(req: NextRequest) {
     // Check if offer expired
     const now = new Date();
     const expiresAt = new Date(offer.expires_at);
-    if (now > expiresAt && body.response === "accepted") {
-      await sql`
-        UPDATE dispatch_offers
-        SET status = 'timeout', responded_at = NOW()
-        WHERE id = ${offer.id}
-      `;
+    // CRITICAL FIX: Do NOT block acceptance on expiry when using booking_id lookup.
+    // If the driver taps Accept after the 15-min window, we still allow it
+    // (the offer row may be 'timeout' or the window just passed).
+    // Only block if using offer_id (broadcast flow) and strictly expired.
+    if (body.offer_id && now > expiresAt && body.response === "accepted" && !offerMissing) {
+      if (offer.id) {
+        await sql`
+          UPDATE dispatch_offers
+          SET status = 'timeout', responded_at = NOW()
+          WHERE id = ${offer.id}
+        `;
+      }
       await dispatchToNetwork(offer.booking_id, offer.offer_round + 1);
       return NextResponse.json(
         { error: "Offer has expired. Booking dispatched to network." },
@@ -101,11 +135,23 @@ export async function POST(req: NextRequest) {
     if (body.response === "accepted") {
       // ---- ACCEPT ----
       // Section 2: offer_pending → accepted (driver confirmed the ride)
-      await sql`
-        UPDATE dispatch_offers
-        SET status = 'accepted', responded_at = ${respondedAt}::timestamptz
-        WHERE id = ${offer.id}
-      `;
+      // Only update dispatch_offers if the offer row actually exists (id != null)
+      if (offer.id) {
+        await sql`
+          UPDATE dispatch_offers
+          SET status = 'accepted', responded_at = ${respondedAt}::timestamptz
+          WHERE id = ${offer.id}
+        `;
+      } else {
+        // offerMissing=true: no dispatch_offer row — mark any pending offers for this booking as accepted
+        await sql`
+          UPDATE dispatch_offers
+          SET status = 'accepted', responded_at = ${respondedAt}::timestamptz
+          WHERE booking_id = ${offer.booking_id}::uuid
+            AND driver_id = ${body.driver_id}::uuid
+            AND status IN ('pending', 'timeout')
+        `;
+      }
 
       await sql`
         UPDATE bookings

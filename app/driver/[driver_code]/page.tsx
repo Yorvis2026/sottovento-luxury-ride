@@ -853,11 +853,29 @@ export default function DriverDashboardByCode() {
         }),
       })
       const data = await res.json()
-      if (response === "accepted" && !data.error) {
-        setRespondResult("accepted")
-        // 2500ms delay: gives DB time to propagate dispatch_status='accepted'
-        // before re-fetch. Prevents offer screen from re-appearing during transition.
-        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2500)
+      if (response === "accepted") {
+        // Accept: treat success (2xx) OR 409 'already responded' as accepted.
+        // 409 means the offer was already accepted (e.g. double-tap) — safe to proceed.
+        // 404 'Offer not found' with booking_id path = offer row missing, but booking
+        //     may still be valid — the backend fallback handles this case now.
+        // Any other error (500, 410 expired+dispatched) = show as declined/expired.
+        const isSuccess = res.ok || res.status === 409
+        if (isSuccess) {
+          setRespondResult("accepted")
+          // 2500ms delay: gives DB time to propagate dispatch_status='accepted'
+          // before re-fetch. Prevents offer screen from re-appearing during transition.
+          setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2500)
+        } else if (res.status === 410) {
+          // Offer expired and dispatched to network
+          setRespondResult("expired")
+          setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2500)
+        } else {
+          // Unexpected error — log and clear
+          console.error('[respondOfferDirect] accept failed:', res.status, data?.error)
+          setRespondResult(null)
+          setResponding(false)
+          loadData()
+        }
       } else {
         setRespondResult(response)
         setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
