@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/expire-driver-offers",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
