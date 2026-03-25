@@ -1717,7 +1717,7 @@ export default function DriverDashboardByCode() {
                   ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
                 const minutesUntil = ride.pickup_datetime
                   ? Math.round((new Date(ride.pickup_datetime).getTime() - Date.now()) / 60000) : null
-                const isNearWindow = minutesUntil !== null && minutesUntil <= 120
+                const isNearWindow = minutesUntil !== null && minutesUntil <= 40
                 const isExpanded = expandedRideId === ride.booking_id
 
                 return (
@@ -2615,7 +2615,7 @@ function RideFlowScreen({
             )}
 
             {/* OPERATIONAL WINDOW GUARD:
-               active_window  → ride is scheduled but not yet within 60 min. Show scheduled card.
+               active_window  → ride is scheduled but not yet within 40 min. Show scheduled card.
                operational_window_open / live_flow → show primary action button.
             */}
             {isEnRouteAction && ride.ride_mode === "active_window" ? (
@@ -2640,10 +2640,10 @@ function RideFlowScreen({
                 )}
                 <div className="text-xs text-zinc-600 mt-2">
                   {lang === "es"
-                    ? "Los controles operacionales se activarán 60 min antes del servicio"
+                    ? "Los controles operacionales se activarán 40 min antes del servicio"
                     : lang === "ht"
-                    ? "Kontwòl operasyonèl yo pral aktive 60 min anvan sèvis la"
-                    : "Operational controls activate 60 min before pickup"}
+                    ? "Kontwòl operasyonèl yo pral aktive 40 min anvan sèvis la"
+                    : "Operational controls activate 40 min before pickup"}
                 </div>
               </div>
             ) : cfg.primaryAction ? (

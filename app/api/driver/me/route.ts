@@ -239,11 +239,20 @@ export async function GET(req: NextRequest) {
             status IN ('en_route', 'arrived', 'in_trip')
             OR
             -- ACTIVE_WINDOW: accepted/assigned rides within a strict time window.
-            -- CRITICAL: pickup_at must exist AND be within the last 6 hours OR upcoming 90 minutes.
-            -- This prevents stale assigned rides from reappearing days after their pickup time.
+            -- SLN RULE: 'accepted' rides only enter assigned_ride when within 40 min of pickup.
+            --            Before that they stay in upcoming_rides (no operational controls).
+            -- 'assigned' (offer_pending resolved) keeps 90-min window for backward compat.
             -- pickup_at IS NULL is intentionally excluded here to avoid permanent ghost rides.
             (
-              status IN ('accepted', 'assigned')
+              status = 'accepted'
+              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
+              AND pickup_at IS NOT NULL
+              AND pickup_at >= NOW() - INTERVAL '6 hours'
+              AND pickup_at <= NOW() + INTERVAL '40 minutes'
+            )
+            OR
+            (
+              status = 'assigned'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND pickup_at IS NOT NULL
               AND pickup_at >= NOW() - INTERVAL '6 hours'
@@ -307,9 +316,9 @@ export async function GET(req: NextRequest) {
           ride_mode = "live_flow";
         } else if (r.status === "accepted") {
           // ACCEPTED: driver confirmed the ride. dispatch_status may lag behind.
-          // CRITICAL: 'accepted' status ALWAYS takes priority over dispatch_status='offer_pending'.
-          // This prevents offer screen from re-appearing if dispatch_status write was partial.
-          const OPERATIONAL_THRESHOLD_MINUTES = 60;
+          // SLN RULE: operational controls only appear when within 40 min of pickup.
+          // Before that, ride_mode = 'active_window' → shows scheduled card, no buttons.
+          const OPERATIONAL_THRESHOLD_MINUTES = 40;
           const minutesUntil = minutesUntilPickup;
           if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
             ride_mode = "operational_window_open";
@@ -323,8 +332,8 @@ export async function GET(req: NextRequest) {
           ride_mode = "offer_pending";
         } else if (r.status === "assigned") {
           // SCHEDULED: confirmed ride, not yet in operational window
-          // Operational controls appear only when pickup_at is within OPERATIONAL_THRESHOLD
-          const OPERATIONAL_THRESHOLD_MINUTES = 60; // configurable
+          // SLN RULE: same 40-min threshold for consistency
+          const OPERATIONAL_THRESHOLD_MINUTES = 40;
           const minutesUntil = minutesUntilPickup;
           if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
             ride_mode = "operational_window_open";
