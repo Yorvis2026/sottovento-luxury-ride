@@ -87,8 +87,8 @@ export async function GET(req: NextRequest) {
         del.created_at,
         -- Booking enrichment (lightweight, non-blocking)
         b.pickup_at           AS pickup_date,
-        b.pickup_location     AS pickup_area,
-        b.dropoff_location    AS dropoff_area,
+        b.pickup_address      AS pickup_area,
+        b.dropoff_address     AS dropoff_area,
         cl.first_name         AS client_first_name
       FROM driver_earnings_ledger del
       LEFT JOIN bookings b  ON b.id  = del.booking_id
@@ -137,7 +137,7 @@ export async function GET(req: NextRequest) {
       created_at:           r.created_at ?? null,
       // Booking enrichment
       pickup_date:          r.pickup_date ?? null,
-      pickup_area:          r.pickup_area ?? null,
+      pickup_area:          r.pickup_area  ?? null,
       dropoff_area:         r.dropoff_area ?? null,
       client_first_name:    r.client_first_name ?? null,
     }));

@@ -60,9 +60,9 @@ export async function GET(req: NextRequest) {
         AND earning_role IN ('source_driver', 'executor_driver')
         AND ledger_status NOT IN ('voided')
         AND (
-          ${fromDate}::text IS NOT NULL
-            ? posted_at >= ${fromDate}::timestamptz
-            : posted_at >= NOW() - (${months} || ' months')::interval
+          (${fromDate}::text IS NOT NULL AND posted_at >= ${fromDate}::timestamptz)
+          OR
+          (${fromDate}::text IS NULL AND posted_at >= NOW() - (${months} || ' months')::interval)
         )
         AND (${toDate}::text IS NULL OR posted_at <= ${toDate}::timestamptz)
       GROUP BY year, month
