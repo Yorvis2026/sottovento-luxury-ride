@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
 import { neon } from "@neondatabase/serverless"
+import { lockCommission } from "@/lib/dispatch/commission-engine"
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_placeholder")
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
@@ -418,6 +419,30 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
             )
             ON CONFLICT DO NOTHING
           `
+
+          // ── Commission Engine v1.0: create pending commission row on payment ──
+          // At this point executor is not yet known (offer pending).
+          // lockCommission will be called again on accept (idempotent).
+          // We create the row now so finance queries always have a record.
+          try {
+            await sql`
+              INSERT INTO commissions (
+                booking_id, source_driver_id,
+                executor_pct, source_pct, platform_pct,
+                total_amount, status
+              ) VALUES (
+                ${finalBookingId}::uuid,
+                ${capturingDriver.id}::uuid,
+                65, 15, 20,
+                (SELECT total_price FROM bookings WHERE id = ${finalBookingId}::uuid LIMIT 1),
+                'pending'
+              )
+              ON CONFLICT (booking_id) DO NOTHING
+            `
+          } catch (commErr: any) {
+            // Non-blocking — commission row creation failure must not block booking
+            console.error('[webhook] commission row creation failed:', commErr.message)
+          }
 
           await auditLog(finalBookingId!, 'auto_assigned_capturing_driver', {
             driver_id: capturingDriver.id,

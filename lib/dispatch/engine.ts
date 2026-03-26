@@ -49,26 +49,125 @@ export function getOfferTimeout(pickupAt: Date): number {
 }
 
 // ============================================================
-// Calculate commission split for a booking
+// SLN Commission Engine v1.0
+// Spec: https://docs.slnchauffeur.com/commission-engine-v1
+//
+// THREE CASES (spec §4-6):
+//
+// CASE A — self_capture_execute
+//   source_driver_id IS NOT NULL
+//   executor_driver_id IS NOT NULL
+//   source_driver_id = executor_driver_id
+//   → platform 20 / source 80 / executor 0
+//
+// CASE B — network_reassigned_execute
+//   source_driver_id IS NOT NULL
+//   executor_driver_id IS NOT NULL
+//   source_driver_id ≠ executor_driver_id
+//   → platform 20 / source 15 / executor 65
+//
+// CASE C — platform_direct_assign
+//   source_driver_id IS NULL
+//   executor_driver_id IS NOT NULL
+//   → platform 25 / source 0 / executor 75
+//
+// SAFETY (spec §10):
+//   - does NOT modify source_driver_id, executor_driver_id, dispatch_status
+//   - only reads attribution + calculates percentages
+//
+// IDEMPOTENCY (spec §12):
+//   - caller must check commission_locked_at IS NULL before calling
+//   - this function is pure (no DB side effects)
 // ============================================================
-export function calculateCommissions(totalPrice: number, hasSourceDriver: boolean) {
-  const executorPct = COMMISSION_SPLIT.EXECUTOR_PCT;
-  const sourcePct = hasSourceDriver ? COMMISSION_SPLIT.SOURCE_PCT : 0;
-  const platformPct = hasSourceDriver
-    ? COMMISSION_SPLIT.PLATFORM_PCT
-    : COMMISSION_SPLIT.PLATFORM_PCT + COMMISSION_SPLIT.SOURCE_PCT;
+
+export type CommissionModel =
+  | 'self_capture_execute'
+  | 'network_reassigned_execute'
+  | 'platform_direct_assign'
+  | 'manual_admin_override';
+
+export interface CommissionResult {
+  commission_model: CommissionModel;
+  platform_pct: number;
+  platform_amount: number;
+  source_pct: number;
+  source_amount: number | null;
+  executor_pct: number;
+  executor_amount: number;
+  total_amount: number;
+}
+
+export function calculateCommissions(
+  totalPrice: number,
+  // New spec-compliant signature:
+  sourceDriverId: string | null | boolean,  // accepts UUID string OR legacy boolean
+  executorDriverId?: string | null
+): CommissionResult {
+  // ── Backward-compat: legacy callers pass (price, hasSourceDriver: boolean) ──
+  // New callers pass (price, source_driver_id: string|null, executor_driver_id: string|null)
+  let srcId: string | null;
+  let exeId: string | null;
+
+  if (typeof sourceDriverId === 'boolean') {
+    // Legacy call: calculateCommissions(price, hasSourceDriver)
+    // Cannot determine CASE A vs B without IDs — default to CASE B if source exists
+    srcId = sourceDriverId ? '__legacy_source__' : null;
+    exeId = '__legacy_executor__';
+  } else {
+    srcId = sourceDriverId ?? null;
+    exeId = executorDriverId ?? null;
+  }
+
+  let model: CommissionModel;
+  let platformPct: number;
+  let sourcePct: number;
+  let executorPct: number;
+
+  if (srcId !== null && exeId !== null && srcId === exeId) {
+    // CASE A: self_capture_execute
+    model       = 'self_capture_execute';
+    platformPct = 20;
+    sourcePct   = 80;
+    executorPct = 0;
+  } else if (srcId !== null && exeId !== null && srcId !== exeId) {
+    // CASE B: network_reassigned_execute
+    model       = 'network_reassigned_execute';
+    platformPct = 20;
+    sourcePct   = 15;
+    executorPct = 65;
+  } else {
+    // CASE C: platform_direct_assign (source is null or unknown)
+    model       = 'platform_direct_assign';
+    platformPct = 25;
+    sourcePct   = 0;
+    executorPct = 75;
+  }
+
+  const amt = (pct: number) => parseFloat(((totalPrice * pct) / 100).toFixed(2));
 
   return {
-    executor_pct: executorPct,
-    executor_amount: parseFloat(((totalPrice * executorPct) / 100).toFixed(2)),
-    source_pct: sourcePct,
-    source_amount: hasSourceDriver
-      ? parseFloat(((totalPrice * sourcePct) / 100).toFixed(2))
-      : null,
-    platform_pct: platformPct,
-    platform_amount: parseFloat(((totalPrice * platformPct) / 100).toFixed(2)),
-    total_amount: totalPrice,
+    commission_model:  model,
+    platform_pct:      platformPct,
+    platform_amount:   amt(platformPct),
+    source_pct:        sourcePct,
+    source_amount:     sourcePct > 0 ? amt(sourcePct) : null,
+    executor_pct:      executorPct,
+    executor_amount:   amt(executorPct),
+    total_amount:      totalPrice,
   };
+}
+
+// Legacy alias for callers that only need the boolean shorthand
+// (create-booking, etc.) — returns same shape, compatible with old code
+export function calculateCommissionsLegacy(
+  totalPrice: number,
+  hasSourceDriver: boolean
+): CommissionResult {
+  return calculateCommissions(
+    totalPrice,
+    hasSourceDriver ? '__legacy_source__' : null,
+    hasSourceDriver ? '__legacy_executor_different__' : null
+  );
 }
 
 // ============================================================

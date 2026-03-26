@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { calculateCommissions } from "@/lib/dispatch/engine";
+import { lockCommission } from "@/lib/dispatch/commission-engine";
 import { db } from "@/lib/dispatch/db";
 import { neon } from "@neondatabase/serverless";
 import type { RespondOfferRequest, RespondOfferResponse } from "@/lib/dispatch/types";
@@ -174,25 +175,15 @@ export async function POST(req: NextRequest) {
         WHERE id = ${booking.id}
       `;
 
-      // Confirm commission split
-      const commissionCalc = calculateCommissions(
-        booking.total_price,
-        booking.source_driver_id !== null
-      );
-
-      await sql`
-        UPDATE commissions
-        SET
-          executor_driver_id = ${body.driver_id}::uuid,
-          executor_amount = ${commissionCalc.executor_amount},
-          executor_pct = ${commissionCalc.executor_pct},
-          source_amount = ${commissionCalc.source_amount ?? null},
-          source_pct = ${commissionCalc.source_pct ?? null},
-          platform_amount = ${commissionCalc.platform_amount},
-          platform_pct = ${commissionCalc.platform_pct},
-          status = 'confirmed'
-        WHERE booking_id = ${booking.id}
-      `;
+      // ── Commission Engine v1.0 (spec §3): lock on confirmation ──
+      // Uses source_driver_id + executor_driver_id (spec §9)
+      // Idempotent: if already locked, skips silently (spec §12)
+      const commissionResult = await lockCommission({
+        booking_id:        booking.id,
+        total_price:       booking.total_price,
+        source_driver_id:  booking.source_driver_id ?? null,
+        executor_driver_id: body.driver_id,
+      });
 
       await db.auditLogs.create({
         entity_type: "booking",
@@ -203,7 +194,11 @@ export async function POST(req: NextRequest) {
         new_data: {
           assigned_driver_id: body.driver_id,
           is_source_driver: offer.is_source_offer,
-          commissions: commissionCalc,
+          commission_model: commissionResult.commission_model,
+          commission_locked: commissionResult.locked,
+          platform_pct: commissionResult.platform_pct,
+          source_pct: commissionResult.source_pct,
+          executor_pct: commissionResult.executor_pct,
         },
       });
 
