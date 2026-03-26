@@ -322,10 +322,12 @@ export async function postBookingLedger(
 
     await sql`
       INSERT INTO audit_logs (
-        event_type, booking_id, context
+        entity_type, entity_id, action, actor_type, new_data
       ) VALUES (
-        'ledger_posted',
+        'booking',
         ${booking_id}::uuid,
+        'ledger_posted',
+        'system',
         ${JSON.stringify({
           commission_model: model,
           rows_created_count: rowsCreated,
