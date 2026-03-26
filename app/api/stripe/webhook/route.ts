@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
 import { neon } from "@neondatabase/serverless"
 import { lockCommission } from "@/lib/dispatch/commission-engine"
+import { resolveLeadOrigin, lockLeadOrigin } from "@/lib/dispatch/lead-origin"
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_placeholder")
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
@@ -282,6 +283,31 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     booking_status: "new",
     payment_status: "paid",
   })
+
+  // ── STEP 9b: Lock lead origin ─────────────────────────────
+  // Resolve and persist commercial source at booking creation time (spec §4).
+  // Non-blocking — failure must NOT block booking or payment.
+  try {
+    const origin = resolveLeadOrigin({
+      ref_code: sourceCode ?? undefined,
+      tablet_id: metadata.tablet_code ?? undefined,
+      source_driver_id: sourceDriverId ?? undefined,
+      booking_origin: metadata.booking_origin ?? undefined,
+      captured_by: metadata.captured_by ?? undefined,
+      utm_source: metadata.utm_source ?? undefined,
+      utm_campaign: metadata.utm_campaign ?? undefined,
+      utm_medium: metadata.utm_medium ?? undefined,
+      landing_page: metadata.landing_page ?? undefined,
+      extra_metadata: {
+        stripe_session_id: stripeSessionId,
+        client_email: clientEmail,
+      },
+    })
+    await lockLeadOrigin(finalBookingId!, origin)
+    console.log('[webhook] lead origin locked:', origin.source_type, origin.source_reference)
+  } catch (originErr: any) {
+    console.error('[webhook] lead origin lock failed (non-blocking):', originErr.message)
+  }
 
   // ── STEP 9: Audit log — dispatch_status_assigned ──────────
   await auditLog(finalBookingId!, "dispatch_status_assigned", {
