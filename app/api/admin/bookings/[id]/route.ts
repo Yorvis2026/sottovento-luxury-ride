@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
-
+import { lockCommission } from "@/lib/dispatch/commission-engine";
+import { postBookingLedger } from "@/lib/dispatch/ledger";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 // ============================================================
@@ -356,13 +357,41 @@ export async function PATCH(
       }
     }
 
+    // ── Financial close: lock commission + post ledger on completed ──────
+    // Triggered when status changes to 'completed'.
+    // Non-blocking: failures are logged but do not affect the booking update.
+    if (status === "completed") {
+      try {
+        // Load booking fields needed for lockCommission
+        const [bRow] = await sql`
+          SELECT
+            id, total_price, source_driver_id, executor_driver_id
+          FROM bookings
+          WHERE id = ${id}::uuid
+          LIMIT 1
+        `;
+        if (bRow) {
+          // Step 1: Lock commission (idempotent)
+          await lockCommission({
+            booking_id: id,
+            total_price: Number(bRow.total_price ?? 0),
+            source_driver_id: bRow.source_driver_id ?? null,
+            executor_driver_id: bRow.executor_driver_id ?? null,
+          });
+          // Step 2: Post ledger rows (idempotent)
+          await postBookingLedger(id);
+        }
+      } catch (finErr: any) {
+        // Financial close failure is non-blocking — booking status update already committed
+        console.error("[PATCH] financial close error:", finErr?.message);
+      }
+    }
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
-// GET /api/admin/bookings/[id] — Get single booking with full details
+// GET /api/admin/bookings/[id]] — Get single booking with full details
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
