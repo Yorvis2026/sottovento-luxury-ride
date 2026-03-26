@@ -61,6 +61,19 @@ export async function GET(req: NextRequest) {
     await sql`ALTER TABLE commissions ADD COLUMN IF NOT EXISTS override_admin_id UUID`;
     results.steps.push({ step: "commissions.override_admin_id", status: "ok" });
 
+    // ── Step 3b: UNIQUE constraint on commissions.booking_id ──────
+    // Required for ON CONFLICT (booking_id) DO UPDATE in lockCommission()
+    try {
+      await sql`ALTER TABLE commissions ADD CONSTRAINT uq_commissions_booking_id UNIQUE (booking_id)`;
+      results.steps.push({ step: "commissions.uq_booking_id", status: "created" });
+    } catch (e: any) {
+      if (e?.message?.includes("already exists")) {
+        results.steps.push({ step: "commissions.uq_booking_id", status: "already_exists" });
+      } else {
+        throw e;
+      }
+    }
+
     // ── Step 4: Create snapshot table ─────────────────────────
     await sql`
       CREATE TABLE IF NOT EXISTS booking_financial_attribution_snapshot (
