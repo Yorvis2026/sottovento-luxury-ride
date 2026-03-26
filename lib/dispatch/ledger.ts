@@ -258,6 +258,22 @@ export async function postBookingLedger(
   // ── Step 5: Insert ledger rows (idempotent via ON CONFLICT DO NOTHING) ──
   let rowsCreated = 0;
   for (const row of rowsToInsert) {
+    // Idempotency: check if a row already exists for this booking+role+driver
+    // before inserting. This avoids relying on ON CONFLICT with a functional
+    // expression (COALESCE), which requires exact index match in PostgreSQL.
+    const driverIdForCheck = row.driver_id ?? null;
+    const existing = await sql`
+      SELECT 1 FROM driver_earnings_ledger
+      WHERE booking_id   = ${row.booking_id}::uuid
+        AND earning_role = ${row.earning_role}
+        AND (
+          (driver_id IS NULL AND ${driverIdForCheck}::uuid IS NULL)
+          OR driver_id = ${driverIdForCheck}::uuid
+        )
+      LIMIT 1
+    `;
+    if (existing.length > 0) continue; // already posted — skip
+
     const inserted = await sql`
       INSERT INTO driver_earnings_ledger (
         booking_id, earning_role, driver_id,
@@ -282,11 +298,6 @@ export async function postBookingLedger(
         ${row.source_reference},
         NOW()
       )
-      ON CONFLICT (
-        booking_id,
-        earning_role,
-        COALESCE(driver_id, '00000000-0000-0000-0000-000000000000'::uuid)
-      ) DO NOTHING
       RETURNING id
     `;
     if (inserted.length > 0) rowsCreated++;
