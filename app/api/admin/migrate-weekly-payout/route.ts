@@ -174,7 +174,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Step 9: Update existing 'posted' ledger rows to 'unpaid' ──
+  // ── Step 9: Update ledger_status CHECK constraint to include new statuses ──
+  // Drop old constraint and recreate with full lifecycle: unpaid | pending | posted | pending_payout | paid | reconciled | voided | adjusted
+  try {
+    await sql`
+      ALTER TABLE driver_earnings_ledger
+        DROP CONSTRAINT IF EXISTS driver_earnings_ledger_ledger_status_check
+    `;
+    await sql`
+      ALTER TABLE driver_earnings_ledger
+        ADD CONSTRAINT driver_earnings_ledger_ledger_status_check
+        CHECK (ledger_status IN ('unpaid','pending','posted','pending_payout','paid','reconciled','voided','adjusted'))
+    `;
+    steps.push({ step: "update_ledger_status_check", status: "ok" });
+  } catch (e: any) {
+    steps.push({ step: "update_ledger_status_check", status: "error", detail: e?.message });
+  }
+
+  // ── Step 10: Update existing 'posted' ledger rows to 'unpaid' ──
   // New earnings should start as 'unpaid'. Existing 'posted' rows
   // are semantically unpaid — migrate them to the new status.
   try {
