@@ -31,6 +31,7 @@
 
 import { neon } from "@neondatabase/serverless";
 import { calculateCommissions } from "./engine";
+import { postBookingLedger } from "./ledger";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -160,6 +161,24 @@ export async function lockCommission(
     `[commission-engine] locked — booking=${booking_id} model=${calc.commission_model} ` +
     `platform=${calc.platform_pct}% source=${calc.source_pct}% executor=${calc.executor_pct}%`
   );
+
+  // ── Trigger ledger posting immediately after commission lock (spec §21) ──
+  // Non-blocking: ledger failure does NOT prevent commission lock from succeeding
+  try {
+    const ledgerResult = await postBookingLedger(booking_id);
+    if (ledgerResult.ok && !ledgerResult.already_posted) {
+      console.log(
+        `[commission-engine] ledger posted — booking=${booking_id} ` +
+        `rows=${ledgerResult.rows_created} model=${ledgerResult.commission_model}`
+      );
+    } else if (ledgerResult.already_posted) {
+      console.log(`[commission-engine] ledger already posted — booking=${booking_id}`);
+    } else if (ledgerResult.error) {
+      console.warn(`[commission-engine] ledger post failed (non-blocking) — booking=${booking_id}: ${ledgerResult.error}`);
+    }
+  } catch (ledgerErr) {
+    console.warn(`[commission-engine] ledger post exception (non-blocking) — booking=${booking_id}:`, ledgerErr);
+  }
 
   return {
     locked: true,
