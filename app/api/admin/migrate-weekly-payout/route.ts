@@ -39,20 +39,21 @@ export async function GET(req: NextRequest) {
 
   const steps: Array<{ step: string; status: string; detail?: string }> = [];
 
-  // ── Step 1: Add payout onboarding fields to drivers ──────
-  const driverPayoutCols = [
-    { col: "payout_method",            def: "TEXT DEFAULT 'not_set'" },
-    { col: "payout_onboarding_status", def: "TEXT DEFAULT 'not_started'" },
-    { col: "payouts_enabled",          def: "BOOLEAN NOT NULL DEFAULT FALSE" },
-    { col: "last_payout_date",         def: "TIMESTAMPTZ" },
-    { col: "payout_notes",             def: "TEXT" },
+    // ── Step 1: Add payout onboarding fields to drivers ──
+  // Using individual tagged template calls to avoid sql.unsafe interpolation issues
+  const driverColOps: Array<{ step: string; fn: () => Promise<unknown> }> = [
+    { step: "drivers.payout_method",            fn: () => sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS payout_method TEXT DEFAULT 'not_set'` },
+    { step: "drivers.payout_onboarding_status", fn: () => sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS payout_onboarding_status TEXT DEFAULT 'not_started'` },
+    { step: "drivers.payouts_enabled",          fn: () => sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE` },
+    { step: "drivers.last_payout_date",         fn: () => sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_payout_date TIMESTAMPTZ` },
+    { step: "drivers.payout_notes",             fn: () => sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS payout_notes TEXT` },
   ];
-  for (const { col, def } of driverPayoutCols) {
+  for (const { step, fn } of driverColOps) {
     try {
-      await sql.unsafe(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ${col} ${def}`);
-      steps.push({ step: `drivers.${col}`, status: "ok" });
+      await fn();
+      steps.push({ step, status: "ok" });
     } catch (e: any) {
-      steps.push({ step: `drivers.${col}`, status: "error", detail: e?.message });
+      steps.push({ step, status: "error", detail: e?.message });
     }
   }
 
