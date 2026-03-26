@@ -285,15 +285,15 @@ export async function postBookingLedger(
       ) VALUES (
         ${row.booking_id}::uuid,
         ${row.earning_role},
-        ${row.driver_id ? `${row.driver_id}::uuid` : null},
+        ${row.driver_id ?? null},
         ${row.gross_booking_amount},
         ${row.commission_model},
         ${row.pct_applied},
         ${row.amount_earned},
         ${row.currency},
         ${row.ledger_status},
-        ${row.source_driver_id ? `${row.source_driver_id}::uuid` : null},
-        ${row.executor_driver_id ? `${row.executor_driver_id}::uuid` : null},
+        ${row.source_driver_id ?? null},
+        ${row.executor_driver_id ?? null},
         ${row.source_type},
         ${row.source_reference},
         NOW()
