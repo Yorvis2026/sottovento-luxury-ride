@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
         b.pickup_at           AS pickup_date,
         b.pickup_address      AS pickup_area,
         b.dropoff_address     AS dropoff_area,
-        cl.first_name         AS client_first_name
+        cl.full_name          AS client_first_name
       FROM driver_earnings_ledger del
       LEFT JOIN bookings b  ON b.id  = del.booking_id
       LEFT JOIN clients  cl ON cl.id = b.client_id
