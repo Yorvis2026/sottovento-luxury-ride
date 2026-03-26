@@ -39,11 +39,13 @@ export async function GET(req: NextRequest) {
         id,
         driver_code,
         full_name,
-        COALESCE(stripe_account_id,     NULL) AS stripe_account_id,
-        COALESCE(stripe_account_status, 'not_connected') AS stripe_account_status,
-        COALESCE(stripe_bank_last4,     NULL) AS stripe_bank_last4,
-        COALESCE(stripe_bank_type,      NULL) AS stripe_bank_type,
-        COALESCE(stripe_bank_name,      NULL) AS stripe_bank_name
+        COALESCE(stripe_account_id,          NULL)            AS stripe_account_id,
+        COALESCE(stripe_account_status,      'not_connected') AS stripe_account_status,
+        COALESCE(stripe_bank_last4,          NULL)            AS stripe_bank_last4,
+        COALESCE(stripe_bank_type,           NULL)            AS stripe_bank_type,
+        COALESCE(stripe_bank_name,           NULL)            AS stripe_bank_name,
+        COALESCE(payout_onboarding_status,   'not_started')   AS payout_onboarding_status,
+        COALESCE(payouts_enabled,            FALSE)           AS payouts_enabled
       FROM drivers
       WHERE driver_code = ${code.toUpperCase()}
       LIMIT 1
@@ -59,18 +61,24 @@ export async function GET(req: NextRequest) {
     const stripeAccountId = driver.stripe_account_id as string | null
     const stripeStatus = (driver.stripe_account_status as string) ?? "not_connected"
 
+    const payoutOnboardingStatus = (driver.payout_onboarding_status as string) ?? "not_started"
+    const payoutsEnabled = driver.payouts_enabled === true || driver.payouts_enabled === "true"
+
     const payoutMethod = {
       status: stripeAccountId
-        ? (stripeStatus as "connected" | "pending_verification")
+        ? (stripeStatus as "connected" | "pending_verification" | "restricted")
         : ("not_connected" as const),
       type: (driver.stripe_bank_type as string | null) ?? null,
       last4: (driver.stripe_bank_last4 as string | null) ?? null,
       bank_name: (driver.stripe_bank_name as string | null) ?? null,
-      verified: stripeStatus === "connected",
+      verified: stripeStatus === "connected" && payoutsEnabled,
       stripe_account_id: stripeAccountId,
       onboarding_url: stripeAccountId
         ? null
         : `/api/driver/stripe-onboard?code=${code.toUpperCase()}`,
+      payout_onboarding_status: payoutOnboardingStatus,
+      payouts_enabled: payoutsEnabled,
+      resume_onboarding_url: null as string | null, // populated by payout-status refresh
     }
 
     // ── Balance summary ──────────────────────────────────────

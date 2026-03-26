@@ -22,13 +22,16 @@ const ZINC900 = "#18181b"
 // ── Types ────────────────────────────────────────────────────
 
 interface PayoutMethod {
-  status: "connected" | "not_connected" | "pending_verification"
+  status: "connected" | "not_connected" | "pending_verification" | "restricted"
   type: string | null
   last4: string | null
   bank_name: string | null
   verified: boolean
   stripe_account_id: string | null
   onboarding_url: string | null
+  payout_onboarding_status?: string | null
+  payouts_enabled?: boolean
+  resume_onboarding_url?: string | null
 }
 
 interface Balance {
@@ -107,6 +110,11 @@ function RoleBadge({ role }: { role: "executor" | "source" | "both" }) {
 }
 
 // ── Payout Method Card ───────────────────────────────────────
+// Shows the full Stripe Connect onboarding state with all UX states:
+//   not_connected        → Not started
+//   pending_verification → Pending verification
+//   connected            → Connected (payouts_enabled)
+//   restricted           → Restricted / action required
 
 function PayoutMethodCard({
   method,
@@ -118,16 +126,40 @@ function PayoutMethodCard({
   onUpdate: () => void
 }) {
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
-  async function handleUpdate() {
+  // Refresh status from Stripe
+  async function handleRefresh() {
+    setRefreshing(true)
+    try {
+      await fetch(`/api/driver/payout-status?code=${driverCode}`, { cache: "no-store" })
+      onUpdate()
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  async function handleAction() {
     setLoading(true)
     try {
       if (method.status === "not_connected") {
-        // Redirect to Stripe onboarding
+        // Start Stripe onboarding — GET redirects to Stripe
         window.location.href = `/api/driver/stripe-onboard?code=${driverCode}`
         return
       }
-      // Existing account — get login link
+      if (method.status === "pending_verification" || method.status === "restricted") {
+        // Resume onboarding if URL available, else generate new link
+        if (method.resume_onboarding_url) {
+          window.location.href = method.resume_onboarding_url
+          return
+        }
+        // Fallback: GET generates a new Account Link
+        window.location.href = `/api/driver/stripe-onboard?code=${driverCode}`
+        return
+      }
+      // connected — get login link to manage payout method
       const res = await fetch(`/api/driver/stripe-onboard?code=${driverCode}`, {
         method: "POST",
       })
@@ -144,6 +176,26 @@ function PayoutMethodCard({
     }
   }
 
+  // Status badge config
+  const statusConfig: Record<string, { label: string; bg: string; color: string }> = {
+    connected:            { label: "Connected",          bg: "#14532d",  color: GREEN },
+    pending_verification: { label: "Pending verification", bg: "#3b2a0e", color: AMBER },
+    restricted:           { label: "Action required",    bg: "#7f1d1d",  color: "#f87171" },
+    not_connected:        { label: "Not started",        bg: "#3f3f46",  color: "#a1a1aa" },
+  }
+  const badge = statusConfig[method.status] ?? statusConfig.not_connected
+
+  // Button label
+  const buttonLabel = loading
+    ? "Redirecting to Stripe..."
+    : method.status === "not_connected"
+    ? "Connect Stripe for Payouts"
+    : method.status === "pending_verification"
+    ? "Resume Verification"
+    : method.status === "restricted"
+    ? "Fix Account Issues"
+    : "Manage Payout Method"
+
   return (
     <div
       className="rounded-xl border p-4"
@@ -152,60 +204,80 @@ function PayoutMethodCard({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs text-zinc-500 uppercase tracking-widest">
-          Payout Method
+          Payout Setup
         </div>
-        {method.status === "connected" && (
+        <div className="flex items-center gap-2">
+          {/* Refresh button */}
+          {method.stripe_account_id && (
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="text-xs text-zinc-500 hover:text-zinc-300 transition"
+              title="Refresh status from Stripe"
+            >
+              {refreshing ? "↻" : "↻"}
+            </button>
+          )}
+          {/* Status badge */}
           <span
-            className="text-xs px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: "#14532d", color: GREEN }}
+            className="text-xs px-2 py-0.5 rounded-full font-medium"
+            style={{ backgroundColor: badge.bg, color: badge.color }}
           >
-            Verified
+            {badge.label}
           </span>
-        )}
-        {method.status === "pending_verification" && (
-          <span
-            className="text-xs px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: "#3b2a0e", color: AMBER }}
-          >
-            Pending
-          </span>
-        )}
-        {method.status === "not_connected" && (
-          <span
-            className="text-xs px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: "#3f3f46", color: "#a1a1aa" }}
-          >
-            Not connected
-          </span>
-        )}
+        </div>
       </div>
 
+      {/* Ready for payouts indicator */}
+      {method.payouts_enabled && (
+        <div
+          className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg"
+          style={{ backgroundColor: "#14532d22", border: "1px solid #14532d" }}
+        >
+          <span className="text-green-400 text-sm">✓</span>
+          <div className="text-xs text-green-400 font-medium">Ready for weekly payouts</div>
+        </div>
+      )}
+
       {/* Method info */}
-      {method.status !== "not_connected" ? (
+      {method.status === "connected" || method.status === "pending_verification" ? (
         <div className="mb-4">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg">🏦</span>
-            <div>
-              <div className="text-sm font-medium text-white">
-                {method.type === "debit_card" ? "Debit Card" : "Bank Account"}
-                {method.last4 ? ` ****${method.last4}` : ""}
+          {method.last4 ? (
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">🏦</span>
+              <div>
+                <div className="text-sm font-medium text-white">
+                  {method.type === "debit_card" ? "Debit Card" : "Bank Account"}
+                  {` ****${method.last4}`}
+                </div>
+                {method.bank_name && (
+                  <div className="text-xs text-zinc-500">{method.bank_name}</div>
+                )}
               </div>
-              {method.bank_name && (
-                <div className="text-xs text-zinc-500">{method.bank_name}</div>
-              )}
             </div>
-          </div>
+          ) : (
+            <div className="text-sm text-zinc-400 mb-1">
+              {method.status === "pending_verification"
+                ? "Verification in progress — complete your Stripe setup to receive payouts."
+                : "Bank account connected via Stripe"}
+            </div>
+          )}
           <div className="text-xs text-zinc-600 mt-1">
-            Payout destination — managed securely by Stripe
+            Payout destination managed securely by Stripe
+          </div>
+        </div>
+      ) : method.status === "restricted" ? (
+        <div className="mb-4">
+          <div className="text-sm text-red-400 mb-1">Action required</div>
+          <div className="text-xs text-zinc-600">
+            Your Stripe account has pending requirements. Please complete them to enable payouts.
           </div>
         </div>
       ) : (
         <div className="mb-4">
-          <div className="text-sm text-zinc-400 mb-1">
-            No payout method connected
-          </div>
+          <div className="text-sm text-zinc-400 mb-1">No payout method connected</div>
           <div className="text-xs text-zinc-600">
-            Connect your bank account or debit card to receive payments.
+            Connect your bank account or debit card to receive weekly payments.
             All transfers are processed securely through Stripe.
           </div>
         </div>
@@ -213,7 +285,7 @@ function PayoutMethodCard({
 
       {/* Action button */}
       <button
-        onClick={handleUpdate}
+        onClick={handleAction}
         disabled={loading}
         className="w-full py-2.5 rounded-lg text-sm font-medium transition"
         style={{
@@ -221,17 +293,13 @@ function PayoutMethodCard({
           color: loading ? "#a1a1aa" : "#000",
         }}
       >
-        {loading
-          ? "Redirecting to Stripe..."
-          : method.status === "not_connected"
-          ? "Connect Payout Method"
-          : "Actualizar método de pago"}
+        {buttonLabel}
       </button>
 
       {/* Security note */}
       <div className="mt-2 text-xs text-zinc-600 text-center">
-        🔒 Payout updates are handled securely through Stripe Express.
-        Your banking details are never stored on our servers.
+        🔒 Your banking details are never stored on our servers.
+        Managed securely through Stripe Express.
       </div>
     </div>
   )

@@ -31,6 +31,13 @@ export async function POST(req: NextRequest) {
     case "payment_intent.succeeded":
       await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent)
       break
+    // ── Stripe Connect: driver payout account events ────────────────────────────────
+    case "account.updated":
+      await handleAccountUpdated(event.data.object as Stripe.Account)
+      break
+    case "account.application.deauthorized":
+      await handleAccountDeauthorized(event.data.object as Stripe.Application)
+      break
     default:
       console.log(`[webhook] unhandled event type: ${event.type}`)
   }
@@ -677,6 +684,125 @@ async function triggerSourceOwnerOffer(params: {
   } catch (err: any) {
     console.error("[webhook] triggerSourceOwnerOffer failed:", err.message)
   }
+}
+
+// ============================================================
+// HANDLER: account.updated (Stripe Connect)
+// Fired when a connected account's status changes.
+// Updates driver payout eligibility in real time.
+// ============================================================
+async function handleAccountUpdated(account: Stripe.Account) {
+  const stripeAccountId = account.id
+  console.log(`[webhook] account.updated: ${stripeAccountId}`)
+
+  try {
+    // Find driver by stripe_account_id
+    const rows = await sql`
+      SELECT id, driver_code, payouts_enabled, payout_onboarding_status
+      FROM drivers
+      WHERE stripe_account_id = ${stripeAccountId}
+      LIMIT 1
+    `
+    if (rows.length === 0) {
+      console.log(`[webhook] account.updated: no driver found for account ${stripeAccountId}`)
+      return
+    }
+    const driver = rows[0]
+
+    // Evaluate Stripe account state
+    const chargesEnabled   = account.charges_enabled  === true
+    const payoutsEnabled   = account.payouts_enabled  === true
+    const detailsSubmitted = account.details_submitted === true
+    const requirements     = account.requirements ?? {}
+    const hasCurrentlyDue  = ((requirements as any).currently_due ?? []).length > 0
+    const hasPastDue       = ((requirements as any).past_due ?? []).length > 0
+    const disabled         = (account as any).disabled_reason ?? null
+
+    let stripeAccountStatus: string
+    let payoutOnboardingStatus: string
+    let payoutsEnabledFinal: boolean
+
+    if (payoutsEnabled && chargesEnabled && !hasCurrentlyDue && !hasPastDue) {
+      stripeAccountStatus    = "connected"
+      payoutOnboardingStatus = "complete"
+      payoutsEnabledFinal    = true
+    } else if (disabled || hasPastDue) {
+      stripeAccountStatus    = "restricted"
+      payoutOnboardingStatus = "suspended"
+      payoutsEnabledFinal    = false
+    } else if (detailsSubmitted && hasCurrentlyDue) {
+      stripeAccountStatus    = "restricted"
+      payoutOnboardingStatus = "pending"
+      payoutsEnabledFinal    = false
+    } else if (detailsSubmitted) {
+      stripeAccountStatus    = "pending_verification"
+      payoutOnboardingStatus = "pending"
+      payoutsEnabledFinal    = false
+    } else {
+      stripeAccountStatus    = "pending_verification"
+      payoutOnboardingStatus = "not_started"
+      payoutsEnabledFinal    = false
+    }
+
+    // Extract bank info
+    let bankLast4: string | null = null
+    let bankName:  string | null = null
+    let bankType:  string | null = null
+    let payoutMethodType = "stripe"
+
+    const externalAccounts = (account as any).external_accounts?.data ?? []
+    if (externalAccounts.length > 0) {
+      const primary = externalAccounts[0]
+      bankLast4 = primary.last4 ?? null
+      bankName  = primary.bank_name ?? primary.brand ?? null
+      bankType  = primary.object === "card" ? "debit_card" : "bank_account"
+    }
+
+    // Update driver record
+    await sql`
+      UPDATE drivers
+      SET
+        stripe_account_status    = ${stripeAccountStatus},
+        payout_onboarding_status = ${payoutOnboardingStatus},
+        payouts_enabled          = ${payoutsEnabledFinal},
+        stripe_bank_last4        = ${bankLast4},
+        stripe_bank_name         = ${bankName},
+        stripe_bank_type         = ${bankType},
+        payout_method            = ${payoutMethodType},
+        updated_at               = NOW()
+      WHERE id = ${driver.id}
+    `
+
+    console.log(`[webhook] account.updated: driver ${driver.driver_code} → status=${stripeAccountStatus} payouts_enabled=${payoutsEnabledFinal}`)
+
+    // Audit log
+    try {
+      await sql`
+        INSERT INTO audit_logs (entity_id, entity_type, action, notes, created_at)
+        VALUES (
+          ${driver.id}::uuid,
+          'driver',
+          'stripe_account_updated',
+          ${JSON.stringify({ stripeAccountId, stripeAccountStatus, payoutsEnabledFinal, payoutOnboardingStatus })},
+          NOW()
+        )
+      `
+    } catch { /* audit_logs may not exist */ }
+
+  } catch (err: any) {
+    console.error(`[webhook] account.updated handler failed: ${err.message}`)
+  }
+}
+
+// ============================================================
+// HANDLER: account.application.deauthorized (Stripe Connect)
+// Fired when a driver disconnects their Stripe account.
+// ============================================================
+async function handleAccountDeauthorized(application: Stripe.Application) {
+  console.log(`[webhook] account.application.deauthorized: ${application.id}`)
+  // Note: When deauthorized, the account.id is in event.account (not the object)
+  // This is handled by the webhook framework passing the connected account ID
+  // For now, log the event — full deauth handling can be added when needed
 }
 
 // ============================================================
