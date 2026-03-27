@@ -1315,6 +1315,22 @@ export default function AdminPanel() {
                               <div><span style={{ color: "#666" }}>Email cliente:</span> <span style={{ color: "#fff" }}>{b.client_email || "—"}</span></div>
                             </div>
                             {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
+                            {/* Smart Dispatch Priority Engine V1 — Dispatch Context */}
+                            <div style={{ marginTop: 10, padding: "8px 10px", background: "#0a0a1a", borderRadius: 6, border: "1px solid #1e1e3f" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", marginBottom: 6 }}>🎯 Smart Dispatch Priority Engine V1</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px", fontSize: 11 }}>
+                                <div><span style={{ color: "#666" }}>Service type:</span> <span style={{ color: "#fff" }}>{(b as any).service_type || "standard"}</span></div>
+                                <div><span style={{ color: "#666" }}>Source driver:</span> <span style={{ color: "#c9a84c" }}>{(b as any).captured_by_driver_code || "—"}</span></div>
+                                <div><span style={{ color: "#666" }}>Source override:</span> <span style={{ color: (b as any).source_driver_override ? "#a78bfa" : "#555" }}>{(b as any).source_driver_override ? "★ YES" : "No"}</span></div>
+                                <div><span style={{ color: "#666" }}>Priority rank:</span> <span style={{ color: "#34d399" }}>{(b as any).dispatch_priority_rank != null ? `#${(b as any).dispatch_priority_rank}` : "—"}</span></div>
+                                <div><span style={{ color: "#666" }}>Priority score:</span> <span style={{ color: "#34d399" }}>{(b as any).dispatch_priority_score != null ? `${(b as any).dispatch_priority_score?.toFixed(0)} pts` : "—"}</span></div>
+                              </div>
+                              {(b as any).priority_reason && (
+                                <div style={{ marginTop: 6, fontSize: 10, color: "#6b7280", fontFamily: "monospace", wordBreak: "break-all" }}>
+                                  {(b as any).priority_reason}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -1375,6 +1391,18 @@ export default function AdminPanel() {
                                   ⚠️ NO RESPONSE {offerPendingMinutes}m
                                 </span>
                               )}
+                              {/* Smart Dispatch Priority Engine V1 — SOURCE DRIVER OVERRIDE badge */}
+                              {(b as any).source_driver_override && (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#a78bfa", background: "#7c3aed20", border: "1px solid #7c3aed50", padding: "1px 7px", borderRadius: 4 }}>
+                                  ★ SOURCE DRIVER OVERRIDE
+                                </span>
+                              )}
+                              {/* Smart Dispatch Priority Engine V1 — Priority Rank badge */}
+                              {(b as any).dispatch_priority_rank != null && (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#34d399", background: "#05966920", border: "1px solid #05966940", padding: "1px 7px", borderRadius: 4 }}>
+                                  #{(b as any).dispatch_priority_rank} · {(b as any).dispatch_priority_score?.toFixed(0)} pts
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
                             <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
@@ -1387,6 +1415,12 @@ export default function AdminPanel() {
                                 {b.driver_phone && (
                                   <a href={`tel:${b.driver_phone}`} style={{ color: "#60a5fa", marginLeft: 8 }}>📞 {b.driver_phone}</a>
                                 )}
+                              </div>
+                            )}
+                            {/* Priority reason detail */}
+                            {(b as any).priority_reason && (
+                              <div style={{ marginTop: 3, fontSize: 11, color: "#6b7280", fontFamily: "monospace" }}>
+                                🎯 {(b as any).priority_reason}
                               </div>
                             )}
                             {hasMissingOptional && (

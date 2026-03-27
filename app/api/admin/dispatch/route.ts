@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
+import { runPriorityEngine, type DriverCandidate, type BookingContext, type ServiceType } from "@/lib/dispatch/priority-engine";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -249,97 +250,180 @@ export async function GET() {
       }
     }
 
-    // ── AUTO-ASSIGN to capturing driver ────────────────────────────────────
+    // ── AUTO-ASSIGN via Smart Dispatch Priority Engine V1 ─────────────────
     // Business rule: if a booking is ready_for_dispatch AND has captured_by_driver_code
-    // AND has no assigned_driver_id yet → auto-assign to that driver.
-    // This runs after classification so it does not block the response.
-    // Bookings auto-assigned here will appear in the 'assigned' bucket on next load.
+    // AND has no assigned_driver_id yet → run Priority Engine and assign top-ranked driver.
+    // The engine enforces: Hard Eligibility → Lead Ownership → Service Eligibility
+    //                       → Reputation Ranking → Recent Behavior Penalty.
     const autoAssignCandidates = readyForDispatch.filter(
       (r: any) => r.captured_by_driver_code && !r.assigned_driver_id
     );
     if (autoAssignCandidates.length > 0) {
+      // Fetch all active/provisional drivers with scoring fields (once for all candidates)
+      let allDriverRows: any[] = [];
+      let vehicleMap: Record<string, any> = {};
+      let recentBehaviorMap: Record<string, { late_cancel: number; complaint: number; no_response: number }> = {};
+      try {
+        allDriverRows = await sql`
+          SELECT
+            d.id, d.driver_code, d.full_name,
+            COALESCE(d.driver_status, 'active')                     AS driver_status,
+            COALESCE(d.driver_score_total, 75)::integer             AS driver_score_total,
+            COALESCE(d.driver_score_tier, 'GOLD')                   AS driver_score_tier,
+            COALESCE(d.is_eligible_for_premium_dispatch, false)     AS is_eligible_for_premium_dispatch,
+            COALESCE(d.is_eligible_for_airport_priority, false)     AS is_eligible_for_airport_priority,
+            COALESCE(d.rides_completed, 0)::integer                 AS rides_completed,
+            COALESCE(d.on_time_rides, 0)::integer                   AS on_time_rides,
+            COALESCE(d.late_cancel_count, 0)::integer               AS late_cancel_count,
+            COALESCE(d.complaint_count, 0)::integer                 AS complaint_count
+          FROM drivers d
+          WHERE d.driver_status IN ('active', 'provisional')
+            AND d.is_eligible = true
+        `;
+        const driverIds = allDriverRows.map((d: any) => d.id);
+        if (driverIds.length > 0) {
+          const vehicleRows = await sql`
+            SELECT v.driver_id, v.id, v.vehicle_status, v.city_permit_status,
+                   v.airport_permit_mco_status, v.port_permit_canaveral_status,
+                   v.insurance_status, v.registration_status, v.make, v.model, v.plate
+            FROM vehicles v
+            WHERE v.driver_id = ANY(${driverIds}::uuid[])
+              AND v.vehicle_status = 'active'
+            ORDER BY v.is_primary DESC, v.created_at ASC
+          `;
+          for (const v of vehicleRows) {
+            if (!vehicleMap[v.driver_id]) vehicleMap[v.driver_id] = v;
+          }
+        }
+        const recentRows = await sql`
+          SELECT al.entity_id AS driver_id,
+            SUM(CASE WHEN al.action = 'late_cancel_driver'        THEN 1 ELSE 0 END)::integer AS late_cancel,
+            SUM(CASE WHEN al.action = 'client_complaint'          THEN 1 ELSE 0 END)::integer AS complaint,
+            SUM(CASE WHEN al.action = 'no_response_offer_timeout' THEN 1 ELSE 0 END)::integer AS no_response
+          FROM audit_logs al
+          WHERE al.entity_type = 'driver'
+            AND al.created_at > NOW() - INTERVAL '7 days'
+            AND al.action IN ('late_cancel_driver', 'client_complaint', 'no_response_offer_timeout')
+          GROUP BY al.entity_id
+        `.catch(() => []);
+        for (const r of recentRows) {
+          recentBehaviorMap[r.driver_id] = { late_cancel: r.late_cancel ?? 0, complaint: r.complaint ?? 0, no_response: r.no_response ?? 0 };
+        }
+      } catch { /* non-blocking — driver pool fetch failure */ }
+
       for (const candidate of autoAssignCandidates) {
         try {
-          // Look up driver by driver_code
-          const [driverRow] = await sql`
-            SELECT id FROM drivers
-            WHERE UPPER(driver_code) = UPPER(${candidate.captured_by_driver_code})
-              AND driver_status = 'active'
-            LIMIT 1
-          `;
-          if (driverRow?.id) {
-            // ── Vehicle Eligibility Gate (VEG v1) — auto-assign path ──────────
-            const slt = deriveServiceLocationType(candidate.pickup_zone ?? "");
-            if (requiresEligibilityGate(slt)) {
-              try {
-                const vehicleRows = await sql`
-                  SELECT * FROM vehicles
-                  WHERE driver_id = ${driverRow.id}::uuid
-                    AND vehicle_status = 'active'
-                  ORDER BY is_primary DESC, created_at ASC
-                  LIMIT 1
-                `;
-                if (vehicleRows.length === 0) {
-                  await sql`
-                    INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
-                    VALUES ('booking', ${candidate.id}::uuid, 'dispatch_vehicle_gate_blocked', 'system',
-                      ${JSON.stringify({ reason: 'no_vehicle_assigned', driver_id: driverRow.id, service_location_type: slt, pickup_zone: candidate.pickup_zone, auto_assign: true, timestamp: new Date().toISOString() })}::jsonb)
-                  `.catch(() => {});
-                  continue;
-                }
-                const gateResult = checkVehicleEligibility(vehicleRows[0] as import("@/lib/vehicles/gate").VehicleRecord, slt);
-                if (!gateResult.eligible) {
-                  await sql`
-                    INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
-                    VALUES ('booking', ${candidate.id}::uuid, 'dispatch_vehicle_gate_blocked', 'system',
-                      ${JSON.stringify({ vehicle_id: vehicleRows[0].id, driver_id: driverRow.id, service_location_type: slt, pickup_zone: candidate.pickup_zone, exclusion_reasons: gateResult.reasons, auto_assign: true, timestamp: new Date().toISOString() })}::jsonb)
-                  `.catch(() => {});
-                  continue;
-                }
-              } catch { /* gate check failure must never block dispatch */ }
-            }
-            // ── End Vehicle Eligibility Gate ──────────────────────────────────
+          const slt = deriveServiceLocationType(candidate.pickup_zone ?? "");
 
-            // Atomic update: assign driver + transition to offer_pending
-            // FIXED: use dispatch_status='offer_pending' so the ride appears
-            // in the driver panel as an offer requiring Accept/Reject.
-            await sql`
-              UPDATE bookings
-              SET
-                assigned_driver_id = ${driverRow.id}::uuid,
-                status = 'assigned',
-                dispatch_status = 'offer_pending',
-                updated_at = NOW()
-              WHERE id = ${candidate.id}::uuid
-                AND assigned_driver_id IS NULL
-            `;
-            // Also create a dispatch_offer record for the driver panel
-            try {
-              await sql`
-                INSERT INTO dispatch_offers (
-                  booking_id, driver_id, offer_round,
-                  is_source_offer, response, sent_at, expires_at
-                ) VALUES (
-                  ${candidate.id}::uuid,
-                  ${driverRow.id}::uuid,
-                  1,
-                  true,
-                  'pending',
-                  NOW(),
-                  NOW() + interval '24 hours'
-                )
-                ON CONFLICT DO NOTHING
-              `;
-            } catch { /* non-blocking */ }
-            // Move from readyForDispatch to assigned in this response
-            const idx = readyForDispatch.indexOf(candidate);
-            if (idx !== -1) readyForDispatch.splice(idx, 1);
-            candidate.assigned_driver_id = driverRow.id;
-            candidate.status = 'assigned';
-            candidate.dispatch_status = 'offer_pending';
-            candidate.auto_assigned = true;
-            assigned.push(candidate);
+          // Resolve source_driver_id from captured_by_driver_code
+          let sourceDriverId: string | null = null;
+          if (candidate.captured_by_driver_code) {
+            const [srcRow] = await sql`
+              SELECT id FROM drivers
+              WHERE UPPER(driver_code) = UPPER(${candidate.captured_by_driver_code})
+              LIMIT 1
+            `.catch(() => []);
+            if (srcRow?.id) sourceDriverId = srcRow.id;
           }
+
+          const bookingCtx: BookingContext = {
+            id:                   candidate.id,
+            pickup_zone:          candidate.pickup_zone ?? "",
+            service_type:         (candidate.service_type as ServiceType) || "standard",
+            source_driver_id:     sourceDriverId,
+            service_location_type: slt as any,
+          };
+
+          // Build DriverCandidate array
+          const driverCandidates: DriverCandidate[] = allDriverRows.map((d: any) => {
+            const behavior = recentBehaviorMap[d.id] ?? { late_cancel: 0, complaint: 0, no_response: 0 };
+            return {
+              id: d.id, driver_code: d.driver_code, full_name: d.full_name,
+              driver_status: d.driver_status,
+              driver_score_total: d.driver_score_total, driver_score_tier: d.driver_score_tier,
+              is_eligible_for_premium_dispatch: d.is_eligible_for_premium_dispatch,
+              is_eligible_for_airport_priority: d.is_eligible_for_airport_priority,
+              rides_completed: d.rides_completed, on_time_rides: d.on_time_rides,
+              late_cancel_count: d.late_cancel_count, complaint_count: d.complaint_count,
+              late_cancel_recent: behavior.late_cancel,
+              complaint_recent: behavior.complaint,
+              no_response_recent: behavior.no_response,
+              vehicle: vehicleMap[d.id] ?? null,
+            };
+          });
+
+          // Run Priority Engine
+          const engineResult = runPriorityEngine(driverCandidates, bookingCtx);
+
+          // Persist audit log
+          sql`
+            INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+            VALUES ('booking', ${candidate.id}::uuid, 'dispatch_priority_calculated', 'system',
+              ${JSON.stringify(engineResult.audit_payload)}::jsonb)
+          `.catch(() => {});
+
+          // Log source driver override if applicable
+          if (engineResult.source_driver_override) {
+            sql`
+              INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+              VALUES ('booking', ${candidate.id}::uuid, 'dispatch_source_driver_override', 'system',
+                ${JSON.stringify({ source_driver_id: engineResult.source_driver_id, booking_id: candidate.id, timestamp: new Date().toISOString() })}::jsonb)
+            `.catch(() => {});
+          }
+
+          // Log excluded candidates
+          if (engineResult.excluded.length > 0) {
+            sql`
+              INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+              VALUES ('booking', ${candidate.id}::uuid, 'dispatch_candidates_excluded', 'system',
+                ${JSON.stringify({ excluded: engineResult.excluded, booking_id: candidate.id, timestamp: new Date().toISOString() })}::jsonb)
+            `.catch(() => {});
+          }
+
+          // Pick top-ranked driver
+          const topDriver = engineResult.ranked[0];
+          if (!topDriver) continue; // No eligible driver found
+
+          // Assign top-ranked driver
+          await sql`
+            UPDATE bookings
+            SET
+              assigned_driver_id = ${topDriver.id}::uuid,
+              status = 'assigned',
+              dispatch_status = 'offer_pending',
+              updated_at = NOW()
+            WHERE id = ${candidate.id}::uuid
+              AND assigned_driver_id IS NULL
+          `;
+          // Create dispatch_offer record
+          sql`
+            INSERT INTO dispatch_offers (
+              booking_id, driver_id, offer_round,
+              is_source_offer, response, sent_at, expires_at
+            ) VALUES (
+              ${candidate.id}::uuid,
+              ${topDriver.id}::uuid,
+              1,
+              ${engineResult.source_driver_override},
+              'pending',
+              NOW(),
+              NOW() + interval '24 hours'
+            )
+            ON CONFLICT DO NOTHING
+          `.catch(() => {});
+
+          // Move from readyForDispatch to assigned in this response
+          const idx = readyForDispatch.indexOf(candidate);
+          if (idx !== -1) readyForDispatch.splice(idx, 1);
+          candidate.assigned_driver_id = topDriver.id;
+          candidate.status = 'assigned';
+          candidate.dispatch_status = 'offer_pending';
+          candidate.auto_assigned = true;
+          candidate.dispatch_priority_rank = topDriver.dispatch_priority_rank;
+          candidate.dispatch_priority_score = topDriver.dispatch_priority_score;
+          candidate.priority_reason = topDriver.priority_reason;
+          candidate.source_driver_override = engineResult.source_driver_override;
+          assigned.push(candidate);
         } catch {
           // Auto-assign failure must never block the dispatch response
         }
