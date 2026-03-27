@@ -635,6 +635,13 @@ export default function DriverDashboardByCode() {
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
   const prevRideUpdatedAtRef = useRef<string | null>(null)
+  // ── Real-time alert layer ─────────────────────────────────────
+  // showOfferBanner: persistent top banner while offer is active
+  // offerAlertCount: cumulative new-offer count in this session
+  // showOfferAlertModal: foreground modal triggered on transition no_offer → new_offer
+  const [showOfferBanner, setShowOfferBanner] = useState(false)
+  const [offerAlertCount, setOfferAlertCount] = useState(0)
+  const [showOfferAlertModal, setShowOfferAlertModal] = useState(false)
   // DEDUP GUARD: track the last booking_id that was accepted by this driver.
   // After acceptance, block any offer screen for this booking_id until the backend
   // confirms status='accepted' (prevents race condition re-render of OfferScreen).
@@ -711,6 +718,30 @@ export default function DriverDashboardByCode() {
         prevRideUpdatedAtRef.current !== null &&
         newUpdatedAt !== prevRideUpdatedAtRef.current
 
+      // ── ALERT LAYER: detect transition no_offer → new_offer ──────────────────────
+      // offerChanged && hadNoOffer = genuine new offer arrived in this session
+      if (offerChanged && hadNoOffer) {
+        // 1. Persistent top banner
+        setShowOfferBanner(true)
+        // 2. Increment counter (supports multiple offers in session)
+        setOfferAlertCount((c) => c + 1)
+        // 3. Foreground modal (auto-opens)
+        setShowOfferAlertModal(true)
+        // 4. Vibration: short pulse (200ms) per spec
+        try { if (navigator.vibrate) navigator.vibrate(200) } catch {}
+        // 5. Sound: only if tab is visible
+        if (document.visibilityState === 'visible') {
+          playAlert()
+        }
+      }
+
+      // Clear banner and counter when offer disappears (accepted/declined/expired)
+      if (!d.active_offer && prevOfferIdRef.current !== null) {
+        setShowOfferBanner(false)
+        setOfferAlertCount(0)
+        setShowOfferAlertModal(false)
+      }
+
       if (rideChanged || (offerChanged && hadNoOffer)) {
         playAlert()
         // Vibrate if supported (pattern: 3 pulses)
@@ -741,8 +772,8 @@ export default function DriverDashboardByCode() {
         //     when the driver opens the app — prevRideIdRef=null means first load, not new assignment.
         //     Only fire for genuinely new ride assignments during an active session.
         const isFirstLoad = hadNoRide // prevRideIdRef was null before this poll
-        const isAlreadyAccepted = activeRide.status === "accepted" || activeRide.status === "assigned"
-        const isOfferGated = activeRide.ride_mode === "offer_pending" || activeRide.status === "offer_pending"
+        const isAlreadyAccepted = activeRide?.status === "accepted" || activeRide?.status === "assigned"
+        const isOfferGated = activeRide?.ride_mode === "offer_pending" || activeRide?.status === "offer_pending"
         if (rideChanged && activeRide && !isOfferGated && !(isFirstLoad && isAlreadyAccepted)) {
           setNewRideAlertData({
             pickup: activeRide.pickup_location,
@@ -1613,6 +1644,139 @@ export default function DriverDashboardByCode() {
     <div className="min-h-screen bg-black text-white pb-8"
       style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
 
+      {/* ── ALERT LAYER: Persistent top banner ──────────────────────────────────── */}
+      {/* Visible until driver accepts or declines the offer */}
+      {showOfferBanner && (
+        <div
+          className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between px-4 py-3 animate-pulse"
+          style={{
+            backgroundColor: "#dc2626",
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
+            boxShadow: "0 4px 24px #dc262680",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-white text-lg">&#x1F534;</span>
+            <span className="text-white font-bold text-sm tracking-wide">
+              {offerAlertCount > 1
+                ? (lang === "es" ? `⚠️ NUEVA SOLICITUD (${offerAlertCount})` : `⚠️ NEW REQUEST (${offerAlertCount})`)
+                : (lang === "es" ? "⚠️ NUEVA SOLICITUD" : "⚠️ NEW RIDE REQUEST")}
+            </span>
+          </div>
+          <button
+            onClick={() => setShowOfferAlertModal(true)}
+            className="text-white text-xs font-semibold bg-white/20 rounded-lg px-3 py-1.5 active:scale-95 transition-all"
+          >
+            {lang === "es" ? "Ver" : "View"}
+          </button>
+        </div>
+      )}
+
+      {/* ── ALERT LAYER: Foreground modal (auto-opens on new offer) ───────────────── */}
+      {showOfferAlertModal && summary.active_offer && (
+        <div
+          className="fixed inset-0 z-[300] flex flex-col items-center justify-center px-6"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.92)",
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 20px)",
+            paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)",
+          }}
+        >
+          {/* Pulsing red ring */}
+          <div className="relative mb-5">
+            <div
+              className="absolute inset-0 rounded-full animate-ping"
+              style={{ backgroundColor: "#dc262640", transform: "scale(1.5)" }}
+            />
+            <div
+              className="relative w-20 h-20 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: "#dc262615", border: "2px solid #dc2626" }}
+            >
+              <span className="text-3xl">&#x1F534;</span>
+            </div>
+          </div>
+
+          {/* Title */}
+          <div className="text-center mb-4">
+            <div className="text-2xl font-bold text-white mb-1">
+              {lang === "es" ? "¡Nueva Solicitud!" : "New Ride Request!"}
+            </div>
+            <div className="text-sm text-red-400">
+              {lang === "es" ? "Revisa la oferta antes de que expire" : "Review the offer before it expires"}
+            </div>
+          </div>
+
+          {/* Offer card */}
+          <div
+            className="w-full max-w-sm rounded-2xl overflow-hidden mb-6"
+            style={{ background: "#111", border: "2px solid #dc2626", boxShadow: "0 0 24px #dc262640" }}
+          >
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <span className="text-green-400 mt-0.5 text-lg">↑</span>
+                <div>
+                  <div className="text-xs uppercase tracking-wider mb-0.5 text-zinc-500">
+                    {lang === "es" ? "Recogida" : "Pickup"}
+                  </div>
+                  <div className="text-sm font-medium text-white">
+                    {summary.active_offer.pickup_location}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="text-red-400 mt-0.5 text-lg">↓</span>
+                <div>
+                  <div className="text-xs uppercase tracking-wider mb-0.5 text-zinc-500">
+                    {lang === "es" ? "Destino" : "Dropoff"}
+                  </div>
+                  <div className="text-sm font-medium text-white">
+                    {summary.active_offer.dropoff_location}
+                  </div>
+                </div>
+              </div>
+              <div
+                className="flex items-center justify-between pt-2"
+                style={{ borderTop: "1px solid #dc262630" }}
+              >
+                <div className="text-xs text-zinc-500">
+                  {lang === "es" ? "Tarifa" : "Fare"}
+                </div>
+                <div className="text-xl font-bold text-white">
+                  ${summary.active_offer.total_price.toFixed(0)}
+                </div>
+              </div>
+              {offerAlertCount > 1 && (
+                <div
+                  className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg"
+                  style={{ backgroundColor: "#dc262615" }}
+                >
+                  <span className="text-red-400 text-xs font-bold">
+                    {lang === "es"
+                      ? `${offerAlertCount} solicitudes pendientes`
+                      : `${offerAlertCount} pending requests`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* CTA buttons */}
+          <button
+            onClick={() => setShowOfferAlertModal(false)}
+            className="w-full max-w-sm py-4 rounded-2xl text-base font-bold text-white transition-all active:scale-95 mb-3"
+            style={{ backgroundColor: "#dc2626", fontSize: 16, letterSpacing: "0.04em" }}
+          >
+            {lang === "es" ? "Ver Oferta Completa" : "View Full Offer"}
+          </button>
+          <button
+            onClick={() => { setShowOfferAlertModal(false); setShowOfferBanner(false) }}
+            className="text-sm py-2 text-zinc-600"
+          >
+            {lang === "es" ? "Descartar alerta" : "Dismiss alert"}
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="border-b border-zinc-800 px-5 py-4 flex items-center justify-between">
         <div>
@@ -1677,7 +1841,7 @@ export default function DriverDashboardByCode() {
           <div className="px-4 mt-4 grid grid-cols-2 gap-3">
             {[
               { label: t.totalClients, value: summary.total_clients, icon: "👥", color: GOLD },
-              { label: t.pendingOffers, value: summary.pending_offers, icon: "⏳", color: summary.pending_offers > 0 ? "#f87171" : "#6b7280" },
+              { label: offerAlertCount > 0 ? (lang === "es" ? `🔴 SOLICITUD (${offerAlertCount})` : `🔴 REQUEST (${offerAlertCount})`) : t.pendingOffers, value: offerAlertCount > 0 ? offerAlertCount : summary.pending_offers, icon: offerAlertCount > 0 ? "🔴" : "⏳", color: offerAlertCount > 0 ? "#dc2626" : (summary.pending_offers > 0 ? "#f87171" : "#6b7280") },
               { label: t.monthEarnings, value: `$${summary.month_earnings.toFixed(2)}`, icon: "💰", color: GOLD },
               { label: t.lifetimeEarnings, value: `$${summary.lifetime_earnings.toFixed(2)}`, icon: "📈", color: "#a78bfa" },
             ].map((card) => (
