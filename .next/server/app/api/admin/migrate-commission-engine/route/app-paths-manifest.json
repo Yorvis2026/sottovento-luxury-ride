@@ -1,0 +1,3 @@
+{
+  "/api/admin/migrate-commission-engine/route": "app/api/admin/migrate-commission-engine/route.js"
+}

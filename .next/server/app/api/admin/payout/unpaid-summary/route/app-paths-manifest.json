@@ -1,0 +1,3 @@
+{
+  "/api/admin/payout/unpaid-summary/route": "app-edge-has-no-entrypoint"
+}

@@ -417,6 +417,7 @@ interface ActiveRide {
   ride_mode?: "active_window" | "live_flow" | "upcoming" | "offer_pending"
   minutes_until_pickup?: number | null
   updated_at?: string | null
+  dispatch_status?: string | null
 }
 
 interface UpcomingRide {
@@ -459,6 +460,13 @@ interface CompletedRide {
   ride_mode?: string | null
   captured_by_driver_code?: string | null
   minutes_until_pickup?: number | null
+  payout_status?: string | null
+  cancel_reason?: string | null
+  cancel_responsibility?: string | null
+  passenger_no_show?: boolean | null
+  early_cancel?: boolean | null
+  late_cancel?: boolean | null
+  cancelled_at?: string | null
 }
 
 interface DriverSummary {
@@ -650,6 +658,17 @@ export default function DriverDashboardByCode() {
   // Shows real-time minutes overdue in RideFlowScreen when pickup_at has passed
   const [overdueSeconds, setOverdueSeconds] = useState<number>(0)
   const overdueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // ── Cancel Reason Modal (Fases 1-9) ──────────────────────────────────────
+  // showCancelModal: shows the cancel reason selection modal
+  // cancelReason: selected reason key
+  // cancelNotes: free text for 'OTHER' reason
+  // cancelStep: 'reason' | 'no_show_confirm' | 'submitting' | 'done'
+  // cancelResult: result of the cancel API call
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelReason, setCancelReason] = useState<string>("")
+  const [cancelNotes, setCancelNotes] = useState<string>("")
+  const [cancelStep, setCancelStep] = useState<"reason" | "no_show_confirm" | "submitting" | "done">("reason")
+  const [cancelResult, setCancelResult] = useState<{ success: boolean; responsibility?: string; payout_status?: string; message?: string } | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
@@ -1086,6 +1105,16 @@ export default function DriverDashboardByCode() {
   const transitionRide = async (newStatus: RideStatus) => {
     if (!summary?.assigned_ride || transitioning) return
 
+    // ── CANCEL INTERCEPT (Fases 1-9): show Cancel Reason Modal before cancelling ──
+    if (newStatus === "cancelled" || newStatus === "no_show") {
+      setCancelReason(newStatus === "no_show" ? "PASSENGER_NO_SHOW" : "")
+      setCancelNotes("")
+      setCancelStep("reason")
+      setCancelResult(null)
+      setShowCancelModal(true)
+      return
+    }
+
     if (summary.assigned_ride.pickup_datetime) {
       const minutesUntil = (new Date(summary.assigned_ride.pickup_datetime).getTime() - Date.now()) / 60000
 
@@ -1108,6 +1137,54 @@ export default function DriverDashboardByCode() {
     }
 
     await executeTransition(newStatus)
+  }
+
+  // ── CANCEL RIDE SUBMISSION (Fases 1-9) ─────────────────────────────────────
+  // Calls POST /api/driver/cancel-ride with the structured cancellation data.
+  // This replaces the old executeTransition('cancelled') path.
+  const submitCancelRide = async (noShowConfirmed?: boolean) => {
+    if (!summary?.assigned_ride || !cancelReason) return
+    setCancelStep("submitting")
+    const coords = await getGPS()
+    try {
+      const res = await fetch("/api/driver/cancel-ride", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: summary.assigned_ride.booking_id,
+          driver_id: summary.driver_id,
+          cancel_reason: cancelReason,
+          cancellation_notes: cancelNotes || null,
+          passenger_no_show_confirmed: cancelReason === "PASSENGER_NO_SHOW" ? (noShowConfirmed ?? false) : undefined,
+          gps_lat: coords?.lat ?? null,
+          gps_lng: coords?.lng ?? null,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setCancelResult({
+          success: true,
+          responsibility: data.cancel_responsibility,
+          payout_status: data.payout_status,
+        })
+        setCancelStep("done")
+        // Reload dashboard after 3s
+        setTimeout(() => {
+          setShowCancelModal(false)
+          setCancelReason("")
+          setCancelNotes("")
+          setCancelStep("reason")
+          setCancelResult(null)
+          loadData()
+        }, 3000)
+      } else {
+        setCancelResult({ success: false, message: data.error ?? "Error al cancelar" })
+        setCancelStep("done")
+      }
+    } catch (err: any) {
+      setCancelResult({ success: false, message: "Error de red. Intenta de nuevo." })
+      setCancelStep("done")
+    }
   }
 
   const sendSMS = async (messageType: "arrived" | "en_route") => {
@@ -1529,7 +1606,202 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── COMPLETION OVERLAY (v5 — shows +$amount) ──────────────────────
+  // ── CANCEL REASON MODAL ──────────────────────────────────────────────────────
+  if (showCancelModal) {
+    const CANCEL_REASONS = [
+      { key: "PASSENGER_NO_SHOW",  label: lang === "es" ? "Pasajero no se presentó"   : lang === "ht" ? "Pasaje pa parèt"        : "Passenger No-Show",      icon: "🚶" },
+      { key: "PASSENGER_REQUESTED",label: lang === "es" ? "Pasajero solicitó cancelar" : lang === "ht" ? "Pasaje mande kanselasyon" : "Passenger Requested",    icon: "📞" },
+      { key: "VEHICLE_BREAKDOWN",  label: lang === "es" ? "Falla mecánica del vehículo": lang === "ht" ? "Machin kraze"            : "Vehicle Breakdown",       icon: "🔧" },
+      { key: "SAFETY_CONCERN",     label: lang === "es" ? "Preocupación de seguridad"  : lang === "ht" ? "Pwoblèm sekirite"        : "Safety Concern",          icon: "🛡️" },
+      { key: "WRONG_ADDRESS",      label: lang === "es" ? "Dirección incorrecta"       : lang === "ht" ? "Adrès mal"               : "Wrong Address",           icon: "📍" },
+      { key: "DISPATCH_INSTRUCTION",label: lang === "es" ? "Instrucción de despacho"   : lang === "ht" ? "Enstriksyon dispach"     : "Dispatch Instruction",    icon: "📻" },
+      { key: "OTHER",              label: lang === "es" ? "Otro motivo"                : lang === "ht" ? "Lòt rezon"               : "Other",                   icon: "💬" },
+    ]
+
+    // ── STEP: no_show_confirm ──────────────────────────────────────────────────
+    if (cancelStep === "no_show_confirm") {
+      return (
+        <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 px-6 z-[200]"
+          style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+          <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-red-500/40 overflow-hidden">
+            <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+              <div className="text-2xl">🚶</div>
+              <div>
+                <div className="text-sm font-semibold text-red-400">
+                  {lang === "es" ? "Confirmar No-Show" : lang === "ht" ? "Konfime No-Show" : "Confirm No-Show"}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {lang === "es" ? "Pasajero no se presentó en el punto de recogida" : lang === "ht" ? "Pasaje pa t parèt nan pwen ranmase a" : "Passenger did not appear at pickup location"}
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-4">
+              <div className="text-sm text-zinc-300 mb-3">
+                {lang === "es"
+                  ? "¿Esperaste al menos 10 minutos en el punto de recogida y el pasajero no apareció?"
+                  : lang === "ht"
+                  ? "Èske ou te tann omwen 10 minit nan pwen ranmase a epi pasaje a pa parèt?"
+                  : "Did you wait at least 10 minutes at the pickup location and the passenger did not appear?"}
+              </div>
+              <div className="text-xs text-amber-400/80 bg-amber-500/10 rounded-lg px-3 py-2 mb-4">
+                {lang === "es"
+                  ? "Esta acción quedará registrada con timestamp GPS y será revisada por despacho."
+                  : lang === "ht"
+                  ? "Aksyon sa a pral anrejistre ak timestamp GPS epi dispach pral revize li."
+                  : "This action will be logged with GPS timestamp and reviewed by dispatch."}
+              </div>
+            </div>
+            <div className="px-5 pb-5 space-y-2">
+              <button
+                onClick={() => submitCancelRide(true)}
+                className="w-full py-3.5 rounded-xl text-sm font-semibold bg-red-600 text-white transition-all active:scale-95">
+                {lang === "es" ? "Sí, confirmar No-Show" : lang === "ht" ? "Wi, konfime No-Show" : "Yes, Confirm No-Show"}
+              </button>
+              <button
+                onClick={() => setCancelStep("reason")}
+                className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm transition-all active:scale-95">
+                {lang === "es" ? "Volver" : lang === "ht" ? "Retounen" : "Go Back"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // ── STEP: submitting ───────────────────────────────────────────────────────
+    if (cancelStep === "submitting") {
+      return (
+        <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 z-[200]">
+          <div className="text-4xl mb-4 animate-spin">⏳</div>
+          <div className="text-white text-sm">
+            {lang === "es" ? "Registrando cancelación..." : lang === "ht" ? "Anrejistre kanselasyon..." : "Logging cancellation..."}
+          </div>
+        </div>
+      )
+    }
+
+    // ── STEP: done ─────────────────────────────────────────────────────────────
+    if (cancelStep === "done" && cancelResult) {
+      const isSuccess = cancelResult.success
+      const isDriverFault = cancelResult.responsibility === "driver"
+      const isNoShow = cancelReason === "PASSENGER_NO_SHOW"
+      return (
+        <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 px-6 z-[200]">
+          <div className="text-5xl mb-4">{isSuccess ? (isNoShow ? "🚶" : isDriverFault ? "⚠️" : "✅") : "❌"}</div>
+          <div className="text-xl font-semibold text-white mb-2">
+            {isSuccess
+              ? (lang === "es" ? "Cancelación registrada" : lang === "ht" ? "Kanselasyon anrejistre" : "Cancellation Logged")
+              : (lang === "es" ? "Error al cancelar" : lang === "ht" ? "Erè pou kanselasyon" : "Cancellation Error")}
+          </div>
+          {isSuccess && cancelResult.responsibility && (
+            <div className={`text-xs px-3 py-1.5 rounded-full mb-3 font-medium ${
+              cancelResult.responsibility === "driver"
+                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                : cancelResult.responsibility === "passenger"
+                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                : "bg-zinc-700 text-zinc-400 border border-zinc-600"
+            }`}>
+              {cancelResult.responsibility === "driver"
+                ? (lang === "es" ? "Responsabilidad: Conductor" : "Responsibility: Driver")
+                : cancelResult.responsibility === "passenger"
+                ? (lang === "es" ? "Responsabilidad: Pasajero" : "Responsibility: Passenger")
+                : (lang === "es" ? "Revisión pendiente" : "Pending Review")}
+            </div>
+          )}
+          {isSuccess && cancelResult.payout_status && (
+            <div className="text-xs text-zinc-400 mb-2">
+              {lang === "es" ? "Estado de pago:" : "Payout status:"}{" "}
+              <span className="text-zinc-200 font-medium">{cancelResult.payout_status}</span>
+            </div>
+          )}
+          {!isSuccess && (
+            <div className="text-sm text-red-400 mb-4">{cancelResult.message}</div>
+          )}
+          <div className="text-xs text-zinc-500 mt-2">
+            {lang === "es" ? "Redirigiendo..." : lang === "ht" ? "Redirijman..." : "Redirecting..."}
+          </div>
+        </div>
+      )
+    }
+
+    // ── STEP: reason (default) ─────────────────────────────────────────────────
+    return (
+      <div className="fixed inset-0 flex flex-col bg-zinc-950 z-[200] overflow-y-auto"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        {/* Header */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-800 sticky top-0 bg-zinc-950 z-10">
+          <button
+            onClick={() => {
+              setShowCancelModal(false)
+              setCancelReason("")
+              setCancelNotes("")
+              setCancelStep("reason")
+              setCancelResult(null)
+            }}
+            className="text-zinc-400 text-xl leading-none active:scale-95 transition-transform">
+            ←
+          </button>
+          <div>
+            <div className="text-sm font-semibold text-white">
+              {lang === "es" ? "Motivo de cancelación" : lang === "ht" ? "Rezon kanselasyon" : "Cancellation Reason"}
+            </div>
+            <div className="text-xs text-zinc-500">
+              {lang === "es" ? "Selecciona el motivo para continuar" : lang === "ht" ? "Chwazi rezon pou kontinye" : "Select a reason to continue"}
+            </div>
+          </div>
+        </div>
+
+        {/* Reason list */}
+        <div className="px-4 py-3 space-y-2 flex-1">
+          {CANCEL_REASONS.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setCancelReason(r.key)}
+              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border text-left transition-all active:scale-[0.98] ${
+                cancelReason === r.key
+                  ? "border-amber-500 bg-amber-500/10 text-white"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-300"
+              }`}>
+              <span className="text-xl">{r.icon}</span>
+              <span className="text-sm font-medium">{r.label}</span>
+              {cancelReason === r.key && <span className="ml-auto text-amber-400 text-base">✓</span>}
+            </button>
+          ))}
+
+          {/* Free-text notes for OTHER */}
+          {cancelReason === "OTHER" && (
+            <div className="mt-2">
+              <textarea
+                value={cancelNotes}
+                onChange={(e) => setCancelNotes(e.target.value)}
+                placeholder={lang === "es" ? "Describe el motivo..." : lang === "ht" ? "Dekri rezon an..." : "Describe the reason..."}
+                rows={3}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 resize-none focus:outline-none focus:border-amber-500/60"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Confirm button */}
+        <div className="px-4 pb-8 pt-3 sticky bottom-0 bg-zinc-950 border-t border-zinc-800">
+          <button
+            disabled={!cancelReason || (cancelReason === "OTHER" && !cancelNotes.trim())}
+            onClick={() => {
+              if (cancelReason === "PASSENGER_NO_SHOW") {
+                setCancelStep("no_show_confirm")
+              } else {
+                submitCancelRide()
+              }
+            }}
+            className="w-full py-4 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ backgroundColor: cancelReason && !(cancelReason === "OTHER" && !cancelNotes.trim()) ? "#b8972a" : undefined, color: "white" }}>
+            {lang === "es" ? "Confirmar cancelación" : lang === "ht" ? "Konfime kanselasyon" : "Confirm Cancellation"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (showCompleted) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950"
@@ -2619,6 +2891,14 @@ function RideFlowScreen({
       showNavigate: false,
       navigateUrl: "",
       showContact: false,
+    },
+    offer_pending: {
+      headerLabel: t.assignedRide,
+      primaryLabel: t.enRouteBtn,
+      primaryAction: "en_route",
+      showNavigate: true,
+      navigateUrl: mapsPickupUrl,
+      showContact: true,
     },
   }
 

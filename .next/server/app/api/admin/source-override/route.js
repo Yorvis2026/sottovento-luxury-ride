@@ -1,0 +1,7 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/admin/source-override/route.js")
+R.c("server/chunks/[root-of-the-server]__3a7c3ba8._.js")
+R.c("server/chunks/[root-of-the-server]__31f75b85._.js")
+R.c("server/chunks/8fbf6_@neondatabase_serverless_index_mjs_a79a0bf5._.js")
+R.c("server/chunks/_next-internal_server_app_api_admin_source-override_route_actions_87c4fc37.js")
+R.m(27895)
+module.exports=R.m(27895).exports

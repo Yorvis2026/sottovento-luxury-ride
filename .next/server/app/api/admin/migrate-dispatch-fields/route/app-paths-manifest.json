@@ -1,0 +1,3 @@
+{
+  "/api/admin/migrate-dispatch-fields/route": "app/api/admin/migrate-dispatch-fields/route.js"
+}

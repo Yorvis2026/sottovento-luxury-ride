@@ -1,0 +1,3 @@
+{
+  "/api/admin/migrate-weekly-payout/route": "app/api/admin/migrate-weekly-payout/route.js"
+}

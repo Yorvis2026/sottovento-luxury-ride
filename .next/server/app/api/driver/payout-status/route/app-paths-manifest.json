@@ -1,0 +1,3 @@
+{
+  "/api/driver/payout-status/route": "app/api/driver/payout-status/route.js"
+}

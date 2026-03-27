@@ -1,3 +1,0 @@
-module.exports=[58696,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(25767);a.n(d("[project]/sottovento/node_modules/.pnpm/next@16.1.0-canary.12_react-dom@19.2.0_react@19.2.0__react@19.2.0/node_modules/next/dist/client/components/builtin/global-error.js <module evaluation>"))},49009,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(25767);a.n(d("[project]/sottovento/node_modules/.pnpm/next@16.1.0-canary.12_react-dom@19.2.0_react@19.2.0__react@19.2.0/node_modules/next/dist/client/components/builtin/global-error.js"))},31773,a=>{"use strict";a.i(58696);var b=a.i(49009);a.n(b)}];
-
-//# sourceMappingURL=3facf_next_dist_client_components_builtin_global-error_ed57819a.js.map

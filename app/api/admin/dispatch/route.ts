@@ -46,6 +46,14 @@ export async function GET() {
         d.full_name AS driver_name,
         d.driver_code AS driver_code,
         d.phone AS driver_phone,
+        -- ── Cancellation fields (Fases 1-10) ──────────────────────────────────
+        COALESCE(b.cancel_reason, '') AS cancel_reason,
+        COALESCE(b.cancel_responsibility, '') AS cancel_responsibility,
+        COALESCE(b.passenger_no_show, FALSE) AS passenger_no_show,
+        COALESCE(b.early_cancel, FALSE) AS early_cancel,
+        COALESCE(b.late_cancel, FALSE) AS late_cancel,
+        COALESCE(b.payout_status, '') AS payout_status,
+        b.cancelled_at,
         (
           SELECT al.action FROM audit_logs al
           WHERE al.entity_id = b.id
@@ -74,6 +82,7 @@ export async function GET() {
       WHERE (
         b.status NOT IN ('cancelled', 'archived')
         OR (b.status = 'completed' AND b.updated_at > NOW() - INTERVAL '24 hours')
+        OR (b.status = 'cancelled' AND b.updated_at > NOW() - INTERVAL '24 hours')
       )
       ORDER BY
         CASE
@@ -96,6 +105,7 @@ export async function GET() {
     const assigned: any[] = [];
     const inProgress: any[] = [];
     const completed: any[] = [];
+    const recentlyCancelled: any[] = []; // Fase 10: cancelled in last 24h
 
     for (const rRaw of rows) {
       // Spread into a mutable object so we can attach computed flags
@@ -179,6 +189,12 @@ export async function GET() {
         r.captured_by_driver_code !== 'PUBLIC_SITE' &&
         (r.pickup_address || r.pickup_zone) &&
         (r.dropoff_address || r.dropoff_zone);
+
+      // ── Fase 10: cancelled rides go to recentlyCancelled bucket ────────────
+      if (s === "cancelled") {
+        recentlyCancelled.push(r);
+        continue;
+      }
 
       if (hasDriverIssue) {
         driverIssue.push(r);
@@ -296,6 +312,7 @@ export async function GET() {
       assigned,
       inProgress,
       completed,
+      recentlyCancelled,
       total: rows.length,
       counts: {
         driverIssue: driverIssue.length,
@@ -304,6 +321,7 @@ export async function GET() {
         assigned: assigned.length,
         inProgress: inProgress.length,
         completed: completed.length,
+        recentlyCancelled: recentlyCancelled.length,
       },
       awaitingSourceOwner: readyForDispatch.filter((r: any) => r.dispatch_status === "awaiting_source_owner"),
       awaitingSlnMember: readyForDispatch.filter((r: any) => r.dispatch_status === "awaiting_sln_member"),

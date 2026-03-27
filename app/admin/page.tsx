@@ -68,13 +68,14 @@ export default function AdminPanel() {
   const [finance, setFinance] = useState<FinanceData | null>(null)
   const [crownData, setCrownData] = useState<CrownData | null>(null)
   const [dispatchData, setDispatchData] = useState<{
-    // New 6-bucket structure
+    // 7-bucket structure (Fases 1-10)
     driverIssue: Booking[];
     needsReview: Booking[];
     readyForDispatch: Booking[];
     assigned: Booking[];
     inProgress: Booking[];
     completed: Booking[];
+    recentlyCancelled: any[]; // Fase 10: cancelled in last 24h with cancel_reason, cancel_responsibility, etc.
     total: number;
     // Legacy
     awaitingSourceOwner: Booking[];
@@ -1029,6 +1030,7 @@ export default function AdminPanel() {
                 { label: "Assigned", count: dispatchData?.assigned?.length ?? 0, color: "#a78bfa", icon: "👤", anchor: "bucket-assigned" },
                 { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "🚗", anchor: "bucket-in-progress" },
                 { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "✅", anchor: "bucket-completed" },
+                { label: "Cancelled (24h)", count: (dispatchData as any)?.recentlyCancelled?.length ?? 0, color: "#f87171", icon: "❌", anchor: "bucket-recently-cancelled" },
               ].map(k => (
                 <div
                   key={k.anchor}
@@ -1563,6 +1565,88 @@ export default function AdminPanel() {
                             onClick={() => { if (window.confirm("Reabrir este booking requiere permiso especial. ¿Continuar?")) handleBookingStatus(b.id, "needs_review", "not_required") }}
                             style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a1a1a", color: "#555", border: "1px solid #333" }}
                           >🔒 Reabrir (restringido)</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* ══════════════════════════════════════════════
+                    BUCKET 7: RECENTLY CANCELLED (red — last 24h)
+                ══════════════════════════════════════════════ */}
+                <div id="bucket-recently-cancelled" style={{ ...S.card, marginBottom: 16, marginTop: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>❌ Recently Cancelled (24h)</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Rides cancelados en las últimas 24 horas — revisar responsabilidad y payout</div>
+                    </div>
+                    <span style={{ ...S.badge("#3b0000"), color: "#f87171" }}>{(dispatchData as any)?.recentlyCancelled?.length ?? 0}</span>
+                  </div>
+                  {!(dispatchData as any)?.recentlyCancelled?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin cancelaciones recientes en las últimas 24h</div>
+                  ) : ((dispatchData as any).recentlyCancelled ?? []).map((b: any) => {
+                    const isExpanded = expandedDispatchId === b.id
+                    const isNoShow = b.passenger_no_show === true
+                    const isDriverFault = b.cancel_responsibility === "driver"
+                    const isPassengerFault = b.cancel_responsibility === "passenger" && !isNoShow
+                    const isDispatchFault = b.cancel_responsibility === "dispatch"
+                    const isLateCancel = b.late_cancel === true
+                    const cancelledAtLabel = b.cancelled_at
+                      ? new Date(b.cancelled_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                      : ""
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a0000" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#f87171", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              {isNoShow && <span style={{ ...S.badge("#3b1a00"), color: "#fbbf24", fontSize: 10, fontWeight: 700 }}>🚶 PASSENGER NO-SHOW</span>}
+                              {isDriverFault && <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10, fontWeight: 700 }}>⚠️ DRIVER CANCELLED</span>}
+                              {isPassengerFault && <span style={{ ...S.badge("#1a1a00"), color: "#fde68a", fontSize: 10, fontWeight: 700 }}>📞 PASSENGER REQUESTED</span>}
+                              {isDispatchFault && <span style={{ ...S.badge("#1a0a2a"), color: "#a78bfa", fontSize: 10, fontWeight: 700 }}>📻 DISPATCH</span>}
+                              {isLateCancel && <span style={{ ...S.badge("#2a1a00"), color: "#fb923c", fontSize: 10, fontWeight: 700 }}>⏰ LATE CANCEL</span>}
+                              {b.payout_status === "needs_review" && <span style={{ ...S.badge("#3b2200"), color: "#f59e0b", fontSize: 10, fontWeight: 700 }}>⚠️ NEEDS REVIEW</span>}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#f87171" }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888" }}>{fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)}</div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#888" }}>👤 {b.driver_name} {b.driver_code ? `(${b.driver_code})` : ""}</div>}
+                            {b.cancel_reason && (
+                              <div style={{ marginTop: 6, padding: "5px 10px", background: "#1a0000", borderRadius: 6, fontSize: 11, color: "#f87171" }}>
+                                <span style={{ color: "#888" }}>Motivo: </span>
+                                <span style={{ fontWeight: 600 }}>{b.cancel_reason.replace(/_/g, " ")}</span>
+                                {cancelledAtLabel && <span style={{ color: "#666", marginLeft: 8 }}>@ {cancelledAtLabel}</span>}
+                              </div>
+                            )}
+                            {b.payout_status && (
+                              <div style={{ marginTop: 4, fontSize: 11, color: b.payout_status === "pending" ? "#fbbf24" : b.payout_status === "cancelled" ? "#f87171" : "#f59e0b" }}>
+                                Payout: <span style={{ fontWeight: 600 }}>{b.payout_status.toUpperCase()}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge("#3b0000"), color: "#f87171" }}>CANCELLED</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#0d0000", borderRadius: 8, border: "1px solid #3b0000", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+                              <div><span style={{ color: "#666" }}>Ref:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.booking_ref || b.id}</span></div>
+                              <div><span style={{ color: "#666" }}>Responsabilidad:</span> <span style={{ color: b.cancel_responsibility === "driver" ? "#f87171" : b.cancel_responsibility === "passenger" ? "#fbbf24" : "#f59e0b" }}>{b.cancel_responsibility?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Motivo:</span> <span style={{ color: "#fff" }}>{b.cancel_reason?.replace(/_/g, " ") || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Payout:</span> <span style={{ color: b.payout_status === "pending" ? "#fbbf24" : "#f87171" }}>{b.payout_status?.toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>No-Show:</span> <span style={{ color: b.passenger_no_show ? "#fbbf24" : "#555" }}>{b.passenger_no_show ? "SÍ" : "NO"}</span></div>
+                              <div><span style={{ color: "#666" }}>Late Cancel:</span> <span style={{ color: b.late_cancel ? "#fb923c" : "#555" }}>{b.late_cancel ? "SÍ" : "NO"}</span></div>
+                              <div><span style={{ color: "#666" }}>Cancelado:</span> <span style={{ color: "#fff" }}>{b.cancelled_at ? new Date(b.cancelled_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Conductor:</span> <span style={{ color: "#aaa" }}>{b.driver_name || "—"} {b.driver_code ? `(${b.driver_code})` : ""}</span></div>
+                            </div>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => handleBookingStatus(b.id, "needs_review", "not_required")}
+                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b2200", color: "#f59e0b", border: "none" }}
+                          >⚠️ Reabrir para Revisión</button>
+                          <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
                         </div>
                       </div>
                     )

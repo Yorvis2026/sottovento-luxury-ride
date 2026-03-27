@@ -1,0 +1,38 @@
+{
+  "sorted_middleware": [
+    "/api/admin/payout/batches/route"
+  ],
+  "middleware": {},
+  "instrumentation": null,
+  "functions": {
+    "/api/admin/payout/batches/route": {
+      "files": [
+        "server/middleware-build-manifest.js",
+        "server/interception-route-rewrite-manifest.js",
+        "server/server-reference-manifest.js",
+        "server/app/api/admin/payout/batches/route_client-reference-manifest.js",
+        "server/edge/chunks/_next-internal_server_app_api_admin_payout_batches_route_actions_77cdddd0.js",
+        "server/edge/chunks/[root-of-the-server]__5c1bfbbd._.js",
+        "server/edge/chunks/node_modules__pnpm_6e567d68._.js",
+        "server/edge/chunks/411bb_next_dist_esm_build_templates_edge-wrapper_1fde91cc.js"
+      ],
+      "name": "app/api/admin/payout/batches/route",
+      "page": "/api/admin/payout/batches/route",
+      "matchers": [
+        {
+          "regexp": "^/api/admin/payout/batches(?:/)?$",
+          "originalSource": "/api/admin/payout/batches"
+        }
+      ],
+      "wasm": [],
+      "assets": [],
+      "env": {
+        "__NEXT_BUILD_ID": "1bV6XmnYeJoHHEyFwH33o",
+        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "OLT+qKUcPHGe0d29IKSk02+gRBHOuukuD670UlPWY9s=",
+        "__NEXT_PREVIEW_MODE_ID": "3dd17cdc72ab2d92e9b305b407dddc8c",
+        "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "71b8dcb62e34360c332392e7c2bd283744a4fa1e0cb62478cc7f2a41aa39c080",
+        "__NEXT_PREVIEW_MODE_SIGNING_KEY": "9bdf4cc0332ba1f1a468ce2391d84dd766fd7b0f44a9d8f07d9b9f1c1ba8118d"
+      }
+    }
+  }
+}

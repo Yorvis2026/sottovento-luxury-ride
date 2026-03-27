@@ -1,0 +1,3 @@
+{
+  "/api/cron/expire-driver-offers/route": "app/api/cron/expire-driver-offers/route.js"
+}

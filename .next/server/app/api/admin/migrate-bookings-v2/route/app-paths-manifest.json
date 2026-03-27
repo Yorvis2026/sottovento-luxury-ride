@@ -1,0 +1,3 @@
+{
+  "/api/admin/migrate-bookings-v2/route": "app/api/admin/migrate-bookings-v2/route.js"
+}
