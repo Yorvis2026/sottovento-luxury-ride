@@ -80,6 +80,9 @@ export default function AdminPanel() {
   // Data states
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [vehicles, setVehicles] = useState<any[]>([])
+  const [vehicleStats, setVehicleStats] = useState<any>(null)
+  const [loadingVehicles, setLoadingVehicles] = useState(false)
   const [bookings, setBookings] = useState<Booking[]>([])
   const [leads, setLeads] = useState<Lead[]>([])
   const [finance, setFinance] = useState<FinanceData | null>(null)
@@ -185,6 +188,7 @@ export default function AdminPanel() {
   // ---- DATA LOADERS ----
   const loadDashboard = useCallback(async () => { setLoadingDash(true); try { const r = await fetch("/api/admin/dashboard"); if (r.ok) setDashboard(await r.json()) } catch { } finally { setLoadingDash(false) } }, [])
   const loadDrivers = useCallback(async () => { setLoadingDrivers(true); try { const r = await fetch("/api/admin/drivers"); if (r.ok) { const d = await r.json(); setDrivers(d.drivers ?? []) } } catch { } finally { setLoadingDrivers(false) } }, [])
+  const loadVehicles = useCallback(async () => { setLoadingVehicles(true); try { const r = await fetch("/api/admin/vehicles"); if (r.ok) { const d = await r.json(); setVehicles(d.vehicles ?? []); setVehicleStats(d.stats ?? null) } } catch { } finally { setLoadingVehicles(false) } }, [])
   const loadBookings = useCallback(async (viewMode?: string) => { setLoadingBookings(true); try { const v = viewMode ?? "active"; const r = await fetch(`/api/admin/bookings?view=${v}`); if (r.ok) { const d = await r.json(); setBookings(d.bookings ?? []) } } catch { } finally { setLoadingBookings(false) } }, [])
   const loadLeads = useCallback(async () => { setLoadingLeads(true); try { const r = await fetch("/api/admin/leads"); if (r.ok) { const d = await r.json(); setLeads(d.leads ?? []) } } catch { } finally { setLoadingLeads(false) } }, [])
   const loadFinance = useCallback(async () => { setLoadingFinance(true); try { const r = await fetch("/api/admin/finance"); if (r.ok) setFinance(await r.json()) } catch { } finally { setLoadingFinance(false) } }, [])
@@ -197,7 +201,7 @@ export default function AdminPanel() {
   const loadPartnerCompliance = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings?compliance=true"); if (r.ok) { const d = await r.json(); setPartnerCompliance(d.compliance ?? []) } } catch { } }, [])
 
   useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings() } }, [authed, loadDashboard, loadDrivers, loadBookings])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") loadDispatch(); if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() } }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadPartners, loadPartnerCompanies, loadPartnerInvites])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") loadDispatch(); if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
   useEffect(() => { if (tab !== "partners") return; if (partnerTab === "earnings") loadPartnerEarnings(); if (partnerTab === "compliance") loadPartnerCompliance() }, [partnerTab, tab, loadPartnerEarnings, loadPartnerCompliance])
 
   // ---- ACTIONS ----
@@ -1893,6 +1897,115 @@ export default function AdminPanel() {
                 ))}
               </div>
             )}
+
+            {/* ── Vehicle Eligibility Gates Panel ─────────────────────────────── */}
+            <div style={{ marginTop: 32 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Vehicle Eligibility Gates</div>
+                  <div style={{ color: "#555", fontSize: 12 }}>Permit status by vehicle · MCO Airport · Port Canaveral · Insurance · Registration</div>
+                </div>
+                <button onClick={loadVehicles} style={S.btn()}>{loadingVehicles ? "Loading..." : "Refresh"}</button>
+              </div>
+
+              {/* Stats row */}
+              {vehicleStats && (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+                  <div style={{ ...S.statCard("#14532d"), textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#4ade80", letterSpacing: 2, marginBottom: 4 }}>MCO ELIGIBLE</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#4ade80" }}>{vehicleStats.mco_eligible ?? 0}</div>
+                  </div>
+                  <div style={{ ...S.statCard("#0c2340"), textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#38bdf8", letterSpacing: 2, marginBottom: 4 }}>PORT ELIGIBLE</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#38bdf8" }}>{vehicleStats.port_eligible ?? 0}</div>
+                  </div>
+                  <div style={{ ...S.statCard("#3b1a00"), textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#f97316", letterSpacing: 2, marginBottom: 4 }}>EXPIRED/PENDING</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#f97316" }}>{vehicleStats.expired_or_pending ?? 0}</div>
+                  </div>
+                  <div style={{ ...S.statCard("#3b0000"), textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#f87171", letterSpacing: 2, marginBottom: 4 }}>NO VEHICLE</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#f87171" }}>{vehicleStats.drivers_without_vehicle ?? 0}</div>
+                    <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>active drivers</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Vehicle list */}
+              {loadingVehicles ? (
+                <div style={{ color: "#555", textAlign: "center", padding: 40 }}>Loading vehicles...</div>
+              ) : vehicles.length === 0 ? (
+                <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🚗</div>
+                  <div style={{ color: "#888", fontSize: 13 }}>No vehicles registered yet.</div>
+                  <div style={{ color: "#555", fontSize: 12, marginTop: 4 }}>Use POST /api/admin/vehicles to register a vehicle for a driver.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {vehicles.map((v: any) => {
+                    const permitStatus = (s: string) => ({
+                      approved: { bg: "#14532d", text: "#4ade80" },
+                      pending:  { bg: "#2a1a00", text: "#f59e0b" },
+                      expired:  { bg: "#3b1a00", text: "#f97316" },
+                      rejected: { bg: "#3b0000", text: "#f87171" },
+                    }[s] ?? { bg: "#1a1a1a", text: "#555" });
+                    const mcoEligible = v.airport_permit_mco_status === "approved" && v.city_permit_status === "approved" && v.insurance_status === "approved" && v.registration_status === "approved" && v.vehicle_status === "active";
+                    const portEligible = v.port_permit_canaveral_status === "approved" && v.city_permit_status === "approved" && v.insurance_status === "approved" && v.registration_status === "approved" && v.vehicle_status === "active";
+                    return (
+                      <div key={v.id} style={{ ...S.card, borderColor: mcoEligible && portEligible ? "#14532d44" : "#222" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 600 }}>{v.year} {v.make} {v.model} <span style={{ color: "#c9a84c" }}>{v.plate}</span></div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Driver: <span style={{ color: "#fff" }}>{v.driver_name ?? v.driver_id}</span> · {v.vehicle_type ?? "—"} · {v.color ?? "—"}</div>
+                            {v.is_primary && <span style={{ ...S.badge("#1a1a2e"), color: "#a78bfa", fontSize: 10, marginTop: 4 }}>PRIMARY</span>}
+                          </div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                            {/* Vehicle status */}
+                            <span style={{ ...S.badge(v.vehicle_status === "active" ? "#14532d" : "#3b0000"), color: v.vehicle_status === "active" ? "#4ade80" : "#f87171", fontSize: 10 }}>{(v.vehicle_status ?? "unknown").toUpperCase()}</span>
+                            {/* MCO eligibility */}
+                            {mcoEligible ? (
+                              <span style={{ ...S.badge("#0c2340"), color: "#38bdf8", fontSize: 10 }}>✈ MCO PICKUP ✓</span>
+                            ) : (
+                              <span style={{ ...S.badge("#1a1a1a"), color: "#444", fontSize: 10 }}>✈ MCO PICKUP ✕</span>
+                            )}
+                            {/* Port eligibility */}
+                            {portEligible ? (
+                              <span style={{ ...S.badge("#0d2a0d"), color: "#4ade80", fontSize: 10 }}>⚓ PORT PICKUP ✓</span>
+                            ) : (
+                              <span style={{ ...S.badge("#1a1a1a"), color: "#444", fontSize: 10 }}>⚓ PORT PICKUP ✕</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Permit status grid */}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                          {[
+                            { label: "CITY PERMIT",    val: v.city_permit_status },
+                            { label: "MCO PERMIT",     val: v.airport_permit_mco_status },
+                            { label: "PORT PERMIT",    val: v.port_permit_canaveral_status },
+                            { label: "INSURANCE",      val: v.insurance_status },
+                            { label: "REGISTRATION",   val: v.registration_status },
+                          ].map(p => {
+                            const c = permitStatus(p.val ?? "pending");
+                            return (
+                              <span key={p.label} style={{ ...S.badge(c.bg), color: c.text, fontSize: 10, border: `1px solid ${c.text}30` }}>
+                                {p.label}: {(p.val ?? "pending").toUpperCase()}
+                              </span>
+                            );
+                          })}
+                          {v.expires_at && (
+                            <span style={{ fontSize: 10, color: new Date(v.expires_at) < new Date() ? "#f87171" : "#888", marginLeft: 4, alignSelf: "center" }}>
+                              Exp: {fmtDate(v.expires_at)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* ── End Vehicle Eligibility Gates Panel ─────────────────────────── */}
+
           </div>
         )}
 

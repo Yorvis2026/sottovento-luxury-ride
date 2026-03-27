@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { lockCommission } from "@/lib/dispatch/commission-engine";
 import { postBookingLedger } from "@/lib/dispatch/ledger";
+import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 // ============================================================
@@ -212,7 +213,8 @@ export async function PATCH(
     //    partial state where status='assigned' but assigned_driver_id is NULL) ──
     if (assigned_driver_id !== undefined && assigned_driver_id) {
       const [bookingCheck] = await sql`
-        SELECT pickup_at, pickup_address, dropoff_address, total_price
+        SELECT pickup_at, pickup_address, dropoff_address, total_price,
+               pickup_zone, COALESCE(service_location_type, '') AS service_location_type
         FROM bookings WHERE id = ${id}::uuid LIMIT 1
       `;
       const missingFields: string[] = [];
@@ -226,6 +228,101 @@ export async function PATCH(
           { status: 422 }
         );
       }
+
+      // ── Vehicle Eligibility Gate (VEG v1) ──────────────────────────────────
+      // Derive service_location_type from pickup_zone if not already set
+      const slt = bookingCheck.service_location_type ||
+                  deriveServiceLocationType(bookingCheck.pickup_zone ?? "");
+      if (requiresEligibilityGate(slt)) {
+        // Load driver's primary vehicle (or any active vehicle for this driver)
+        const vehicleRows = await sql`
+          SELECT v.*
+          FROM vehicles v
+          WHERE v.driver_id = ${assigned_driver_id}::uuid
+            AND v.vehicle_status = 'active'
+          ORDER BY v.is_primary DESC, v.created_at ASC
+          LIMIT 1
+        `;
+        if (vehicleRows.length === 0) {
+          // Log exclusion
+          try {
+            await sql`
+              INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+              VALUES (
+                'booking', ${id}::uuid, 'dispatch_vehicle_gate_blocked', 'admin',
+                ${JSON.stringify({
+                  reason: 'no_vehicle_assigned',
+                  driver_id: assigned_driver_id,
+                  service_location_type: slt,
+                  pickup_zone: bookingCheck.pickup_zone,
+                  timestamp: new Date().toISOString(),
+                })}::jsonb
+              )
+            `;
+          } catch { /* non-blocking */ }
+          return NextResponse.json(
+            {
+              error: `Vehicle Eligibility Gate: driver has no active vehicle registered. A vehicle with the required permits must be registered before this driver can be assigned to a ${slt} booking.`,
+              gate_blocked: true,
+              exclusion_reasons: ["no_vehicle_assigned"],
+              service_location_type: slt,
+            },
+            { status: 422 }
+          );
+        }
+        const vehicle = vehicleRows[0] as import("@/lib/vehicles/gate").VehicleRecord;
+        const gateResult = checkVehicleEligibility(vehicle, slt);
+        if (!gateResult.eligible) {
+          // Log exclusion with reasons
+          try {
+            await sql`
+              INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+              VALUES (
+                'booking', ${id}::uuid, 'dispatch_vehicle_gate_blocked', 'admin',
+                ${JSON.stringify({
+                  vehicle_id:           vehicle.id,
+                  driver_id:            assigned_driver_id,
+                  service_location_type: slt,
+                  pickup_zone:          bookingCheck.pickup_zone,
+                  exclusion_reasons:    gateResult.reasons,
+                  vehicle_snapshot: {
+                    make:                         vehicle.make,
+                    model:                        vehicle.model,
+                    plate:                        vehicle.plate,
+                    vehicle_status:               vehicle.vehicle_status,
+                    city_permit_status:           vehicle.city_permit_status,
+                    airport_permit_mco_status:    vehicle.airport_permit_mco_status,
+                    port_permit_canaveral_status: vehicle.port_permit_canaveral_status,
+                    insurance_status:             vehicle.insurance_status,
+                    registration_status:          vehicle.registration_status,
+                  },
+                  timestamp: new Date().toISOString(),
+                })}::jsonb
+              )
+            `;
+          } catch { /* non-blocking */ }
+          return NextResponse.json(
+            {
+              error: `Vehicle Eligibility Gate: vehicle is not eligible for ${slt}. Missing requirements: ${gateResult.reasons.join(", ")}.`,
+              gate_blocked: true,
+              exclusion_reasons: gateResult.reasons,
+              service_location_type: slt,
+              vehicle_id: vehicle.id,
+            },
+            { status: 422 }
+          );
+        }
+        // Gate passed — update booking service_location_type if not set
+        if (!bookingCheck.service_location_type && slt) {
+          try {
+            await sql`
+              UPDATE bookings SET service_location_type = ${slt}, updated_at = NOW()
+              WHERE id = ${id}::uuid
+            `;
+          } catch { /* non-blocking — column may not exist yet */ }
+        }
+      }
+      // ── End Vehicle Eligibility Gate ───────────────────────────────────────
     }
 
     if (status) {

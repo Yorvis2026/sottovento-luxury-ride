@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -267,6 +268,38 @@ export async function GET() {
             LIMIT 1
           `;
           if (driverRow?.id) {
+            // ── Vehicle Eligibility Gate (VEG v1) — auto-assign path ──────────
+            const slt = deriveServiceLocationType(candidate.pickup_zone ?? "");
+            if (requiresEligibilityGate(slt)) {
+              try {
+                const vehicleRows = await sql`
+                  SELECT * FROM vehicles
+                  WHERE driver_id = ${driverRow.id}::uuid
+                    AND vehicle_status = 'active'
+                  ORDER BY is_primary DESC, created_at ASC
+                  LIMIT 1
+                `;
+                if (vehicleRows.length === 0) {
+                  await sql`
+                    INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+                    VALUES ('booking', ${candidate.id}::uuid, 'dispatch_vehicle_gate_blocked', 'system',
+                      ${JSON.stringify({ reason: 'no_vehicle_assigned', driver_id: driverRow.id, service_location_type: slt, pickup_zone: candidate.pickup_zone, auto_assign: true, timestamp: new Date().toISOString() })}::jsonb)
+                  `.catch(() => {});
+                  continue;
+                }
+                const gateResult = checkVehicleEligibility(vehicleRows[0] as import("@/lib/vehicles/gate").VehicleRecord, slt);
+                if (!gateResult.eligible) {
+                  await sql`
+                    INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+                    VALUES ('booking', ${candidate.id}::uuid, 'dispatch_vehicle_gate_blocked', 'system',
+                      ${JSON.stringify({ vehicle_id: vehicleRows[0].id, driver_id: driverRow.id, service_location_type: slt, pickup_zone: candidate.pickup_zone, exclusion_reasons: gateResult.reasons, auto_assign: true, timestamp: new Date().toISOString() })}::jsonb)
+                  `.catch(() => {});
+                  continue;
+                }
+              } catch { /* gate check failure must never block dispatch */ }
+            }
+            // ── End Vehicle Eligibility Gate ──────────────────────────────────
+
             // Atomic update: assign driver + transition to offer_pending
             // FIXED: use dispatch_status='offer_pending' so the ride appears
             // in the driver panel as an offer requiring Accept/Reject.
