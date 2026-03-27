@@ -1543,17 +1543,42 @@ export default function DriverDashboardByCode() {
     summary.active_offer.booking_id === lastAcceptedBookingIdRef.current
   if (summary.active_offer && !respondResult && !isOfferAlreadyAccepted) {
     return (
-      <OfferScreen
-        offer={summary.active_offer}
-        driverName={summary.driver_name}
-        lang={lang}
-        onLang={setLangAndSave}
-        onAccept={() => respondOffer("accepted")}
-        onDecline={() => respondOffer("declined")}
-        onExpired={handleOfferExpired}
-        responding={responding}
-        t={t}
-      />
+      <>
+        {/* ── ALERT LAYER: Persistent red banner above OfferScreen ──────────────────── */}
+        {/* Always visible while offer is active, z-[500] to float above OfferScreen */}
+        <div
+          className="fixed top-0 left-0 right-0 z-[500] flex items-center justify-between px-4 animate-pulse"
+          style={{
+            backgroundColor: "#dc2626",
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
+            paddingBottom: "10px",
+            boxShadow: "0 4px 24px #dc262680",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-white text-base">🔴</span>
+            <span className="text-white font-bold text-sm tracking-wide">
+              {offerAlertCount > 1
+                ? (lang === "es" ? `⚠️ NUEVA SOLICITUD (${offerAlertCount})` : `⚠️ NEW REQUEST (${offerAlertCount})`)
+                : (lang === "es" ? "⚠️ NUEVA SOLICITUD" : "⚠️ NEW RIDE REQUEST")}
+            </span>
+          </div>
+          <div className="text-white text-xs font-semibold bg-white/20 rounded-lg px-3 py-1">
+            {lang === "es" ? "Activa" : "Active"}
+          </div>
+        </div>
+        <OfferScreen
+          offer={summary.active_offer}
+          driverName={summary.driver_name}
+          lang={lang}
+          onLang={setLangAndSave}
+          onAccept={() => respondOffer("accepted")}
+          onDecline={() => respondOffer("declined")}
+          onExpired={handleOfferExpired}
+          responding={responding}
+          t={t}
+        />
+      </>
     )
   }
 
