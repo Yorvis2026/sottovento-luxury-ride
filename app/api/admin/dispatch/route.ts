@@ -97,7 +97,9 @@ export async function GET() {
     const inProgress: any[] = [];
     const completed: any[] = [];
 
-    for (const r of rows) {
+    for (const rRaw of rows) {
+      // Spread into a mutable object so we can attach computed flags
+      const r: any = { ...rRaw };
       const s = r.status ?? "";
       const ds = r.dispatch_status ?? "";
       const lastAction = r.last_driver_action ?? "";
