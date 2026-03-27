@@ -12,19 +12,24 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 //   - Passenger no-show workflow (Fase 3)
 //   - Early/late cancel flags (Fases 4-5)
 //   - Financial impact determination (Fase 6)
+//   - SLN Network fee distribution (Auto Fee Logic V2)
+//     · executor_share_amount
+//     · source_driver_share_amount
+//     · platform_share_amount
+//     · fee_split_strategy
 //   - Incident registry in audit_logs (Fase 8)
 //   - Needs Review auto-trigger for non-passenger cancellations (Fase 10)
 //
 // Body:
 //   {
-//     booking_id: string,
-//     driver_id: string,
-//     cancel_reason: CancelReason,
-//     cancellation_notes?: string,       // required if cancel_reason === 'OTHER'
-//     passenger_no_show_confirmed?: boolean, // required if cancel_reason === 'PASSENGER_NO_SHOW'
-//     gps_lat?: number,
-//     gps_lng?: number,
-//     evidence_url?: string,             // optional photo evidence URL
+//     booking_id:                   string,
+//     driver_id:                    string,
+//     cancel_reason:                CancelReason,
+//     cancellation_notes?:          string,    // required if cancel_reason === 'OTHER'
+//     passenger_no_show_confirmed?: boolean,   // required if cancel_reason === 'PASSENGER_NO_SHOW'
+//     gps_lat?:                     number,
+//     gps_lng?:                     number,
+//     evidence_url?:                string,    // optional photo evidence URL
 //   }
 // ============================================================
 
@@ -67,6 +72,84 @@ function getBookingStatus(responsibility: string): string {
   }
 }
 
+// ─── SLN NETWORK FEE DISTRIBUTION (Auto Fee Logic V2) ────────────────────────
+//
+// Determines how the cancellation_fee is split across:
+//   executor (the driver who held the ride)
+//   source_driver (the driver who originally captured/referred the booking)
+//   platform (SLN Network)
+//
+// Three strategies based on attribution:
+//
+//   "same_driver"  — source_driver_id == executor_driver_id
+//     executor:      80%
+//     source_driver: 0%
+//     platform:      20%
+//
+//   "split_network" — source_driver_id != executor_driver_id (both present)
+//     executor:      65%
+//     source_driver: 15%
+//     platform:      20%
+//
+//   "platform_origin" — source_type == 'platform' (no source driver)
+//     executor:      75%
+//     source_driver: 0%
+//     platform:      25%
+//
+interface FeeSplit {
+  executor_share_amount:      number;
+  source_driver_share_amount: number;
+  platform_share_amount:      number;
+  fee_split_strategy:         "same_driver" | "split_network" | "platform_origin";
+}
+
+function computeFeeSplit(
+  cancellationFee: number,
+  executorDriverId: string | null,
+  sourceDriverId:   string | null,
+  sourceType:       string | null,
+): FeeSplit {
+  const fee = cancellationFee ?? 0;
+
+  // Rule 3: source_type === 'platform' takes precedence over driver IDs
+  if (sourceType === "platform" || (!sourceDriverId && !executorDriverId)) {
+    return {
+      executor_share_amount:      parseFloat((fee * 0.75).toFixed(2)),
+      source_driver_share_amount: 0,
+      platform_share_amount:      parseFloat((fee * 0.25).toFixed(2)),
+      fee_split_strategy:         "platform_origin",
+    };
+  }
+
+  // Rule 1: same driver captured and executed
+  if (sourceDriverId && executorDriverId && sourceDriverId === executorDriverId) {
+    return {
+      executor_share_amount:      parseFloat((fee * 0.80).toFixed(2)),
+      source_driver_share_amount: 0,
+      platform_share_amount:      parseFloat((fee * 0.20).toFixed(2)),
+      fee_split_strategy:         "same_driver",
+    };
+  }
+
+  // Rule 2: different source driver and executor driver
+  if (sourceDriverId && executorDriverId && sourceDriverId !== executorDriverId) {
+    return {
+      executor_share_amount:      parseFloat((fee * 0.65).toFixed(2)),
+      source_driver_share_amount: parseFloat((fee * 0.15).toFixed(2)),
+      platform_share_amount:      parseFloat((fee * 0.20).toFixed(2)),
+      fee_split_strategy:         "split_network",
+    };
+  }
+
+  // Fallback: executor present but no source driver → treat as platform_origin
+  return {
+    executor_share_amount:      parseFloat((fee * 0.75).toFixed(2)),
+    source_driver_share_amount: 0,
+    platform_share_amount:      parseFloat((fee * 0.25).toFixed(2)),
+    fee_split_strategy:         "platform_origin",
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -104,9 +187,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Load booking ──────────────────────────────────────────
+    // Also fetch source_driver_id, source_type, cancellation_fee for fee split
     const bookingRows = await sql`
-      SELECT id, status, assigned_driver_id, pickup_at, total_price,
-             pickup_address, dropoff_address, client_id, source_driver_id
+      SELECT
+        id,
+        status,
+        assigned_driver_id,
+        pickup_at,
+        total_price,
+        pickup_address,
+        dropoff_address,
+        client_id,
+        source_driver_id,
+        COALESCE(source_type, 'unknown')         AS source_type,
+        COALESCE(cancellation_fee, 0)::numeric   AS cancellation_fee
       FROM bookings
       WHERE id = ${booking_id}::uuid
       LIMIT 1
@@ -137,40 +231,53 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Compute flags ─────────────────────────────────────────
+    // ── Compute timing flags ──────────────────────────────────
     const now = new Date();
     const nowIso = now.toISOString();
 
-    // Determine early_cancel vs late_cancel based on pickup_at
     const pickupAt = booking.pickup_at ? new Date(booking.pickup_at) : null;
     const earlyCancel = pickupAt ? now < pickupAt : false;
-    const lateCancel = pickupAt ? now >= pickupAt : false;
+    const lateCancel  = pickupAt ? now >= pickupAt : false;
     const pickupTimeDeltaMinutes = pickupAt
       ? Math.round((now.getTime() - pickupAt.getTime()) / 60000)
       : null;
 
-    // Passenger no-show flag
+    // ── Passenger no-show flag ────────────────────────────────
     const passengerNoShow = cancel_reason === "PASSENGER_NO_SHOW" &&
       passenger_no_show_confirmed === true;
 
-    // Determine responsibility and payout
-    const responsibility = CANCEL_RESPONSIBILITY[cancel_reason] ?? "system";
+    // ── Responsibility and payout status ──────────────────────
+    const responsibility  = CANCEL_RESPONSIBILITY[cancel_reason] ?? "system";
     const newPayoutStatus = getPayoutStatus(responsibility);
     const newBookingStatus = getBookingStatus(responsibility);
 
-    // ── Ensure cancellation columns exist ─────────────────────
+    // ── SLN Network fee distribution (Auto Fee Logic V2) ─────
+    const cancellationFee = parseFloat(booking.cancellation_fee) || 0;
+    const feeSplit = computeFeeSplit(
+      cancellationFee,
+      booking.assigned_driver_id ?? null,   // executor = assigned driver
+      booking.source_driver_id   ?? null,   // source driver (who captured the booking)
+      booking.source_type        ?? null,   // 'platform' | 'driver' | 'network' | etc.
+    );
+
+    // ── Ensure all required columns exist ─────────────────────
     try {
       await sql`
         ALTER TABLE bookings
-          ADD COLUMN IF NOT EXISTS cancel_reason         TEXT,
-          ADD COLUMN IF NOT EXISTS cancel_responsibility TEXT,
-          ADD COLUMN IF NOT EXISTS cancellation_notes    TEXT,
-          ADD COLUMN IF NOT EXISTS passenger_no_show     BOOLEAN DEFAULT FALSE,
-          ADD COLUMN IF NOT EXISTS early_cancel          BOOLEAN DEFAULT FALSE,
-          ADD COLUMN IF NOT EXISTS late_cancel           BOOLEAN DEFAULT FALSE,
-          ADD COLUMN IF NOT EXISTS cancelled_at          TIMESTAMPTZ,
-          ADD COLUMN IF NOT EXISTS no_show_at            TIMESTAMPTZ,
-          ADD COLUMN IF NOT EXISTS payout_status         TEXT
+          ADD COLUMN IF NOT EXISTS cancel_reason              TEXT,
+          ADD COLUMN IF NOT EXISTS cancel_responsibility      TEXT,
+          ADD COLUMN IF NOT EXISTS cancellation_notes         TEXT,
+          ADD COLUMN IF NOT EXISTS passenger_no_show          BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS early_cancel               BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS late_cancel                BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS cancelled_at               TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS no_show_at                 TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS payout_status              TEXT,
+          ADD COLUMN IF NOT EXISTS cancellation_fee           NUMERIC(10,2) DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS executor_share_amount      NUMERIC(10,2) DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS source_driver_share_amount NUMERIC(10,2) DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS platform_share_amount      NUMERIC(10,2) DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS fee_split_strategy         TEXT
       `;
     } catch {
       // Columns may already exist — safe to ignore
@@ -180,34 +287,47 @@ export async function POST(req: NextRequest) {
     await sql`
       UPDATE bookings
       SET
-        status                = ${newBookingStatus},
-        dispatch_status       = 'cancelled',
-        cancel_reason         = ${cancel_reason},
-        cancel_responsibility = ${responsibility},
-        cancellation_notes    = ${cancellation_notes ?? null},
-        passenger_no_show     = ${passengerNoShow},
-        early_cancel          = ${earlyCancel},
-        late_cancel           = ${lateCancel},
-        cancelled_at          = ${nowIso}::timestamptz,
-        no_show_at            = ${passengerNoShow ? nowIso : null}::timestamptz,
-        payout_status         = ${newPayoutStatus},
-        updated_at            = NOW()
+        status                      = ${newBookingStatus},
+        dispatch_status             = 'cancelled',
+        cancel_reason               = ${cancel_reason},
+        cancel_responsibility       = ${responsibility},
+        cancellation_notes          = ${cancellation_notes ?? null},
+        passenger_no_show           = ${passengerNoShow},
+        early_cancel                = ${earlyCancel},
+        late_cancel                 = ${lateCancel},
+        cancelled_at                = ${nowIso}::timestamptz,
+        no_show_at                  = ${passengerNoShow ? nowIso : null}::timestamptz,
+        payout_status               = ${newPayoutStatus},
+        executor_share_amount       = ${feeSplit.executor_share_amount},
+        source_driver_share_amount  = ${feeSplit.source_driver_share_amount},
+        platform_share_amount       = ${feeSplit.platform_share_amount},
+        fee_split_strategy          = ${feeSplit.fee_split_strategy},
+        updated_at                  = NOW()
       WHERE id = ${booking_id}::uuid
     `;
 
     // ── Incident Registry: write to audit_logs (Fase 8) ──────
     const incidentData = {
       cancel_reason,
-      cancel_responsibility: responsibility,
-      cancellation_notes: cancellation_notes ?? null,
-      passenger_no_show: passengerNoShow,
-      early_cancel: earlyCancel,
-      late_cancel: lateCancel,
-      pickup_time_delta_minutes: pickupTimeDeltaMinutes,
-      driver_location: gps_lat && gps_lng ? { lat: gps_lat, lng: gps_lng } : null,
-      optional_evidence_url: evidence_url ?? null,
-      timestamp: nowIso,
-      payout_status: newPayoutStatus,
+      cancel_responsibility:       responsibility,
+      cancellation_notes:          cancellation_notes ?? null,
+      passenger_no_show:           passengerNoShow,
+      early_cancel:                earlyCancel,
+      late_cancel:                 lateCancel,
+      pickup_time_delta_minutes:   pickupTimeDeltaMinutes,
+      driver_location:             gps_lat && gps_lng ? { lat: gps_lat, lng: gps_lng } : null,
+      optional_evidence_url:       evidence_url ?? null,
+      timestamp:                   nowIso,
+      payout_status:               newPayoutStatus,
+         // ── Auto Fee Logic V2 — fee split audit ──────────────
+      cancellation_fee: cancellationFee,
+      fee_split_strategy:          feeSplit.fee_split_strategy,
+      executor_share_amount:       feeSplit.executor_share_amount,
+      source_driver_share_amount:  feeSplit.source_driver_share_amount,
+      platform_share_amount:       feeSplit.platform_share_amount,
+      executor_driver_id:          booking.assigned_driver_id ?? null,
+      source_driver_id:            booking.source_driver_id   ?? null,
+      source_type:                 booking.source_type        ?? null,
     };
 
     try {
@@ -227,22 +347,24 @@ export async function POST(req: NextRequest) {
       // Audit log failure is non-blocking
     }
 
-    // ── Needs Review auto-trigger (Fase 10) ───────────────────
-    // If responsibility is NOT passenger, move to needs_review bucket
-    // by setting dispatch_status = 'needs_review' (already done via newBookingStatus)
-    // Admin will see it in the Needs Review bucket on next dispatch load.
-
+    // ── Response ──────────────────────────────────────────────
     return NextResponse.json({
-      success: true,
+      success:                     true,
       booking_id,
       cancel_reason,
-      cancel_responsibility: responsibility,
-      passenger_no_show: passengerNoShow,
-      early_cancel: earlyCancel,
-      late_cancel: lateCancel,
-      payout_status: newPayoutStatus,
-      new_booking_status: newBookingStatus,
-      pickup_time_delta_minutes: pickupTimeDeltaMinutes,
+      cancel_responsibility:       responsibility,
+      passenger_no_show:           passengerNoShow,
+      early_cancel:                earlyCancel,
+      late_cancel:                 lateCancel,
+      payout_status:               newPayoutStatus,
+      new_booking_status:          newBookingStatus,
+      pickup_time_delta_minutes:   pickupTimeDeltaMinutes,
+        // ── Auto Fee Logic V2 ─────────────────────────────
+      cancellation_fee: cancellationFee,
+      fee_split_strategy:          feeSplit.fee_split_strategy,
+      executor_share_amount:       feeSplit.executor_share_amount,
+      source_driver_share_amount:  feeSplit.source_driver_share_amount,
+      platform_share_amount:       feeSplit.platform_share_amount,
     });
 
   } catch (err: any) {

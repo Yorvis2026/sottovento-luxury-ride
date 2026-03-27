@@ -1639,6 +1639,57 @@ export default function AdminPanel() {
                               <div><span style={{ color: "#666" }}>Cancelado:</span> <span style={{ color: "#fff" }}>{b.cancelled_at ? new Date(b.cancelled_at).toLocaleString() : "—"}</span></div>
                               <div><span style={{ color: "#666" }}>Conductor:</span> <span style={{ color: "#aaa" }}>{b.driver_name || "—"} {b.driver_code ? `(${b.driver_code})` : ""}</span></div>
                             </div>
+                            {/* ── Auto Fee Logic V2 — SLN Network fee distribution ── */}
+                            {(Number(b.cancellation_fee) > 0 || b.fee_split_strategy) && (
+                              <div style={{ marginTop: 12, padding: "10px 12px", background: "#0a0a00", borderRadius: 6, border: "1px solid #2a2200" }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "#c9a84c", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>SLN Network — Fee Distribution</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 16px", fontSize: 12 }}>
+                                  <div>
+                                    <span style={{ color: "#666" }}>Fee Total:</span>{" "}
+                                    <span style={{ color: "#c9a84c", fontWeight: 700 }}>${parseFloat(b.cancellation_fee || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div>
+                                    <span style={{ color: "#666" }}>Estrategia:</span>{" "}
+                                    <span style={{
+                                      color: b.fee_split_strategy === "same_driver" ? "#4ade80"
+                                           : b.fee_split_strategy === "split_network" ? "#60a5fa"
+                                           : b.fee_split_strategy === "platform_origin" ? "#a78bfa"
+                                           : "#888",
+                                      fontWeight: 600, fontFamily: "monospace", fontSize: 11,
+                                    }}>
+                                      {b.fee_split_strategy ? b.fee_split_strategy.toUpperCase().replace(/_/g, " ") : "—"}
+                                    </span>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ color: "#666" }}>Executor:</span>{" "}
+                                    <span style={{ color: "#4ade80", fontWeight: 700 }}>${parseFloat(b.executor_share_amount || 0).toFixed(2)}</span>
+                                    {Number(b.cancellation_fee) > 0 && (
+                                      <span style={{ color: "#444", fontSize: 10 }}>({Math.round((Number(b.executor_share_amount) / Number(b.cancellation_fee)) * 100)}%)</span>
+                                    )}
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ color: "#666" }}>Source Driver:</span>{" "}
+                                    <span style={{ color: Number(b.source_driver_share_amount) > 0 ? "#60a5fa" : "#444", fontWeight: 700 }}>${parseFloat(b.source_driver_share_amount || 0).toFixed(2)}</span>
+                                    {Number(b.cancellation_fee) > 0 && Number(b.source_driver_share_amount) > 0 && (
+                                      <span style={{ color: "#444", fontSize: 10 }}>({Math.round((Number(b.source_driver_share_amount) / Number(b.cancellation_fee)) * 100)}%)</span>
+                                    )}
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ color: "#666" }}>Platform:</span>{" "}
+                                    <span style={{ color: "#f59e0b", fontWeight: 700 }}>${parseFloat(b.platform_share_amount || 0).toFixed(2)}</span>
+                                    {Number(b.cancellation_fee) > 0 && (
+                                      <span style={{ color: "#444", fontSize: 10 }}>({Math.round((Number(b.platform_share_amount) / Number(b.cancellation_fee)) * 100)}%)</span>
+                                    )}
+                                  </div>
+                                  {b.source_driver_id && (
+                                    <div style={{ gridColumn: "span 2" }}>
+                                      <span style={{ color: "#666" }}>Source Driver ID:</span>{" "}
+                                      <span style={{ color: "#888", fontFamily: "monospace", fontSize: 10 }}>{b.source_driver_id}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>

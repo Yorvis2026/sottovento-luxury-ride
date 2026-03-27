@@ -54,6 +54,14 @@ export async function GET() {
         COALESCE(b.late_cancel, FALSE) AS late_cancel,
         COALESCE(b.payout_status, '') AS payout_status,
         b.cancelled_at,
+        -- ── Auto Fee Logic V2 — SLN Network fee distribution ─────────────────
+        COALESCE(b.cancellation_fee, 0)::numeric            AS cancellation_fee,
+        COALESCE(b.executor_share_amount, 0)::numeric       AS executor_share_amount,
+        COALESCE(b.source_driver_share_amount, 0)::numeric  AS source_driver_share_amount,
+        COALESCE(b.platform_share_amount, 0)::numeric       AS platform_share_amount,
+        COALESCE(b.fee_split_strategy, '')                  AS fee_split_strategy,
+        COALESCE(b.source_driver_id::text, '')              AS source_driver_id,
+        COALESCE(b.source_type, '')                         AS source_type,
         (
           SELECT al.action FROM audit_logs al
           WHERE al.entity_id = b.id
