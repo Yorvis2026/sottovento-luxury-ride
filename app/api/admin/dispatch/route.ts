@@ -362,6 +362,8 @@ export async function GET() {
       }
 
       return NextResponse.json({
+        _fallback: true,
+        _primary_error: (err as any).message,
         driverIssue, needsReview, readyForDispatch, assigned, inProgress, completed,
         total: rows.length,
         counts: {
