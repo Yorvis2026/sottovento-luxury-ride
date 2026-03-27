@@ -1417,6 +1417,15 @@ export default function AdminPanel() {
                                 )}
                               </div>
                             )}
+                            {/* SLN Affiliate Company badge — Convergence Phase 1 */}
+                            {(b as any).company_brand_display_name && (
+                              <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#c9a84c", background: "#2a1a0060", border: "1px solid #c9a84c40", borderRadius: 4, padding: "2px 7px", letterSpacing: "0.04em" }}>
+                                  🏢 {(b as any).company_brand_display_name}
+                                </span>
+                                <span style={{ fontSize: 10, color: "#555" }}>Member of Sottovento Luxury Network</span>
+                              </div>
+                            )}
                             {/* Priority reason detail */}
                             {(b as any).priority_reason && (
                               <div style={{ marginTop: 3, fontSize: 11, color: "#6b7280", fontFamily: "monospace" }}>
@@ -1518,6 +1527,15 @@ export default function AdminPanel() {
                               {fmtDate(b.pickup_at)} &middot; {fmt(b.total_price)} &middot; {b.vehicle_type || "?"} &middot; {b.client_name || "Sin cliente"}
                             </div>
                             {b.driver_name && <div style={{ fontSize: 12, color: "#4ade80" }}>👤 {b.driver_name} ({b.driver_code})</div>}
+                            {/* SLN Affiliate Company badge — Convergence Phase 1 */}
+                            {(b as any).company_brand_display_name && (
+                              <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#c9a84c", background: "#2a1a0060", border: "1px solid #c9a84c40", borderRadius: 4, padding: "2px 7px", letterSpacing: "0.04em" }}>
+                                  🏢 {(b as any).company_brand_display_name}
+                                </span>
+                                <span style={{ fontSize: 10, color: "#555" }}>Member of Sottovento Luxury Network</span>
+                              </div>
+                            )}
                             {hasMissingOptional && (
                               <div style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, background: "#1a1a2a50", border: "1px solid #60a5fa30", fontSize: 11, color: "#93c5fd" }}>
                                 ℹ️ Missing optional info: {missingOptionalFields.join(", ")}

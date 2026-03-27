@@ -79,7 +79,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { full_name, phone, email, driver_code, is_affiliate } = body;
+    const { full_name, phone, email, driver_code, is_affiliate, company_id } = body;
 
     if (!full_name || !phone || !driver_code) {
       return NextResponse.json(
@@ -128,6 +128,7 @@ export async function POST(req: NextRequest) {
         is_eligible_for_premium_dispatch,
         is_eligible_for_airport_priority,
         contribution_bonus_granted,
+        company_id,
         created_at,
         updated_at
       ) VALUES (
@@ -145,6 +146,7 @@ export async function POST(req: NextRequest) {
         ${PROVISIONAL_DEFAULTS.is_eligible_for_premium_dispatch},
         ${PROVISIONAL_DEFAULTS.is_eligible_for_airport_priority},
         ${is_affiliate ? true : false},
+        ${company_id ? `${company_id}::uuid` : null},
         NOW(),
         NOW()
       )
@@ -156,7 +158,8 @@ export async function POST(req: NextRequest) {
         provisional_completed_rides,
         is_eligible_for_premium_dispatch,
         is_eligible_for_airport_priority,
-        contribution_bonus_granted
+        contribution_bonus_granted,
+        company_id
     `;
 
     const newDriver = rows[0];
@@ -182,6 +185,7 @@ export async function POST(req: NextRequest) {
             contribution_bonus_granted:       is_affiliate ?? false,
             is_eligible_for_premium_dispatch: PROVISIONAL_DEFAULTS.is_eligible_for_premium_dispatch,
             is_eligible_for_airport_priority: PROVISIONAL_DEFAULTS.is_eligible_for_airport_priority,
+            company_id:                       company_id ?? null,
             timestamp:                        new Date().toISOString(),
           })}::jsonb
         )
@@ -209,6 +213,31 @@ export async function POST(req: NextRequest) {
               is_affiliate:       true,
               contribution_bonus: true,
               timestamp:          new Date().toISOString(),
+            })}::jsonb
+          )
+        `;
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    // ── Audit log: company relationship ────────────────────
+    if (company_id) {
+      try {
+        await sql`
+          INSERT INTO audit_logs (
+            entity_type, entity_id, action, actor_type, new_data
+          ) VALUES (
+            'driver',
+            ${newDriver.id}::uuid,
+            'driver_assigned_to_company',
+            'admin',
+            ${JSON.stringify({
+              driver_id:   newDriver.id,
+              driver_code,
+              company_id,
+              action:      'company_relationship_created',
+              timestamp:   new Date().toISOString(),
             })}::jsonb
           )
         `;

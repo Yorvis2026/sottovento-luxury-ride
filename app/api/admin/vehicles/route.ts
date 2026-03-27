@@ -184,21 +184,28 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const {
-      driver_id, make, model, year, plate, color, vehicle_type,
+      driver_id, company_id, make, model, year, plate, color, vehicle_type,
       city_permit_status, airport_permit_mco_status, port_permit_canaveral_status,
       insurance_status, registration_status, vehicle_status,
       verified_at, expires_at, notes, is_primary,
     } = body;
 
-    if (!driver_id || !make || !model) {
+    // A vehicle must belong to either driver_id or company_id (or both, but at least one)
+    if (!driver_id && !company_id) {
       return NextResponse.json(
-        { error: "driver_id, make and model are required" },
+        { error: "Either driver_id or company_id is required" },
+        { status: 400 }
+      );
+    }
+    if (!make || !model) {
+      return NextResponse.json(
+        { error: "make and model are required" },
         { status: 400 }
       );
     }
 
     // If is_primary, unset other primary vehicles for this driver
-    if (is_primary) {
+    if (is_primary && driver_id) {
       await sql`
         UPDATE vehicles SET is_primary = FALSE
         WHERE driver_id = ${driver_id}::uuid
@@ -207,12 +214,13 @@ export async function POST(req: NextRequest) {
 
     const rows = await sql`
       INSERT INTO vehicles (
-        driver_id, make, model, year, plate, color, vehicle_type,
+        driver_id, company_id, make, model, year, plate, color, vehicle_type,
         city_permit_status, airport_permit_mco_status, port_permit_canaveral_status,
         insurance_status, registration_status, vehicle_status,
         verified_at, expires_at, notes, is_primary
       ) VALUES (
-        ${driver_id}::uuid,
+        ${driver_id ? `${driver_id}::uuid` : null},
+        ${company_id ? `${company_id}::uuid` : null},
         ${make},
         ${model},
         ${year ?? null},
@@ -235,8 +243,8 @@ export async function POST(req: NextRequest) {
 
     const vehicle = rows[0];
 
-    // If primary, update driver.primary_vehicle_id
-    if (is_primary && vehicle) {
+    // If primary, update driver.primary_vehicle_id (only when driver-owned)
+    if (is_primary && vehicle && driver_id) {
       await sql`
         UPDATE drivers SET primary_vehicle_id = ${vehicle.id}::uuid
         WHERE id = ${driver_id}::uuid
@@ -257,7 +265,9 @@ export async function POST(req: NextRequest) {
           'vehicle_registered',
           'admin',
           ${JSON.stringify({
-            driver_id,
+            driver_id:  driver_id ?? null,
+            company_id: company_id ?? null,
+            ownership:  company_id ? 'company_owned' : 'driver_owned',
             make, model, year, plate,
             vehicle_type: vehicle_type ?? "Sedan",
             city_permit_status:           city_permit_status ?? "pending",
@@ -273,6 +283,29 @@ export async function POST(req: NextRequest) {
         )
       `;
     } catch { /* non-blocking */ }
+
+    // ── Audit log: company vehicle relationship ────────────────────
+    if (company_id) {
+      try {
+        await sql`
+          INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+          VALUES (
+            'vehicle',
+            ${vehicle.id}::uuid,
+            'vehicle_assigned_to_company',
+            'admin',
+            ${JSON.stringify({
+              vehicle_id: vehicle.id,
+              company_id,
+              driver_id:  driver_id ?? null,
+              ownership:  'company_owned',
+              action:     'company_relationship_created',
+              timestamp:  new Date().toISOString(),
+            })}::jsonb
+          )
+        `;
+      } catch { /* non-blocking */ }
+    }
 
     return NextResponse.json(
       {

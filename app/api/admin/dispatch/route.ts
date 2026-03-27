@@ -48,6 +48,10 @@ export async function GET() {
         d.full_name AS driver_name,
         d.driver_code AS driver_code,
         d.phone AS driver_phone,
+        -- ── Affiliate Company fields (Convergence Phase 1) ─────────────────
+        d.company_id                                         AS driver_company_id,
+        pc.name                                              AS company_name,
+        pc.brand_name                                        AS company_brand_display_name,
         -- ── Cancellation fields (Fases 1-10) ──────────────────────────────────
         COALESCE(b.cancel_reason, '') AS cancel_reason,
         COALESCE(b.cancel_responsibility, '') AS cancel_responsibility,
@@ -89,6 +93,7 @@ export async function GET() {
       FROM bookings b
       LEFT JOIN clients c ON b.client_id = c.id
       LEFT JOIN drivers d ON b.assigned_driver_id = d.id
+      LEFT JOIN partner_companies pc ON d.company_id = pc.id
       WHERE (
         b.status NOT IN ('cancelled', 'archived')
         OR (b.status = 'completed' AND b.updated_at > NOW() - INTERVAL '24 hours')
@@ -275,8 +280,13 @@ export async function GET() {
             COALESCE(d.rides_completed, 0)::integer                 AS rides_completed,
             COALESCE(d.on_time_rides, 0)::integer                   AS on_time_rides,
             COALESCE(d.late_cancel_count, 0)::integer               AS late_cancel_count,
-            COALESCE(d.complaint_count, 0)::integer                 AS complaint_count
+            COALESCE(d.complaint_count, 0)::integer                 AS complaint_count,
+            -- ── Affiliate Company fields (Convergence Phase 1) ─────────────────
+            d.company_id                                            AS company_id,
+            pc.name                                                 AS company_name,
+            pc.brand_name                                           AS company_brand_display_name
           FROM drivers d
+          LEFT JOIN partner_companies pc ON d.company_id = pc.id
           WHERE d.driver_status IN ('active', 'provisional')
             AND d.is_eligible = true
         `;
