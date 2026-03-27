@@ -1328,13 +1328,30 @@ export default function AdminPanel() {
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
                     const isExpanded = expandedDispatchId === b.id
+                    // ── Fase 7/8: Overdue + offer no-response flags ──────────────────────────────
+                    const isOverdue: boolean = (b as any).is_overdue ?? false
+                    const overdueMinutes: number = (b as any).overdue_minutes ?? 0
+                    const offerNoResponse: boolean = (b as any).offer_no_response ?? false
+                    const offerPendingMinutes: number = (b as any).offer_pending_minutes ?? 0
                     return (
                       <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a1a40" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
                               <span style={{ fontSize: 10, color: "#a78bfa80", background: "#3b1f5e50", padding: "1px 6px", borderRadius: 4 }}>⏱️ {agingLabel}</span>
+                              {/* Fase 7: Overdue badge */}
+                              {isOverdue && (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", background: "#dc262620", border: "1px solid #dc262640", padding: "1px 7px", borderRadius: 4 }}>
+                                  🔴 OVERDUE {overdueMinutes}m
+                                </span>
+                              )}
+                              {/* Fase 8: Offer no-response badge */}
+                              {offerNoResponse && (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#f97316", background: "#ea580c20", border: "1px solid #ea580c40", padding: "1px 7px", borderRadius: 4 }}>
+                                  ⚠️ NO RESPONSE {offerPendingMinutes}m
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
                             <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
@@ -1422,13 +1439,22 @@ export default function AdminPanel() {
                     const agingMin = Math.floor(agingMs / 60000)
                     const agingLabel = agingMin < 60 ? `${agingMin}m` : `${Math.floor(agingMin / 60)}h ${agingMin % 60}m`
                     const isExpanded = expandedDispatchId === b.id
+                    // ── Fase 7: Overdue flag for In Progress rides ──────────────────────────────────
+                    const isOverdue: boolean = (b as any).is_overdue ?? false
+                    const overdueMinutes: number = (b as any).overdue_minutes ?? 0
                     return (
                       <div key={b.id} style={{ display: "flex", flexDirection: "column", padding: "12px 0", borderBottom: "1px solid #1a2a1a", gap: 8 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
                               <span style={{ fontSize: 10, color: "#4ade8080", background: "#14532d50", padding: "1px 6px", borderRadius: 4 }}>🟢 {agingLabel}</span>
+                              {/* Fase 7: Overdue badge for In Progress rides */}
+                              {isOverdue && (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", background: "#dc262620", border: "1px solid #dc262640", padding: "1px 7px", borderRadius: 4 }}>
+                                  🔴 OVERDUE {overdueMinutes}m
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
                             <div style={{ fontSize: 12, color: "#888" }}>

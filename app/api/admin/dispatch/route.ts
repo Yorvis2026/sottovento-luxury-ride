@@ -147,6 +147,24 @@ export async function GET() {
       (r as any).missing_critical = missingCritical;
       (r as any).missing_optional = missingOptional;
       (r as any).missing_optional_info = missingOptional.length > 0;
+      // ── FASE 6: Overdue flag ────────────────────────────────────────────────
+      // is_overdue: pickup_at has passed but ride is not yet in_trip/completed
+      // overdue_minutes: how many minutes past pickup_at
+      const pickupAt = r.pickup_at ? new Date(r.pickup_at).getTime() : null
+      const nowMs = Date.now()
+      const overdueMs = pickupAt ? nowMs - pickupAt : 0
+      const overdueMin = overdueMs > 0 ? Math.floor(overdueMs / 60000) : 0
+      const isOverdueStatus = ["accepted", "assigned", "en_route", "arrived", "offer_pending"].includes(r.status ?? "")
+      const isOverdue = isOverdueStatus && overdueMin > 0
+      ;(r as any).is_overdue = isOverdue
+      ;(r as any).overdue_minutes = isOverdue ? overdueMin : 0
+      // ── FASE 8: Offer no-response flag ─────────────────────────────────────────────
+      // offer_no_response: booking has been in offer_pending for >10 min without driver response
+      const updatedAt = r.updated_at ? new Date(r.updated_at).getTime() : null
+      const offerPendingMs = r.dispatch_status === "offer_pending" && updatedAt ? nowMs - updatedAt : 0
+      const offerPendingMin = offerPendingMs > 0 ? Math.floor(offerPendingMs / 60000) : 0
+      ;(r as any).offer_no_response = r.dispatch_status === "offer_pending" && offerPendingMin >= 10
+      ;(r as any).offer_pending_minutes = offerPendingMin
 
       // BYPASS: driver-captured + paid + critical fields present → never needs_review
       // Business rule: tablet/QR bookings are operationally valid leads.

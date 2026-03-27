@@ -646,6 +646,10 @@ export default function DriverDashboardByCode() {
   // After acceptance, block any offer screen for this booking_id until the backend
   // confirms status='accepted' (prevents race condition re-render of OfferScreen).
   const lastAcceptedBookingIdRef = useRef<string | null>(null)
+  // ── Overdue live timer (Fase 3) ──────────────────────────────────────────
+  // Shows real-time minutes overdue in RideFlowScreen when pickup_at has passed
+  const [overdueSeconds, setOverdueSeconds] = useState<number>(0)
+  const overdueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
@@ -727,8 +731,8 @@ export default function DriverDashboardByCode() {
         setOfferAlertCount((c) => c + 1)
         // 3. Foreground modal (auto-opens)
         setShowOfferAlertModal(true)
-        // 4. Vibration: short pulse (200ms) per spec
-        try { if (navigator.vibrate) navigator.vibrate(200) } catch {}
+        // 4. Vibration: urgent triple-pulse pattern per spec
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]) } catch {}
         // 5. Sound: only if tab is visible
         if (document.visibilityState === 'visible') {
           playAlert()
@@ -743,9 +747,9 @@ export default function DriverDashboardByCode() {
       }
 
       if (rideChanged || (offerChanged && hadNoOffer)) {
-        playAlert()
+        if (!offerChanged || !hadNoOffer) playAlert() // avoid double-play when both conditions true
         // Vibrate if supported (pattern: 3 pulses)
-        try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 500]) } catch {}
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]) } catch {}
         // Browser Notification API — fires even when tab is in background
         if (rideChanged && activeRide) {
           try {
@@ -861,6 +865,36 @@ export default function DriverDashboardByCode() {
     }, 60000)
     return () => clearInterval(heartbeat)
   }, [])
+  // ── Overdue live timer (Fase 3) ──────────────────────────────────────────
+  // Starts a 1s interval when the assigned ride has pickup_at in the past.
+  // Updates overdueSeconds every second so the RideFlowScreen shows live elapsed time.
+  // Clears automatically when ride is no longer overdue or no assigned ride.
+  useEffect(() => {
+    const ride = summary?.assigned_ride
+    if (!ride?.pickup_datetime) {
+      setOverdueSeconds(0)
+      if (overdueTimerRef.current) { clearInterval(overdueTimerRef.current); overdueTimerRef.current = null }
+      return
+    }
+    const pickupMs = new Date(ride.pickup_datetime).getTime()
+    const nowMs = Date.now()
+    const diffSec = Math.floor((nowMs - pickupMs) / 1000)
+    if (diffSec <= 0) {
+      setOverdueSeconds(0)
+      if (overdueTimerRef.current) { clearInterval(overdueTimerRef.current); overdueTimerRef.current = null }
+      return
+    }
+    setOverdueSeconds(diffSec)
+    if (overdueTimerRef.current) clearInterval(overdueTimerRef.current)
+    overdueTimerRef.current = setInterval(() => {
+      setOverdueSeconds(Math.floor((Date.now() - pickupMs) / 1000))
+    }, 1000)
+    return () => {
+      if (overdueTimerRef.current) { clearInterval(overdueTimerRef.current); overdueTimerRef.current = null }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary?.assigned_ride?.booking_id, summary?.assigned_ride?.pickup_datetime])
+
   // ── GPS: continuous watchPosition for live tracking ──────────────────────
   const gpsWatchRef = useRef<number | null>(null)
   useEffect(() => {
@@ -1653,6 +1687,7 @@ export default function DriverDashboardByCode() {
         reporting={reporting}
         reportResult={reportResult}
         rideUpdatedByDispatch={rideUpdatedByDispatch}
+        overdueSeconds={overdueSeconds}
         t={t}
       />
       )
@@ -2477,7 +2512,7 @@ function OfferScreen({
 // RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, t,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, overdueSeconds, t,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
@@ -2490,6 +2525,7 @@ function RideFlowScreen({
   reporting: boolean
   reportResult: { action: string; success: boolean } | null
   rideUpdatedByDispatch: boolean
+  overdueSeconds: number
   t: Record<string, string>
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
@@ -2670,6 +2706,21 @@ function RideFlowScreen({
               <span>{gpsReady ? "📍" : "📍"}</span>
               <span>{gpsReady ? (lang === "es" ? "GPS listo" : "GPS Ready") : (lang === "es" ? "Sin GPS" : "No GPS")}</span>
             </div>
+            {/* Overdue live badge (Fase 3) — only when pickup has passed and ride not yet in_trip */}
+            {overdueSeconds > 0 && ride.status !== "in_trip" && ride.status !== "completed" && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs animate-pulse"
+                style={{ backgroundColor: "#dc262620", color: "#ef4444", border: "1px solid #dc262640" }}>
+                <span>🔴</span>
+                <span className="font-bold">
+                  {lang === "es" ? "Retraso" : "Overdue"}{" "}
+                  {overdueSeconds >= 3600
+                    ? `${Math.floor(overdueSeconds/3600)}h ${Math.floor((overdueSeconds%3600)/60)}m`
+                    : overdueSeconds >= 60
+                    ? `${Math.floor(overdueSeconds/60)}m ${overdueSeconds%60}s`
+                    : `${overdueSeconds}s`}
+                </span>
+              </div>
+            )}
           </div>
         )
       })()}
