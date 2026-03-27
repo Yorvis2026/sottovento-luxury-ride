@@ -290,7 +290,6 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      _v: "90322dc",  // dispatch version marker — remove after verification
       driverIssue,
       needsReview,
       readyForDispatch,
@@ -362,8 +361,6 @@ export async function GET() {
       }
 
       return NextResponse.json({
-        _fallback: true,
-        _primary_error: (err as any).message,
         driverIssue, needsReview, readyForDispatch, assigned, inProgress, completed,
         total: rows.length,
         counts: {
