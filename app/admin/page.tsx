@@ -13,7 +13,24 @@ const BASE_URL = "https://www.sottoventoluxuryride.com"
 type Tab = "dashboard" | "bookings" | "dispatch" | "drivers" | "companies" | "leads" | "crown" | "finance" | "partners" | "settings"
 
 // ---- TYPES ----
-type Driver = { id: string; driver_code: string; full_name: string; phone: string; email: string; driver_status: string; is_eligible: boolean; created_at: string }
+type Driver = {
+  id: string; driver_code: string; full_name: string; phone: string; email: string;
+  driver_status: string; is_eligible: boolean; created_at: string;
+  // Scoring Engine V1 — Provisional Driver Logic
+  driver_score_total?: number;
+  driver_score_tier?: string;
+  provisional_started_at?: string;
+  provisional_ends_at?: string;
+  provisional_completed_rides?: number;
+  provisional_exit_reason?: string;
+  is_eligible_for_premium_dispatch?: boolean;
+  is_eligible_for_airport_priority?: boolean;
+  rides_completed?: number;
+  on_time_rides?: number;
+  late_cancel_count?: number;
+  complaint_count?: number;
+  contribution_bonus_granted?: boolean;
+}
 type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; needsReview: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
@@ -1769,16 +1786,22 @@ export default function AdminPanel() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {drivers.filter(d => driverStatusFilter === "all" || d.driver_status === driverStatusFilter).map(d => (
                   <div key={d.id} style={S.card}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
+                    {/* ── Row 1: Name + status badge + actions ── */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{d.full_name}</div>
                         <div style={{ fontSize: 12, color: "#888" }}>{t("drvCode")}: <span style={{ color: "#c9a84c", fontWeight: 700 }}>{d.driver_code}</span> · {d.phone} {d.email && `· ${d.email}`}</div>
                         <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>{t("drvAdded")}: {fmtDate(d.created_at)}</div>
                       </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span style={{ ...S.badge(d.driver_status === "active" ? "#14532d" : "#1c1917"), color: d.driver_status === "active" ? "#4ade80" : "#78716c" }}>
-                          {d.driver_status === "active" ? t("statusActive") : t("statusInactive")}
-                        </span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                        {/* Status badge — shows 'PROVISIONAL' when applicable */}
+                        {d.driver_status === "provisional" ? (
+                          <span style={{ ...S.badge("#2a1a00"), color: "#f59e0b", border: "1px solid #f59e0b40" }}>PROVISIONAL</span>
+                        ) : (
+                          <span style={{ ...S.badge(d.driver_status === "active" ? "#14532d" : "#1c1917"), color: d.driver_status === "active" ? "#4ade80" : "#78716c" }}>
+                            {d.driver_status === "active" ? t("statusActive") : t("statusInactive")}
+                          </span>
+                        )}
                         <button onClick={() => handleToggleStatus(d)} style={{ ...S.btn(), fontSize: 12, padding: "6px 12px" }}>
                           {d.driver_status === "active" ? t("deactivate") : t("activate")}
                         </button>
@@ -1787,6 +1810,85 @@ export default function AdminPanel() {
                         </button>
                       </div>
                     </div>
+
+                    {/* ── Row 2: Scoring Engine V1 — Provisional Panel ── */}
+                    {(() => {
+                      const score     = d.driver_score_total ?? 75;
+                      const tier      = d.driver_score_tier ?? "GOLD";
+                      const isProvis  = d.driver_status === "provisional";
+                      const provRides = d.provisional_completed_rides ?? 0;
+                      const endsAt    = d.provisional_ends_at ? new Date(d.provisional_ends_at) : null;
+                      const daysLeft  = endsAt ? Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 86400000)) : null;
+                      const onTimeRate = (d.rides_completed ?? 0) > 0
+                        ? Math.round(((d.on_time_rides ?? 0) / (d.rides_completed ?? 1)) * 100)
+                        : null;
+                      const tierColors: Record<string, { bg: string; text: string }> = {
+                        PLATINUM: { bg: "#1a1a2e", text: "#e2e8f0" },
+                        GOLD:     { bg: "#2a1a00", text: "#c9a84c" },
+                        SILVER:   { bg: "#1a1a1a", text: "#94a3b8" },
+                        BRONZE:   { bg: "#1c0a00", text: "#b45309" },
+                      };
+                      const tc = tierColors[tier] ?? tierColors.GOLD;
+                      const tierLabel = isProvis ? `${tier} (Provisional)` : tier;
+                      return (
+                        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #222" }}>
+                          {/* Score + Tier row */}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                            {/* Tier badge */}
+                            <span style={{ ...S.badge(tc.bg), color: tc.text, border: `1px solid ${tc.text}40`, fontWeight: 700 }}>
+                              {tierLabel}
+                            </span>
+                            {/* Score */}
+                            <span style={{ fontSize: 12, color: "#888" }}>
+                              Score: <span style={{ color: tc.text, fontWeight: 700 }}>{score}/100</span>
+                            </span>
+                            {/* Rides completed */}
+                            <span style={{ fontSize: 11, color: "#555" }}>
+                              {d.rides_completed ?? 0} rides
+                            </span>
+                            {/* On-time rate */}
+                            {onTimeRate !== null && (
+                              <span style={{ fontSize: 11, color: onTimeRate >= 90 ? "#4ade80" : onTimeRate >= 70 ? "#f59e0b" : "#f87171" }}>
+                                {onTimeRate}% on-time
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Provisional window info */}
+                          {isProvis && (
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                              <span style={{ fontSize: 11, color: "#f59e0b" }}>
+                                ⏳ Provisional window: {provRides}/10 rides
+                                {daysLeft !== null && ` · ${daysLeft}d left`}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Eligibility badges */}
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {d.is_eligible_for_premium_dispatch ? (
+                              <span style={{ ...S.badge("#0c2340"), color: "#38bdf8", fontSize: 10 }}>PREMIUM DISPATCH ✓</span>
+                            ) : (
+                              <span style={{ ...S.badge("#1a1a1a"), color: "#444", fontSize: 10 }}>PREMIUM DISPATCH ✕</span>
+                            )}
+                            {d.is_eligible_for_airport_priority ? (
+                              <span style={{ ...S.badge("#0d2a0d"), color: "#4ade80", fontSize: 10 }}>AIRPORT PRIORITY ✓</span>
+                            ) : (
+                              <span style={{ ...S.badge("#1a1a1a"), color: "#444", fontSize: 10 }}>AIRPORT PRIORITY ✕</span>
+                            )}
+                            {d.contribution_bonus_granted && (
+                              <span style={{ ...S.badge("#1a0a2e"), color: "#a78bfa", fontSize: 10 }}>AFFILIATE BONUS ✓</span>
+                            )}
+                            {(d.late_cancel_count ?? 0) > 0 && (
+                              <span style={{ ...S.badge("#3b1a00"), color: "#f97316", fontSize: 10 }}>LATE CANCELS: {d.late_cancel_count}</span>
+                            )}
+                            {(d.complaint_count ?? 0) > 0 && (
+                              <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10 }}>COMPLAINTS: {d.complaint_count}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

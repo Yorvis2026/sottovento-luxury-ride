@@ -253,7 +253,35 @@ export async function POST(req: NextRequest) {
         // Driver stats update failure is non-blocking
       }
 
-      // 2. Create partner earnings if booking has a ref_code
+      // 3. Provisional Scoring Engine hook — auto-trigger on completed ride
+      if (booking.assigned_driver_id) {
+        try {
+          // Determine if ride was on time (pickup_at within 5 min of scheduled)
+          const pickupAtMs   = booking.pickup_at ? new Date(booking.pickup_at).getTime() : null;
+          const completedMs  = Date.now();
+          const isOnTime     = pickupAtMs ? Math.abs(completedMs - pickupAtMs) <= 5 * 60 * 1000 : false;
+          const scoreEvent   = isOnTime ? "completed_ride_on_time" : "high_acceptance_behavior";
+
+          const baseUrl = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000");
+
+          await fetch(`${baseUrl}/api/admin/drivers/provisional-score`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({
+              driver_id:  booking.assigned_driver_id,
+              event_type: scoreEvent,
+              booking_id: booking_id,
+              notes:      `Auto-triggered on ride completion. on_time=${isOnTime}`,
+            }),
+          });
+        } catch {
+          // Scoring hook failure is non-blocking — never interrupt ride completion
+        }
+      }
+
+      // 4. Create partner earnings if booking has a ref_code
       try {
         const bookingRows = await sql`
           SELECT id, total_price, ref_code FROM bookings WHERE id = ${booking_id}::uuid
