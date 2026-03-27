@@ -58,7 +58,7 @@ export async function GET() {
           LIMIT 1
         ) AS last_driver_action,
         (
-          SELECT al.notes FROM audit_logs al
+          SELECT al.new_data->>'notes' FROM audit_logs al
           WHERE al.entity_id = b.id
             AND al.action IN (
               'driver_reported_incomplete',
