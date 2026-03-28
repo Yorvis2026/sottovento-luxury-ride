@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { type Lang, type TranslationKey, getTranslation, saveLang, loadLang } from "@/lib/i18n"
 
 // ============================================================
@@ -54,6 +54,344 @@ const dispatchText: Record<string, string> = { not_required: "#444", awaiting_so
 
 function fmt(n: number) { return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function fmtDate(s: string) { try { return new Date(s).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) } catch { return s } }
+
+// ============================================================
+// COMPANIES FLEET DASHBOARD — Phase 2
+// Affiliate Company Fleet Dashboard Layer
+// Read-only analytics visibility for partner_company owners
+// ============================================================
+function CompaniesFleetDashboard({ partnerCompanies, lang }: { partnerCompanies: any[]; lang: string }) {
+  const [selectedCompanyId, setSelectedCompanyId] = React.useState<string | null>(null)
+  const [fleetData, setFleetData] = React.useState<any | null>(null)
+  const [reputationData, setReputationData] = React.useState<any | null>(null)
+  const [loadingFleet, setLoadingFleet] = React.useState(false)
+  const [fleetError, setFleetError] = React.useState("")
+  const [activeSection, setActiveSection] = React.useState<"health" | "drivers" | "vehicles" | "revenue" | "reputation">("health")
+
+  const loadFleetData = React.useCallback(async (companyId: string) => {
+    setLoadingFleet(true); setFleetError(""); setFleetData(null); setReputationData(null)
+    try {
+      const [fleetRes, repRes] = await Promise.all([
+        fetch(`/api/admin/companies/${companyId}/fleet-analytics`),
+        fetch(`/api/admin/companies/${companyId}/reputation-score`),
+      ])
+      if (fleetRes.ok) setFleetData(await fleetRes.json())
+      else setFleetError("Failed to load fleet analytics")
+      if (repRes.ok) setReputationData(await repRes.json())
+    } catch (e: any) { setFleetError(e.message) }
+    finally { setLoadingFleet(false) }
+  }, [])
+
+  React.useEffect(() => {
+    if (selectedCompanyId) loadFleetData(selectedCompanyId)
+  }, [selectedCompanyId, loadFleetData])
+
+  const tierColor = (tier: string) => {
+    if (tier === "PLATINUM") return "#e5e4e2"
+    if (tier === "GOLD") return "#c9a84c"
+    if (tier === "SILVER") return "#9ca3af"
+    return "#f87171"
+  }
+
+  const permitBadge = (status: string) => {
+    const colors: Record<string, { bg: string; text: string }> = {
+      approved: { bg: "#14532d", text: "#4ade80" },
+      pending:  { bg: "#3b2200", text: "#f59e0b" },
+      expired:  { bg: "#3b0000", text: "#f87171" },
+      rejected: { bg: "#3b0000", text: "#f87171" },
+    }
+    const c = colors[status] ?? { bg: "#1a1a1a", text: "#888" }
+    return <span style={{ ...S.badge(c.bg), color: c.text, fontSize: 10 }}>{status?.toUpperCase() ?? "—"}</span>
+  }
+
+  const alertSeverityColor = (s: string) => s === "critical" ? "#f87171" : s === "warning" ? "#f59e0b" : "#60a5fa"
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>🏢 {lang === "es" ? "Red de Empresas Afiliadas" : "Affiliate Company Network"}</div>
+          <div style={{ color: "#555", fontSize: 13 }}>{lang === "es" ? "Panel de flota y analítica por empresa — Solo lectura" : "Fleet analytics by company — Read-only visibility layer"}</div>
+        </div>
+        <div style={{ fontSize: 11, color: "#c9a84c", letterSpacing: 1 }}>SOTTOVENTO LUXURY NETWORK</div>
+      </div>
+
+      {/* Company selector */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginBottom: 24 }}>
+        {partnerCompanies.length === 0 && (
+          <div style={{ ...S.card, color: "#555", textAlign: "center", padding: 40, gridColumn: "1/-1" }}>
+            {lang === "es" ? "No hay empresas afiliadas registradas." : "No affiliate companies registered yet."}
+          </div>
+        )}
+        {partnerCompanies.map((c: any) => (
+          <div
+            key={c.id}
+            onClick={() => setSelectedCompanyId(c.id === selectedCompanyId ? null : c.id)}
+            style={{
+              ...S.card,
+              cursor: "pointer",
+              borderColor: c.id === selectedCompanyId ? "#c9a84c" : "#222",
+              background: c.id === selectedCompanyId ? "#1a1500" : "#111",
+            }}
+          >
+            <div style={{ fontSize: 10, color: "#c9a84c", letterSpacing: 2, marginBottom: 6 }}>MEMBER · SLN</div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{c.brand_name || c.name}</div>
+            <div style={{ fontSize: 12, color: "#555" }}>{c.name}</div>
+            {c.id === selectedCompanyId && <div style={{ marginTop: 8, fontSize: 11, color: "#c9a84c" }}>▶ {lang === "es" ? "Seleccionada" : "Selected"}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Fleet Dashboard */}
+      {selectedCompanyId && (
+        <div>
+          {loadingFleet && (
+            <div style={{ ...S.card, textAlign: "center", padding: 60, color: "#555" }}>
+              {lang === "es" ? "Cargando datos de flota..." : "Loading fleet data..."}
+            </div>
+          )}
+          {fleetError && (
+            <div style={{ ...S.card, color: "#f87171", padding: 20 }}>{fleetError}</div>
+          )}
+          {!loadingFleet && fleetData && (
+            <>
+              {/* Company header */}
+              <div style={{ ...S.card, borderColor: "#c9a84c44", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{fleetData.company?.brand_name || fleetData.company?.name}</div>
+                    <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>🏢 {lang === "es" ? "Miembro de" : "Member of"} <span style={{ color: "#c9a84c" }}>Sottovento Luxury Network</span></div>
+                  </div>
+                  {reputationData && (
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: tierColor(reputationData.company_tier_label) }}>
+                        {reputationData.company_score}
+                      </div>
+                      <div style={{ fontSize: 11, color: tierColor(reputationData.company_tier_label), letterSpacing: 1 }}>
+                        {reputationData.company_tier_label}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section tabs */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                {(["health", "drivers", "vehicles", "revenue", "reputation"] as const).map(s => (
+                  <button key={s} onClick={() => setActiveSection(s)} style={S.btn(activeSection === s)}>
+                    {s === "health" ? "⚡ Health" : s === "drivers" ? "👤 Drivers" : s === "vehicles" ? "🚗 Vehicles" : s === "revenue" ? "💵 Revenue" : "⭐ Reputation"}
+                  </button>
+                ))}
+              </div>
+
+              {/* SECTION: HEALTH */}
+              {activeSection === "health" && (
+                <div>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+                    {[
+                      { label: "Active Drivers",  value: fleetData.fleet_health.active_drivers,         color: "#4ade80" },
+                      { label: "Total Vehicles",  value: fleetData.fleet_health.total_vehicles,         color: "#60a5fa" },
+                      { label: "MCO Eligible",    value: fleetData.fleet_health.mco_eligible_vehicles,  color: "#c9a84c" },
+                      { label: "Port Eligible",   value: fleetData.fleet_health.port_eligible_vehicles, color: "#a78bfa" },
+                      { label: "Critical Alerts", value: fleetData.fleet_health.critical_alerts,        color: "#f87171" },
+                      { label: "Warnings",        value: fleetData.fleet_health.warning_alerts,         color: "#f59e0b" },
+                    ].map(k => (
+                      <div key={k.label} style={S.statCard(k.color + "33")}>
+                        <div style={{ fontSize: 10, color: k.color, letterSpacing: 2, marginBottom: 6 }}>{k.label.toUpperCase()}</div>
+                        <div style={{ fontSize: 26, fontWeight: 700, color: k.color }}>{k.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {fleetData.alerts.length === 0 ? (
+                    <div style={{ ...S.card, textAlign: "center", padding: 40, color: "#4ade80" }}>
+                      ✅ {lang === "es" ? "Sin alertas activas" : "No active alerts — fleet is compliant"}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {fleetData.alerts.map((a: any, i: number) => (
+                        <div key={i} style={{ ...S.card, borderColor: alertSeverityColor(a.severity) + "55", display: "flex", alignItems: "flex-start", gap: 12 }}>
+                          <span style={{ ...S.badge(alertSeverityColor(a.severity) + "22"), color: alertSeverityColor(a.severity), fontSize: 10, flexShrink: 0 }}>{a.severity.toUpperCase()}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{a.entity_name}</div>
+                            <div style={{ fontSize: 12, color: "#888" }}>{a.message}</div>
+                          </div>
+                          <span style={{ fontSize: 10, color: "#555", flexShrink: 0 }}>{a.entity_type.toUpperCase()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SECTION: DRIVERS */}
+              {activeSection === "drivers" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {fleetData.drivers.length === 0 && (
+                    <div style={{ ...S.card, textAlign: "center", padding: 40, color: "#555" }}>
+                      {lang === "es" ? "Sin conductores asignados." : "No drivers assigned to this company."}
+                    </div>
+                  )}
+                  {fleetData.drivers.map((d: any) => (
+                    <div key={d.id} style={{ ...S.card }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{d.driver_name}</div>
+                          <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{d.driver_code} · {d.driver_status?.toUpperCase()}</div>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <div><div style={{ fontSize: 10, color: "#555" }}>RIDES</div><div style={{ fontSize: 18, fontWeight: 700 }}>{d.rides_completed}</div></div>
+                            <div><div style={{ fontSize: 10, color: "#555" }}>COMPLETION</div><div style={{ fontSize: 18, fontWeight: 700 }}>{d.completion_rate ?? "—"}%</div></div>
+                            <div><div style={{ fontSize: 10, color: "#555" }}>ON-TIME</div><div style={{ fontSize: 18, fontWeight: 700 }}>{d.on_time_rate ?? "—"}%</div></div>
+                            <div><div style={{ fontSize: 10, color: "#555" }}>SCORE</div><div style={{ fontSize: 18, fontWeight: 700, color: tierColor(d.current_score_tier) }}>{d.driver_score_total}</div></div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                          <span style={{ ...S.badge("#1a1a1a"), color: tierColor(d.current_score_tier), fontSize: 11 }}>{d.current_score_tier}</span>
+                          {d.is_provisional && <span style={{ ...S.badge("#3b2200"), color: "#f59e0b", fontSize: 10 }}>PROVISIONAL {d.provisional_completed_rides}/10</span>}
+                          {d.is_eligible_for_premium_dispatch && <span style={{ ...S.badge("#1a0d3b"), color: "#a78bfa", fontSize: 10 }}>PREMIUM ✓</span>}
+                          {d.is_eligible_for_airport_priority && <span style={{ ...S.badge("#0c2340"), color: "#38bdf8", fontSize: 10 }}>AIRPORT ✓</span>}
+                          {d.complaint_count > 0 && <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10 }}>⚠ {d.complaint_count} COMPLAINT(S)</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* SECTION: VEHICLES */}
+              {activeSection === "vehicles" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {fleetData.vehicles.length === 0 && (
+                    <div style={{ ...S.card, textAlign: "center", padding: 40, color: "#555" }}>
+                      {lang === "es" ? "Sin vehículos registrados." : "No vehicles registered for this company."}
+                    </div>
+                  )}
+                  {fleetData.vehicles.map((v: any) => (
+                    <div key={v.id} style={{ ...S.card, borderColor: v.document_status === "compliant" ? "#14532d" : v.document_status === "requires_action" ? "#3b000066" : "#222" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>{v.vehicle_model}</div>
+                          <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{v.plate}{v.driver_name ? ` · ${v.driver_name}` : " · Company Vehicle"}</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, color: "#555" }}>City: {permitBadge(v.city_permit_status)}</div>
+                            <div style={{ fontSize: 11, color: "#555" }}>MCO: {permitBadge(v.airport_permit_mco_status)}</div>
+                            <div style={{ fontSize: 11, color: "#555" }}>Port: {permitBadge(v.port_permit_canaveral_status)}</div>
+                            <div style={{ fontSize: 11, color: "#555" }}>Ins: {permitBadge(v.insurance_status)}</div>
+                            <div style={{ fontSize: 11, color: "#555" }}>Reg: {permitBadge(v.registration_status)}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 16 }}>
+                            <div><div style={{ fontSize: 10, color: "#555" }}>RIDES</div><div style={{ fontSize: 16, fontWeight: 700 }}>{v.rides_completed}</div></div>
+                            <div><div style={{ fontSize: 10, color: "#555" }}>AVAILABILITY</div><div style={{ fontSize: 16, fontWeight: 700 }}>{v.availability_index}%</div></div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                          <span style={{ ...S.badge(v.airport_eligibility_status === "eligible" ? "#0c2340" : "#1a1a1a"), color: v.airport_eligibility_status === "eligible" ? "#38bdf8" : "#555", fontSize: 10 }}>MCO {v.airport_eligibility_status === "eligible" ? "✓" : "✗"}</span>
+                          <span style={{ ...S.badge(v.port_eligibility_status === "eligible" ? "#1a0d3b" : "#1a1a1a"), color: v.port_eligibility_status === "eligible" ? "#a78bfa" : "#555", fontSize: 10 }}>PORT {v.port_eligibility_status === "eligible" ? "✓" : "✗"}</span>
+                          <span style={{ ...S.badge(v.document_status === "compliant" ? "#14532d" : v.document_status === "requires_action" ? "#3b0000" : "#3b2200"), color: v.document_status === "compliant" ? "#4ade80" : v.document_status === "requires_action" ? "#f87171" : "#f59e0b", fontSize: 10 }}>{v.document_status?.replace("_", " ").toUpperCase()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* SECTION: REVENUE */}
+              {activeSection === "revenue" && (
+                <div>
+                  <div style={{ ...S.card, borderColor: "#c9a84c44", marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>NETWORK REVENUE ANALYTICS — DISPLAY ONLY</div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      {[
+                        { label: "Total Rides",       value: fleetData.revenue_analytics.total_rides,               color: "#c9a84c", fmt: false },
+                        { label: "Completed",         value: fleetData.revenue_analytics.completed_rides,           color: "#4ade80", fmt: false },
+                        { label: "Rides MTD",         value: fleetData.revenue_analytics.rides_mtd,                 color: "#60a5fa", fmt: false },
+                        { label: "Total Revenue",     value: fleetData.revenue_analytics.total_revenue,             color: "#c9a84c", fmt: true  },
+                        { label: "Revenue MTD",       value: fleetData.revenue_analytics.revenue_mtd,               color: "#4ade80", fmt: true  },
+                        { label: "Avg Ride Value",    value: fleetData.revenue_analytics.avg_ride_value,            color: "#a78bfa", fmt: true  },
+                        { label: "Est. Network Rev.", value: fleetData.revenue_analytics.estimated_network_revenue, color: "#f59e0b", fmt: true  },
+                        { label: "Rides / Driver",    value: fleetData.revenue_analytics.rides_completed_per_driver, color: "#38bdf8", fmt: false },
+                        { label: "Rides / Vehicle",   value: fleetData.revenue_analytics.rides_completed_per_vehicle, color: "#818cf8", fmt: false },
+                      ].map(k => (
+                        <div key={k.label} style={S.statCard(k.color + "33")}>
+                          <div style={{ fontSize: 10, color: k.color, letterSpacing: 1, marginBottom: 6 }}>{k.label.toUpperCase()}</div>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>
+                            {k.fmt ? `$${Number(k.value).toLocaleString("en-US", { minimumFractionDigits: 0 })}` : k.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ ...S.card, borderColor: "#333" }}>
+                    <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>FEE SPLIT BREAKDOWN (INFORMATIONAL)</div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      {[
+                        { label: "Executor Share", value: fleetData.revenue_analytics.total_executor_share, color: "#4ade80" },
+                        { label: "Source Share",   value: fleetData.revenue_analytics.total_source_share,   color: "#60a5fa" },
+                        { label: "Platform Share", value: fleetData.revenue_analytics.total_platform_share, color: "#a78bfa" },
+                      ].map(k => (
+                        <div key={k.label} style={S.statCard(k.color + "22")}>
+                          <div style={{ fontSize: 10, color: k.color, letterSpacing: 1, marginBottom: 4 }}>{k.label.toUpperCase()}</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: k.color }}>${Number(k.value).toLocaleString("en-US", { minimumFractionDigits: 0 })}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION: REPUTATION */}
+              {activeSection === "reputation" && reputationData && (
+                <div>
+                  <div style={{ ...S.card, borderColor: tierColor(reputationData.company_tier_label) + "55", marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                      <div>
+                        <div style={{ fontSize: 13, color: "#888", marginBottom: 4 }}>COMPANY REPUTATION SCORE</div>
+                        <div style={{ fontSize: 48, fontWeight: 700, color: tierColor(reputationData.company_tier_label) }}>{reputationData.company_score}</div>
+                        <div style={{ fontSize: 14, color: tierColor(reputationData.company_tier_label), letterSpacing: 2, fontWeight: 700 }}>{reputationData.company_tier_label}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {Object.entries(reputationData.score_breakdown).map(([key, comp]: [string, any]) => (
+                        <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ fontSize: 11, color: "#888", width: 200, flexShrink: 0 }}>{key.replace(/_/g, " ").toUpperCase()}</div>
+                          <div style={{ flex: 1, background: "#1a1a1a", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                            <div style={{ width: `${comp.score}%`, height: "100%", background: comp.score >= 80 ? "#4ade80" : comp.score >= 60 ? "#f59e0b" : "#f87171", borderRadius: 4 }} />
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 700, width: 40, textAlign: "right" }}>{comp.score}</div>
+                          <div style={{ fontSize: 10, color: "#555", width: 60, textAlign: "right" }}>×{comp.weight} = {comp.contribution}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ ...S.card, borderColor: "#333" }}>
+                    <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>FLEET SUMMARY</div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      {[
+                        { label: "Drivers",           value: reputationData.fleet_summary.driver_count,        color: "#c9a84c" },
+                        { label: "Active",             value: reputationData.fleet_summary.active_drivers,      color: "#4ade80" },
+                        { label: "Provisional",        value: reputationData.fleet_summary.provisional_drivers, color: "#f59e0b" },
+                        { label: "Total Rides",        value: reputationData.fleet_summary.total_rides,         color: "#60a5fa" },
+                        { label: "Vehicles",           value: reputationData.fleet_summary.total_vehicles,      color: "#a78bfa" },
+                        { label: "Compliant Vehicles", value: reputationData.fleet_summary.compliant_vehicles,  color: "#4ade80" },
+                        { label: "Complaints",         value: reputationData.fleet_summary.total_complaints,    color: "#f87171" },
+                        { label: "Late Cancels",       value: reputationData.fleet_summary.total_late_cancels,  color: "#f87171" },
+                      ].map(k => (
+                        <div key={k.label} style={S.statCard(k.color + "22")}>
+                          <div style={{ fontSize: 10, color: k.color, letterSpacing: 1, marginBottom: 4 }}>{k.label.toUpperCase()}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ============================================================
 // MAIN COMPONENT
@@ -2065,35 +2403,10 @@ export default function AdminPanel() {
             5. COMPANIES
         ====================================================== */}
         {tab === "companies" && (
-          <div>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{t("compTitle")}</div>
-              <div style={{ color: "#555", fontSize: 13 }}>{t("compSubtitle")}</div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-              {[
-                { name: "Sottovento Luxury Ride", type: t("compFlagship"), color: "#c9a84c", desc: lang === "en" ? "The core luxury transportation brand. All SLN operations are attributed to this brand by default." : "La marca principal de transporte de lujo. Todas las operaciones SLN se atribuyen a esta marca por defecto.", members: drivers.filter(d => d.driver_status === "active").length, url: BASE_URL },
-                { name: "Alafyn Luxury by Sottovento Network", type: t("compPartner"), color: "#a78bfa", desc: lang === "en" ? "Partner brand operating under the Sottovento Network umbrella. Shared dispatch infrastructure." : "Marca asociada operando bajo el paraguas de Sottovento Network. Infraestructura de despacho compartida.", members: 0, url: null },
-              ].map(c => (
-                <div key={c.name} style={{ ...S.card, borderColor: c.color + "44" }}>
-                  <div style={{ fontSize: 10, color: c.color, letterSpacing: 2, marginBottom: 8 }}>{c.type}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{c.name}</div>
-                  <div style={{ fontSize: 13, color: "#666", marginBottom: 16 }}>{c.desc}</div>
-                  <div>
-                    <div style={{ fontSize: 10, color: "#555", marginBottom: 2 }}>{t("compActiveMembers")}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>{c.members}</div>
-                  </div>
-                  {c.url && <div style={{ marginTop: 12 }}><a href={c.url} target="_blank" rel="noreferrer" style={{ color: c.color, fontSize: 12 }}>{c.url}</a></div>}
-                </div>
-              ))}
-            </div>
-            <div style={{ ...S.card, borderColor: "#333" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 12 }}>{t("compAssignments")}</div>
-              <div style={{ color: "#555", fontSize: 13 }}>
-                {t("dashActiveDrivers").toLowerCase()} {drivers.filter(d => d.driver_status === "active").length} {t("compAssignmentsDesc")} <span style={{ color: "#c9a84c" }}>Sottovento Luxury Ride</span>. {t("compFuture")}
-              </div>
-            </div>
-          </div>
+          <CompaniesFleetDashboard
+            partnerCompanies={partnerCompanies}
+            lang={lang}
+          />
         )}
 
         {/* ======================================================
