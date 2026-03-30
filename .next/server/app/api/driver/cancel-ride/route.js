@@ -1,7 +1,8 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/driver/cancel-ride/route.js")
-R.c("server/chunks/[root-of-the-server]__24e47024._.js")
-R.c("server/chunks/[root-of-the-server]__31f75b85._.js")
-R.c("server/chunks/8fbf6_@neondatabase_serverless_index_mjs_a79a0bf5._.js")
-R.c("server/chunks/_next-internal_server_app_api_driver_cancel-ride_route_actions_60b6a4cf.js")
-R.m(48043)
-module.exports=R.m(48043).exports
+R.c("server/chunks/[externals]_next_dist_b01ab6e1._.js")
+R.c("server/chunks/80686_next_dist_esm_build_templates_app-route_112a3033.js")
+R.c("server/chunks/80686_@neondatabase_serverless_index_mjs_72b69a26._.js")
+R.c("server/chunks/[root-of-the-server]__c6f8038d._.js")
+R.c("server/chunks/be4a0__next-internal_server_app_api_driver_cancel-ride_route_actions_6d2cac8e.js")
+R.m(1354)
+module.exports=R.m(1354).exports

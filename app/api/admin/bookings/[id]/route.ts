@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { lockCommission } from "@/lib/dispatch/commission-engine";

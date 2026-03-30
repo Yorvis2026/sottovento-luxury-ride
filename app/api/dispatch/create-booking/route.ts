@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { sendOfferSMS } from "@/lib/dispatch/sms";
 import {

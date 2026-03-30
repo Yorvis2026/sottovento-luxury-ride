@@ -1,7 +1,7 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/admin/cleanup-test/route.js")
-R.c("server/chunks/[root-of-the-server]__491e1f19._.js")
-R.c("server/chunks/[root-of-the-server]__31f75b85._.js")
-R.c("server/chunks/8fbf6_@neondatabase_serverless_index_mjs_a79a0bf5._.js")
-R.c("server/chunks/_next-internal_server_app_api_admin_cleanup-test_route_actions_1797398c.js")
-R.m(9876)
-module.exports=R.m(9876).exports
+R.c("server/chunks/[root-of-the-server]__4a8d109f._.js")
+R.c("server/chunks/[root-of-the-server]__c6f8038d._.js")
+R.c("server/chunks/80686_@neondatabase_serverless_index_mjs_72b69a26._.js")
+R.c("server/chunks/be4a0__next-internal_server_app_api_admin_cleanup-test_route_actions_dbf70347.js")
+R.m(47056)
+module.exports=R.m(47056).exports

@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 // ============================================================
 // PATCH /api/admin/payout/batches/[id]
 //

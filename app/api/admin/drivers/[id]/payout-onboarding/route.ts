@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 // ============================================================
 // GET  /api/admin/drivers/[id]/payout-onboarding
 // PATCH /api/admin/drivers/[id]/payout-onboarding

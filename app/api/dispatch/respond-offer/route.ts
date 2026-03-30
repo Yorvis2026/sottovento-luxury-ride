@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { calculateCommissions } from "@/lib/dispatch/engine";
 import { lockCommission } from "@/lib/dispatch/commission-engine";

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/admin/drivers/[id]/payout-onboarding": {},
+    "/api/admin/migrate-earnings-ledger": {},
+    "/api/admin/payout/batches": {},
+    "/api/admin/payout/batches/[id]": {},
+    "/api/admin/payout/generate": {},
+    "/api/admin/payout/preview": {},
+    "/api/admin/payout/unpaid-summary": {},
+    "/api/admin/test-booking-complete": {},
+    "/api/admin/test-payout-lifecycle": {},
+    "/api/driver/earnings/by-role": {},
+    "/api/driver/earnings/history": {},
+    "/api/driver/earnings/monthly": {},
+    "/api/driver/earnings/summary": {}
+  }
+}

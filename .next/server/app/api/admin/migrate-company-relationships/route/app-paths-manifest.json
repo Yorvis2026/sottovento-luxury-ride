@@ -1,0 +1,3 @@
+{
+  "/api/admin/migrate-company-relationships/route": "app/api/admin/migrate-company-relationships/route.js"
+}

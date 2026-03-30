@@ -1,0 +1,16 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/admin/layout,_N_T_/admin/qr-analytics/layout,_N_T_/admin/qr-analytics/page,_N_T_/admin/qr-analytics"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/admin/qr-analytics/__PAGE__",
+    "/admin/qr-analytics",
+    "/admin",
+    "/_index",
+    "/_head"
+  ]
+}

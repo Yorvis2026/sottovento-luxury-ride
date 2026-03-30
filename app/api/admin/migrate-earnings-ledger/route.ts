@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 // ============================================================
 // GET /api/admin/migrate-earnings-ledger
 // Driver Earnings Ledger System SLN v1.0 — DB Migration

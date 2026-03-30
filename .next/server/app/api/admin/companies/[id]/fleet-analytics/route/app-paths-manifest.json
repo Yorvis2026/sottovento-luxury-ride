@@ -1,0 +1,3 @@
+{
+  "/api/admin/companies/[id]/fleet-analytics/route": "app/api/admin/companies/[id]/fleet-analytics/route.js"
+}

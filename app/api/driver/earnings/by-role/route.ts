@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 // ============================================================
 // GET /api/driver/earnings/by-role?code=YHV001
 //

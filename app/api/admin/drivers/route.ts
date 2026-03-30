@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { PROVISIONAL_DEFAULTS, PROVISIONAL_WINDOW_DAYS } from "@/lib/scoring/engine";

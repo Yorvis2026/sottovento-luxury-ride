@@ -1,7 +1,7 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/admin/reclassify/route.js")
-R.c("server/chunks/[root-of-the-server]__a42406ba._.js")
-R.c("server/chunks/[root-of-the-server]__31f75b85._.js")
-R.c("server/chunks/8fbf6_@neondatabase_serverless_index_mjs_a79a0bf5._.js")
-R.c("server/chunks/_next-internal_server_app_api_admin_reclassify_route_actions_7c37f1d8.js")
-R.m(95112)
-module.exports=R.m(95112).exports
+R.c("server/chunks/[root-of-the-server]__f78d8e84._.js")
+R.c("server/chunks/[root-of-the-server]__c6f8038d._.js")
+R.c("server/chunks/80686_@neondatabase_serverless_index_mjs_72b69a26._.js")
+R.c("server/chunks/sottovento__next-internal_server_app_api_admin_reclassify_route_actions_570d276b.js")
+R.m(92908)
+module.exports=R.m(92908).exports

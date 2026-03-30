@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 // GET /api/admin/debug-constraints
 // Diagnoses unique constraints on commissions and snapshot tables
 import { NextRequest, NextResponse } from "next/server";

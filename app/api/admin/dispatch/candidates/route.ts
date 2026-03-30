@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 /**
  * GET /api/admin/dispatch/candidates?booking_id=<uuid>
  *

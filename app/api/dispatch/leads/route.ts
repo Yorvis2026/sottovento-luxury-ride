@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/dispatch/db";
 import { sendLeadNotification } from "@/lib/email";
