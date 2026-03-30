@@ -220,7 +220,7 @@ export async function POST(req: NextRequest) {
         insurance_status, registration_status, vehicle_status,
         verified_at, expires_at, notes, is_primary
       ) VALUES (
-        ${driver_id ? `${driver_id}::uuid` : null},
+        ${driver_id ?? null},
         ${make},
         ${model},
         ${year ?? null},
