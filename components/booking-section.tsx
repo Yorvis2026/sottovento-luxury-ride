@@ -18,6 +18,11 @@ import {
   type WaitTime,
   type ExtraStop,
 } from "@/lib/pricing"
+import { PlacesAutocomplete, type PlaceResult } from "@/components/places-autocomplete"
+import { RouteInfoDisplay } from "@/components/route-info-display"
+import { useGoogleMapsLoader } from "@/hooks/useGoogleMapsLoader"
+import { useZoneValidation } from "@/hooks/useZoneValidation"
+import { useRouteCalculator } from "@/hooks/useRouteCalculator"
 
 // ─── Types ────────────────────────────────────────────────────
 type Step = 1 | 2 | 3 | 4 | 5
@@ -81,9 +86,24 @@ const inputClass =
 const inputStyle = { fontSize: 18, height: 54 }
 const labelStyle = { fontSize: 16, color: "rgba(255,255,255,0.7)", marginBottom: 6, display: "block" as const }
 
+// ─── Coordinates type ─────────────────────────────────────────
+interface Coordinates {
+  lat: number
+  lng: number
+}
+
 // ─── Main component ───────────────────────────────────────────
 function BookingInner() {
   const searchParams = useSearchParams()
+
+  // Google Maps loader
+  const { loaded: mapsLoaded } = useGoogleMapsLoader()
+
+  // Zone validation
+  const { validateZone } = useZoneValidation()
+
+  // Route calculator
+  const routeCalc = useRouteCalculator()
 
   const [step, setStep] = useState<Step>(1)
   const [submitted, setSubmitted] = useState(false)
@@ -93,6 +113,21 @@ function BookingInner() {
   const [countdown, setCountdown] = useState<number | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [supportOpen, setSupportOpen] = useState(false)
+
+  // Zone adjustment notifications
+  const [pickupZoneWarning, setPickupZoneWarning] = useState<string | null>(null)
+  const [dropoffZoneWarning, setDropoffZoneWarning] = useState<string | null>(null)
+  const [pickupZoneMatch, setPickupZoneMatch] = useState(false)
+  const [dropoffZoneMatch, setDropoffZoneMatch] = useState(false)
+
+  // Geocoded coordinates (stored for Stripe metadata and route calculation)
+  const [pickupCoords, setPickupCoords] = useState<Coordinates | null>(null)
+  const [dropoffCoords, setDropoffCoords] = useState<Coordinates | null>(null)
+  const [pickupPlaceId, setPickupPlaceId] = useState("")
+  const [dropoffPlaceId, setDropoffPlaceId] = useState("")
+
+  // Zone mismatch adjustment notification
+  const [zoneAdjustedMsg, setZoneAdjustedMsg] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     name: "",
@@ -135,6 +170,106 @@ function BookingInner() {
     if (Object.keys(updates).length > 0) setFormData((prev) => ({ ...prev, ...updates }))
   }, [searchParams])
 
+  // ── Trigger route calculation when both coords are set ────────
+  useEffect(() => {
+    if (pickupCoords && dropoffCoords && mapsLoaded) {
+      routeCalc.calculate(pickupCoords, dropoffCoords)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickupCoords, dropoffCoords, mapsLoaded])
+
+  // ── Pickup address selected ───────────────────────────────────
+  const handlePickupSelect = useCallback(
+    (result: PlaceResult) => {
+      const coords: Coordinates = { lat: result.lat, lng: result.lng }
+      setPickupCoords(coords)
+      setPickupPlaceId(result.placeId)
+
+      const validation = validateZone(formData.pickupZone, result.lat, result.lng, "pickup")
+
+      if (!validation.isMatch && validation.detectedZone) {
+        // Auto-correct the zone
+        setFormData((prev) => ({
+          ...prev,
+          pickupLocation: result.formattedAddress,
+          pickupZone: validation.detectedZone!,
+        }))
+        setPickupZoneWarning(validation.warningMessage)
+        setZoneAdjustedMsg("Pickup zone updated automatically. Price adjusted.")
+        setTimeout(() => setZoneAdjustedMsg(null), 5000)
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          pickupLocation: result.formattedAddress,
+        }))
+        setPickupZoneWarning(null)
+      }
+
+      setPickupZoneMatch(validation.isMatch && !!validation.detectedZone)
+    },
+    [formData.pickupZone, validateZone]
+  )
+
+  // ── Dropoff address selected ──────────────────────────────────
+  const handleDropoffSelect = useCallback(
+    (result: PlaceResult) => {
+      const coords: Coordinates = { lat: result.lat, lng: result.lng }
+      setDropoffCoords(coords)
+      setDropoffPlaceId(result.placeId)
+
+      const validation = validateZone(formData.dropoffZone, result.lat, result.lng, "dropoff")
+
+      if (!validation.isMatch && validation.detectedZone) {
+        // Auto-correct the zone
+        setFormData((prev) => ({
+          ...prev,
+          dropoffLocation: result.formattedAddress,
+          dropoffZone: validation.detectedZone!,
+        }))
+        setDropoffZoneWarning(validation.warningMessage)
+        setZoneAdjustedMsg("Destination updated. Trip price adjusted accordingly.")
+        setTimeout(() => setZoneAdjustedMsg(null), 5000)
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          dropoffLocation: result.formattedAddress,
+        }))
+        setDropoffZoneWarning(null)
+      }
+
+      setDropoffZoneMatch(validation.isMatch && !!validation.detectedZone)
+    },
+    [formData.dropoffZone, validateZone]
+  )
+
+  // ── Clear coords and route when zone changes manually ─────────
+  const handlePickupZoneChange = (zone: ZoneId) => {
+    setFormData((prev) => ({ ...prev, pickupZone: zone }))
+    setPickupZoneWarning(null)
+    setPickupZoneMatch(false)
+    // Re-validate if we already have coords
+    if (pickupCoords) {
+      const validation = validateZone(zone, pickupCoords.lat, pickupCoords.lng, "pickup")
+      if (!validation.isMatch && validation.detectedZone) {
+        setPickupZoneWarning(validation.warningMessage)
+      }
+      setPickupZoneMatch(validation.isMatch && !!validation.detectedZone)
+    }
+  }
+
+  const handleDropoffZoneChange = (zone: ZoneId) => {
+    setFormData((prev) => ({ ...prev, dropoffZone: zone }))
+    setDropoffZoneWarning(null)
+    setDropoffZoneMatch(false)
+    if (dropoffCoords) {
+      const validation = validateZone(zone, dropoffCoords.lat, dropoffCoords.lng, "dropoff")
+      if (!validation.isMatch && validation.detectedZone) {
+        setDropoffZoneWarning(validation.warningMessage)
+      }
+      setDropoffZoneMatch(validation.isMatch && !!validation.detectedZone)
+    }
+  }
+
   // ── Derived values ────────────────────────────────────────────
   const isHourly = formData.serviceType === "hourly"
   const isRoundTrip = formData.tripType === "roundtrip" && !isHourly
@@ -169,7 +304,6 @@ function BookingInner() {
   const priceResolutionType = priceResolution?.resolution?.type ?? null
 
   const price = isHourly ? hourlyPrice : transferPrice
-  // canPay: true only when we have a valid price (not null, not out-of-area)
   const canPay = !isHourly && price !== null && !isOutOfArea
   const effectiveVehicle = formData.upgradeVehicle && formData.vehicleType === "Sedan" ? "SUV" : formData.vehicleType
 
@@ -183,9 +317,17 @@ function BookingInner() {
   })()
 
   // ── Request text for send buttons ─────────────────────────────
+  const coordsText = pickupCoords && dropoffCoords
+    ? `\nPickup Coords: ${pickupCoords.lat.toFixed(6)},${pickupCoords.lng.toFixed(6)}\nDropoff Coords: ${dropoffCoords.lat.toFixed(6)},${dropoffCoords.lng.toFixed(6)}`
+    : ""
+
+  const routeText = routeCalc.route
+    ? `\nRoute Distance: ${routeCalc.route.distanceMiles} mi (${routeCalc.route.durationText})`
+    : ""
+
   const requestText = isHourly
-    ? `SOTTOVENTO BOOKING REQUEST — HOURLY CHAUFFEUR\nName: ${formData.name}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nVehicle: ${effectiveVehicle}\nPassengers: ${formData.passengers}\nLuggage: ${formData.luggage}\nDate/Time: ${formData.date} ${formData.time}\nPickup Location: ${formData.pickupLocation}\nEvent / Destination: ${formData.eventDestination}\nHours Requested: ${formData.hoursRequested}\nReturn Location: ${formData.returnLocation || "N/A"}\nEstimated Price: ${price ? `$${price}` : "To be confirmed"}\nFlight #: ${formData.flightNumber || "N/A"}\nNotes: ${formData.notes || "N/A"}`
-    : `SOTTOVENTO BOOKING REQUEST — ${formData.tripType === "roundtrip" ? "ROUND TRIP" : "ONE WAY"}\nName: ${formData.name}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nPickup Zone: ${formData.pickupZone}\nDrop-off Zone: ${formData.dropoffZone}\nVehicle: ${effectiveVehicle}${formData.upgradeVehicle && formData.vehicleType === "Sedan" ? " (Upgraded from Sedan)" : ""}\nPassengers: ${formData.passengers}\nLuggage: ${formData.luggage}\nDate/Time: ${formData.date} ${formData.time}\nPickup: ${formData.pickupLocation}\nDrop-off: ${formData.dropoffLocation}${isRoundTrip ? `\nReturn Date/Time: ${formData.returnDate} ${formData.returnTime}\nReturn Pickup: ${formData.returnPickupLocation || "Same as drop-off"}` : ""}${formData.waitTime !== "none" ? `\nWaiting Time: ${formData.waitTime} (+$${WAIT_ADDONS[formData.waitTime]})` : ""}${formData.extraStop !== "none" ? `\nExtra Stop: ${EXTRA_STOP_LABELS[formData.extraStop]}` : ""}\nFlight #: ${formData.flightNumber || "N/A"}\nNotes: ${formData.notes || "N/A"}\nGuaranteed Price: $${price ?? "N/A"}`
+    ? `SOTTOVENTO BOOKING REQUEST — HOURLY CHAUFFEUR\nName: ${formData.name}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nVehicle: ${effectiveVehicle}\nPassengers: ${formData.passengers}\nLuggage: ${formData.luggage}\nDate/Time: ${formData.date} ${formData.time}\nPickup Location: ${formData.pickupLocation}\nEvent / Destination: ${formData.eventDestination}\nHours Requested: ${formData.hoursRequested}\nReturn Location: ${formData.returnLocation || "N/A"}\nEstimated Price: ${price ? `$${price}` : "To be confirmed"}\nFlight #: ${formData.flightNumber || "N/A"}\nNotes: ${formData.notes || "N/A"}${coordsText}`
+    : `SOTTOVENTO BOOKING REQUEST — ${formData.tripType === "roundtrip" ? "ROUND TRIP" : "ONE WAY"}\nName: ${formData.name}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nPickup Zone: ${formData.pickupZone}\nDrop-off Zone: ${formData.dropoffZone}\nVehicle: ${effectiveVehicle}${formData.upgradeVehicle && formData.vehicleType === "Sedan" ? " (Upgraded from Sedan)" : ""}\nPassengers: ${formData.passengers}\nLuggage: ${formData.luggage}\nDate/Time: ${formData.date} ${formData.time}\nPickup: ${formData.pickupLocation}\nDrop-off: ${formData.dropoffLocation}${isRoundTrip ? `\nReturn Date/Time: ${formData.returnDate} ${formData.returnTime}\nReturn Pickup: ${formData.returnPickupLocation || "Same as drop-off"}` : ""}${formData.waitTime !== "none" ? `\nWaiting Time: ${formData.waitTime} (+$${WAIT_ADDONS[formData.waitTime]})` : ""}${formData.extraStop !== "none" ? `\nExtra Stop: ${EXTRA_STOP_LABELS[formData.extraStop]}` : ""}\nFlight #: ${formData.flightNumber || "N/A"}\nNotes: ${formData.notes || "N/A"}\nGuaranteed Price: $${price ?? "N/A"}${coordsText}${routeText}`
 
   const encoded = encodeURIComponent(requestText)
 
@@ -234,70 +376,68 @@ function BookingInner() {
       setPayError("Pickup date and time are required.")
       return
     }
-    // ── 120-min advance booking window (public web only) ──────────
-    {
-      const MIN_ADVANCE_MINUTES = 120
-      const pickupDateTime = new Date(`${formData.date}T${formData.time}:00`)
-      const nowPlusMinimum = new Date(Date.now() + MIN_ADVANCE_MINUTES * 60 * 1000)
-      if (pickupDateTime < nowPlusMinimum) {
-        setPayError(
-          "To ensure punctual premium service, Sottovento bookings require at least 2 hours advance notice. For urgent transportation requests, please contact us directly."
-        )
-        return
-      }
-    }
-    if (!formData.name?.trim()) {
-      setPayError("Passenger name is required.")
-      return
-    }
-    if (!formData.phone?.trim()) {
-      setPayError("Phone number is required.")
-      return
-    }
-    if (!formData.email?.trim()) {
-      setPayError("Email address is required.")
-      return
-    }
-    if (!price) {
-      setPayError("No price available for this route. Please contact us directly.")
+    if (!formData.name || !formData.phone || !formData.email) {
+      setPayError("Please complete your contact information.")
       return
     }
     setPaying(true)
     try {
-      const response = await fetch("/api/create-checkout-session", {
+      // Build Stripe metadata with full coordinate and zone data (Step 9)
+      const metadata: Record<string, string> = {
+        pickup_address: formData.pickupLocation,
+        dropoff_address: formData.dropoffLocation,
+        pickup_zone_selected: formData.pickupZone,
+        dropoff_zone_selected: formData.dropoffZone,
+        vehicle: effectiveVehicle,
+        passengers: formData.passengers,
+        luggage: formData.luggage,
+        date: formData.date,
+        time: formData.time,
+        flight_number: formData.flightNumber || "",
+        notes: formData.notes || "",
+        trip_type: formData.tripType,
+        // Attribution params (Step 10)
+        ref: searchParams.get("ref") || "",
+        driver: searchParams.get("driver") || "",
+        tablet: searchParams.get("tablet") || "",
+        package: searchParams.get("package") || "",
+        service: searchParams.get("service") || "",
+      }
+
+      // Add coordinates if available
+      if (pickupCoords) {
+        metadata.pickup_lat = pickupCoords.lat.toFixed(6)
+        metadata.pickup_lng = pickupCoords.lng.toFixed(6)
+      }
+      if (dropoffCoords) {
+        metadata.dropoff_lat = dropoffCoords.lat.toFixed(6)
+        metadata.dropoff_lng = dropoffCoords.lng.toFixed(6)
+      }
+      if (routeCalc.route) {
+        metadata.route_distance_miles = String(routeCalc.route.distanceMiles)
+        metadata.route_duration_text = routeCalc.route.durationText
+      }
+
+      const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          price,
-          vehicle: effectiveVehicle,
-          pickupZone: formData.pickupZone,
-          dropoffZone: formData.dropoffZone,
-          tripType: formData.tripType,
-          // Client info
+          amount: price,
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
-          // Ride details
-          date: formData.date,
-          time: formData.time,
-          pickupLocation: formData.pickupLocation,
-          dropoffLocation: formData.dropoffLocation,
-          flightNumber: formData.flightNumber,
-          notes: formData.notes,
-          passengers: formData.passengers,
-          luggage: formData.luggage,
-          // Source tracking
-          sourceCode: searchParams.get("ref") || searchParams.get("driver") || "",
-          bookingOrigin: "website",
-          capturedBy: searchParams.get("ref") || searchParams.get("driver") || "public_site",
+          metadata,
         }),
       })
-      const data = await response.json()
-      if (data.url) window.location.href = data.url
-      else if (data.error) setPayError("Payment error: " + data.error)
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        setPayError(data.error || "Payment failed. Please try again.")
+        setPaying(false)
+      }
     } catch {
-      setPayError("Connection error. Please try again or use Email/WhatsApp below.")
-    } finally {
+      setPayError("Payment failed. Please try again or use Email/WhatsApp.")
       setPaying(false)
     }
   }
@@ -323,7 +463,30 @@ function BookingInner() {
           )}
           <div className="flex flex-col gap-3 mt-6">
             <button
-              onClick={() => { setSubmitted(false); setStep(1); setFormData((prev) => ({ ...prev, name: "", phone: "", email: "", pickupLocation: "", dropoffLocation: "", date: "", time: "", notes: "" })) }}
+              onClick={() => {
+                setSubmitted(false)
+                setStep(1)
+                setPickupCoords(null)
+                setDropoffCoords(null)
+                setPickupPlaceId("")
+                setDropoffPlaceId("")
+                setPickupZoneWarning(null)
+                setDropoffZoneWarning(null)
+                setPickupZoneMatch(false)
+                setDropoffZoneMatch(false)
+                routeCalc.reset()
+                setFormData((prev) => ({
+                  ...prev,
+                  name: "",
+                  phone: "",
+                  email: "",
+                  pickupLocation: "",
+                  dropoffLocation: "",
+                  date: "",
+                  time: "",
+                  notes: "",
+                }))
+              }}
               className="w-full py-4 rounded-lg border text-white font-medium tracking-widest uppercase text-sm transition hover:border-yellow-600/60"
               style={{ borderColor: "rgba(255,255,255,0.15)", fontSize: 16 }}
             >
@@ -370,6 +533,21 @@ function BookingInner() {
           {/* Step bar */}
           <StepBar current={step} />
 
+          {/* Zone auto-adjustment notification */}
+          {zoneAdjustedMsg && (
+            <div
+              className="mb-4 rounded-xl px-4 py-3 text-sm flex items-center gap-2"
+              style={{
+                backgroundColor: `${GOLD}12`,
+                border: `1px solid ${GOLD}40`,
+                color: GOLD,
+              }}
+            >
+              <span>✓</span>
+              <span>{zoneAdjustedMsg}</span>
+            </div>
+          )}
+
           {/* ── STEP 1: ROUTE ─────────────────────────────────────── */}
           {step === 1 && (
             <div className="space-y-6">
@@ -414,7 +592,7 @@ function BookingInner() {
                       <button
                         key={r.zone}
                         type="button"
-                        onClick={() => setFormData({ ...formData, pickupZone: r.zone })}
+                        onClick={() => handlePickupZoneChange(r.zone)}
                         className="py-4 px-3 rounded-lg border flex flex-col items-center gap-1 transition"
                         style={{
                           borderColor: formData.pickupZone === r.zone ? GOLD : "rgba(255,255,255,0.12)",
@@ -430,14 +608,14 @@ function BookingInner() {
                 </div>
               )}
 
-              {/* Zone selects */}
+              {/* Zone selects + address autocomplete */}
               {!isHourly && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label style={labelStyle}>Pickup Zone *</label>
                     <select
                       value={formData.pickupZone}
-                      onChange={(e) => setFormData({ ...formData, pickupZone: e.target.value as ZoneId })}
+                      onChange={(e) => handlePickupZoneChange(e.target.value as ZoneId)}
                       className={inputClass}
                       style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}
                     >
@@ -449,7 +627,7 @@ function BookingInner() {
                     <label style={labelStyle}>Drop-off Zone *</label>
                     <select
                       value={formData.dropoffZone}
-                      onChange={(e) => setFormData({ ...formData, dropoffZone: e.target.value as ZoneId })}
+                      onChange={(e) => handleDropoffZoneChange(e.target.value as ZoneId)}
                       className={inputClass}
                       style={{ ...inputStyle, paddingTop: 0, paddingBottom: 0 }}
                     >
@@ -457,45 +635,63 @@ function BookingInner() {
                       {ZONES.map((z) => <option key={z.id} value={z.id}>{z.label}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label style={labelStyle}>Pickup Address *</label>
-                    <input
-                      type="text"
+
+                  {/* Pickup address with Google Places Autocomplete */}
+                  <div className="sm:col-span-2">
+                    <PlacesAutocomplete
+                      id="pickup-address"
+                      label="Pickup Address *"
                       value={formData.pickupLocation}
-                      onChange={(e) => setFormData({ ...formData, pickupLocation: e.target.value })}
                       placeholder="Hotel, terminal, address..."
-                      className={inputClass}
-                      style={inputStyle}
+                      mapsLoaded={mapsLoaded}
+                      onSelect={handlePickupSelect}
+                      onChange={(val) => setFormData((prev) => ({ ...prev, pickupLocation: val }))}
+                      zoneWarning={pickupZoneWarning}
+                      zoneMatch={pickupZoneMatch}
                     />
                   </div>
-                  <div>
-                    <label style={labelStyle}>Drop-off Address *</label>
-                    <input
-                      type="text"
+
+                  {/* Dropoff address with Google Places Autocomplete */}
+                  <div className="sm:col-span-2">
+                    <PlacesAutocomplete
+                      id="dropoff-address"
+                      label="Drop-off Address *"
                       value={formData.dropoffLocation}
-                      onChange={(e) => setFormData({ ...formData, dropoffLocation: e.target.value })}
                       placeholder="Hotel, terminal, address..."
-                      className={inputClass}
-                      style={inputStyle}
+                      mapsLoaded={mapsLoaded}
+                      onSelect={handleDropoffSelect}
+                      onChange={(val) => setFormData((prev) => ({ ...prev, dropoffLocation: val }))}
+                      zoneWarning={dropoffZoneWarning}
+                      zoneMatch={dropoffZoneMatch}
                     />
                   </div>
                 </div>
               )}
 
+              {/* Route info display (distance + duration) */}
+              {!isHourly && (
+                <RouteInfoDisplay
+                  status={routeCalc.status}
+                  route={routeCalc.route}
+                  error={routeCalc.error}
+                />
+              )}
+
               {/* Hourly fields */}
               {isHourly && (
                 <div className="space-y-4">
-                  <div>
-                    <label style={labelStyle}>Pickup Location *</label>
-                    <input
-                      type="text"
-                      value={formData.pickupLocation}
-                      onChange={(e) => setFormData({ ...formData, pickupLocation: e.target.value })}
-                      placeholder="Hotel name, address..."
-                      className={inputClass}
-                      style={inputStyle}
-                    />
-                  </div>
+                  <PlacesAutocomplete
+                    id="hourly-pickup"
+                    label="Pickup Location *"
+                    value={formData.pickupLocation}
+                    placeholder="Hotel name, address..."
+                    mapsLoaded={mapsLoaded}
+                    onSelect={(result) => {
+                      setFormData((prev) => ({ ...prev, pickupLocation: result.formattedAddress }))
+                      setPickupCoords({ lat: result.lat, lng: result.lng })
+                    }}
+                    onChange={(val) => setFormData((prev) => ({ ...prev, pickupLocation: val }))}
+                  />
                   <div>
                     <label style={labelStyle}>Event / Main Destination *</label>
                     <input
@@ -709,6 +905,7 @@ function BookingInner() {
                   />
                 </div>
               </div>
+
               {/* 120-min advance notice warning */}
               {formData.date && formData.time && (() => {
                 const pickupDT = new Date(`${formData.date}T${formData.time}:00`)
@@ -855,6 +1052,15 @@ function BookingInner() {
                     <span className="text-white/50" style={{ fontSize: 15 }}>Route</span>
                     <span className="text-white text-right" style={{ fontSize: 16 }}>
                       {ZONES.find(z => z.id === formData.pickupZone)?.label?.split(" /")[0]} → {ZONES.find(z => z.id === formData.dropoffZone)?.label?.split(" /")[0]}
+                    </span>
+                  </div>
+                )}
+                {/* Route distance/duration in summary */}
+                {routeCalc.route && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/50" style={{ fontSize: 15 }}>Distance</span>
+                    <span className="text-white/70" style={{ fontSize: 15 }}>
+                      {routeCalc.route.distanceMiles} mi · {routeCalc.route.durationText}
                     </span>
                   </div>
                 )}
