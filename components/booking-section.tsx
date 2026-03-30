@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useRef, Suspense, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
+import { useAttribution, buildAttributionMetadata } from "@/hooks/useAttribution"
 import { ZONES, PACKAGE_TO_ZONE, type ZoneId } from "@/lib/zones"
 import {
   getGuaranteedPrice,
@@ -95,6 +96,9 @@ interface Coordinates {
 // ─── Main component ───────────────────────────────────────────
 function BookingInner() {
   const searchParams = useSearchParams()
+
+  // SLN Attribution
+  const attribution = useAttribution()
 
   // Google Maps loader
   const { loaded: mapsLoaded } = useGoogleMapsLoader()
@@ -382,7 +386,8 @@ function BookingInner() {
     }
     setPaying(true)
     try {
-      // Build Stripe metadata with full coordinate and zone data (Step 9)
+      // Build Stripe metadata with full coordinate, zone, and attribution data
+      const attrMeta = buildAttributionMetadata(attribution)
       const metadata: Record<string, string> = {
         pickup_address: formData.pickupLocation,
         dropoff_address: formData.dropoffLocation,
@@ -396,12 +401,14 @@ function BookingInner() {
         flight_number: formData.flightNumber || "",
         notes: formData.notes || "",
         trip_type: formData.tripType,
-        // Attribution params (Step 10)
-        ref: searchParams.get("ref") || "",
-        driver: searchParams.get("driver") || "",
-        tablet: searchParams.get("tablet") || "",
-        package: searchParams.get("package") || "",
-        service: searchParams.get("service") || "",
+        // SLN Attribution (Step 10 — full rollout)
+        ...attrMeta,
+        // Legacy fallback params (backward compat)
+        ref: attribution.ref || searchParams.get("ref") || "",
+        driver: attribution.driver || searchParams.get("driver") || "",
+        tablet: attribution.tablet || searchParams.get("tablet") || "",
+        package: attribution.package || searchParams.get("package") || "",
+        service: attribution.service || searchParams.get("service") || "",
       }
 
       // Add coordinates if available
