@@ -59,14 +59,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const fare = Number(metadata.fare || 0)
 
   // Extract other metadata
+  // FIX: support both field name conventions — pickup_location (legacy) and pickup_address (new /api/checkout)
   const clientId = metadata.client_id
-  const pickupLocation = metadata.pickup_location
-  const dropoffLocation = metadata.dropoff_location
-  const pickupZone = metadata.pickup_zone
-  const dropoffZone = metadata.dropoff_zone
+  const pickupLocation = (metadata.pickup_location || metadata.pickup_address || '').trim()
+  const dropoffLocation = (metadata.dropoff_location || metadata.dropoff_address || '').trim()
+  const pickupZone = (metadata.pickup_zone || metadata.pickup_zone_selected || '').trim()
+  const dropoffZone = (metadata.dropoff_zone || metadata.dropoff_zone_selected || '').trim()
   const pickupDate = metadata.pickup_date
   const pickupTime = metadata.pickup_time
-  const vehicleType = metadata.vehicle_type
+  // FIX: support both vehicle_type (legacy) and vehicle (new /api/checkout)
+  const vehicleType = (metadata.vehicle_type || metadata.vehicle || '').trim()
   const tripType = metadata.trip_type || "oneway"
   const flightNumber = metadata.flight_number
   const notes = metadata.notes
@@ -107,7 +109,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Critical fields for driver-captured bookings (relaxed — driver already validated the lead)
   // pickup_at may be in DB already (pre-created booking path) even if pickupDate metadata is empty
-  const hasDriverCapturedCriticalFields = !!(pickupLocation && dropoffLocation && vehicleType)
+  // FIX: accept pickup_zone + dropoff_zone as valid location evidence when pickup_address is empty
+  //      (tablet bookings may use zone-only selection without Google Maps text address)
+  const hasLocationEvidence = !!(pickupLocation && dropoffLocation) || !!(pickupZone && dropoffZone)
+  const hasDriverCapturedCriticalFields = !!(hasLocationEvidence && vehicleType)
 
   // BYPASS: driver-captured + paid + critical fields present → offer_pending, never needs_review
   const isDriverCapturedBypass = isDriverCaptured && hasDriverCapturedCriticalFields
@@ -367,8 +372,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // CRITICAL FIX: pickupLocation from metadata may be an empty string "" which evaluates
   // to false in JS, silently blocking auto-assign even when pickup_address is in the DB.
   // Solution: trim and check, then fall back to reading from the DB record if empty.
-  let resolvedPickupLocation = (pickupLocation ?? '').trim()
-  let resolvedDropoffLocation = (dropoffLocation ?? '').trim()
+  // FIX: if pickup_address is empty but pickup_zone exists, use zone as location fallback for auto-assign
+  let resolvedPickupLocation = (pickupLocation ?? '').trim() || (pickupZone ?? '').trim()
+  let resolvedDropoffLocation = (dropoffLocation ?? '').trim() || (dropoffZone ?? '').trim()
 
   if ((!resolvedPickupLocation || !resolvedDropoffLocation) && finalBookingId) {
     try {
