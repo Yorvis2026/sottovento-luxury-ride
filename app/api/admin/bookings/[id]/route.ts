@@ -365,26 +365,42 @@ export async function PATCH(
     // Assign driver + write status/dispatch atomically in a single UPDATE
     if (assigned_driver_id !== undefined) {
       if (assigned_driver_id) {
-        // Atomic update: assigned_driver_id + status + dispatch_status in one query
-        // This prevents the partial state where status='assigned' but assigned_driver_id is NULL
-        // Section 2: When admin assigns a driver, set dispatch_status to 'offer_pending'
-        // so the driver receives the Accept/Reject offer stage before the ride becomes active.
-        // Admin can override by explicitly passing dispatch_status in the request body.
-        const assignStatus = status ?? "assigned";
-        const assignDispatch = dispatch_status ?? "offer_pending";
+        // ── SLN Dispatch Lifecycle: Admin assigns driver via offer flow ──────────
+        //
+        // CORRECT BEHAVIOR (per SLN spec):
+        //   1. Admin selects driver → creates dispatch_offer row (response='pending')
+        //   2. Booking status → 'pending_dispatch', dispatch_status → 'offer_pending'
+        //   3. assigned_driver_id stays NULL until driver explicitly accepts
+        //   4. Driver panel reads dispatch_offers → shows OfferScreen with beep + timer
+        //   5. Driver accepts → respond-offer sets assigned_driver_id + status='accepted'
+        //
+        // WRONG (previous behavior):
+        //   UPDATE bookings SET assigned_driver_id = driver_id → driver panel skips OfferScreen
+        //
+        // Admin can force-bypass the offer flow by passing dispatch_status='assigned' explicitly.
+        const adminForceDirect = dispatch_status === "assigned";
         try {
-          await sql`
-            UPDATE bookings
-            SET
-              assigned_driver_id = ${assigned_driver_id}::uuid,
-              status = ${assignStatus},
-              dispatch_status = ${assignDispatch},
-              updated_at = NOW()
-            WHERE id = ${id}::uuid
-          `;
-
-          // Section 2: Ensure a dispatch_offer exists for the driver to respond to
-          if (assignDispatch === "offer_pending") {
+          if (adminForceDirect) {
+            // Direct assignment bypass (admin explicitly chose to skip offer flow)
+            await sql`
+              UPDATE bookings
+              SET
+                assigned_driver_id = ${assigned_driver_id}::uuid,
+                status = 'assigned',
+                dispatch_status = 'assigned',
+                updated_at = NOW()
+              WHERE id = ${id}::uuid
+            `;
+          } else {
+            // ── Standard SLN offer flow ──────────────────────────────────────────
+            // Step 1: Close any existing pending offers for this booking
+            await sql`
+              UPDATE dispatch_offers
+              SET response = 'superseded', responded_at = NOW()
+              WHERE booking_id = ${id}::uuid
+                AND response = 'pending'
+            `;
+            // Step 2: Create new dispatch_offer (30-minute window)
             await sql`
               INSERT INTO dispatch_offers (
                 booking_id, driver_id, offer_round,
@@ -396,17 +412,28 @@ export async function PATCH(
                 false,
                 'pending',
                 NOW(),
-                NOW() + interval '24 hours'
+                NOW() + interval '30 minutes'
               )
-              ON CONFLICT DO NOTHING
+            `;
+            // Step 3: Update booking to offer_pending — DO NOT set assigned_driver_id yet
+            // assigned_driver_id is set only when driver accepts via respond-offer
+            await sql`
+              UPDATE bookings
+              SET
+                dispatch_status = 'offer_pending',
+                status = 'pending_dispatch',
+                assigned_driver_id = NULL,
+                offer_expires_at = NOW() + interval '30 minutes',
+                updated_at = NOW()
+              WHERE id = ${id}::uuid
             `;
           }
         } catch (e: any) {
           // Fallback if dispatch_status column doesn't exist
-          if (e.message?.includes("dispatch_status")) {
+          if (e.message?.includes("dispatch_status") || e.message?.includes("offer_expires_at")) {
             await sql`
               UPDATE bookings
-              SET assigned_driver_id = ${assigned_driver_id}::uuid, status = ${assignStatus}, updated_at = NOW()
+              SET assigned_driver_id = ${assigned_driver_id}::uuid, updated_at = NOW()
               WHERE id = ${id}::uuid
             `;
           } else throw e;
