@@ -418,6 +418,7 @@ interface ActiveRide {
   minutes_until_pickup?: number | null
   updated_at?: string | null
   dispatch_status?: string | null
+  offer_expires_at?: string | null
 }
 
 interface UpcomingRide {
@@ -1922,7 +1923,7 @@ export default function DriverDashboardByCode() {
             pickup_datetime: summary.assigned_ride.pickup_datetime,
             vehicle_type: summary.assigned_ride.vehicle_type,
             total_price: summary.assigned_ride.total_price,
-            expires_at: null,
+            expires_at: summary.assigned_ride.offer_expires_at ?? null,
             dispatch_status: "offer_pending",
             client_name: summary.assigned_ride.client_name,
             bookings_count: summary.assigned_ride.bookings_count
@@ -2626,6 +2627,53 @@ function OfferScreen({
     }
   }, [expired, responding, onExpired])
 
+  // ── Repeating alert sound — plays on mount and every 8s until dismissed ──
+  const alertIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const playOfferBeep = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      // Triple-beep pattern: urgent, attention-grabbing
+      const playTone = (freq: number, startTime: number, duration: number) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime)
+        gain.gain.setValueAtTime(0.5, ctx.currentTime + startTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration)
+        osc.start(ctx.currentTime + startTime)
+        osc.stop(ctx.currentTime + startTime + duration)
+      }
+      playTone(1047, 0.00, 0.18)  // C6
+      playTone(1319, 0.22, 0.18)  // E6
+      playTone(1568, 0.44, 0.30)  // G6 — longer final note
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (expired || responding) return
+    // Play immediately on mount
+    playOfferBeep()
+    // Repeat every 8 seconds while offer is active
+    alertIntervalRef.current = setInterval(() => {
+      playOfferBeep()
+      // Vibrate on repeat too
+      try { if (navigator.vibrate) navigator.vibrate([150, 80, 150]) } catch {}
+    }, 8000)
+    return () => {
+      if (alertIntervalRef.current) clearInterval(alertIntervalRef.current)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offer.offer_id]) // only re-run when a new offer arrives
+
+  // Stop repeating when driver responds or offer expires
+  useEffect(() => {
+    if ((expired || responding) && alertIntervalRef.current) {
+      clearInterval(alertIntervalRef.current)
+      alertIntervalRef.current = null
+    }
+  }, [expired, responding])
+
   const timerColor =
     !hasExpiry ? "#ffffff" :
     secondsLeft > 60 ? "#ffffff" :
@@ -2646,19 +2694,52 @@ function OfferScreen({
   const isRepeat = (offer.bookings_count ?? 0) > 1
   const serviceBadge = getServiceBadge(offer.pickup_location, offer.dropoff_location, isRepeat)
 
+  // Flashing border state for urgent visual pulse
+  const [flashOn, setFlashOn] = useState(true)
+  useEffect(() => {
+    if (expired || responding) return
+    const id = setInterval(() => setFlashOn(v => !v), 600)
+    return () => clearInterval(id)
+  }, [expired, responding])
+
   return (
-    <div className="fixed inset-0 flex flex-col bg-black"
+    <div className="fixed inset-0 flex flex-col"
       style={{
-        paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+        backgroundColor: "#000",
+        paddingTop: "calc(env(safe-area-inset-top, 0px) + 0px)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+        // Flashing border: alternates between gold and transparent
+        boxShadow: flashOn && !expired && !responding
+          ? `inset 0 0 0 3px ${GOLD}, inset 0 0 40px ${GOLD}22`
+          : "none",
+        transition: "box-shadow 0.3s ease",
       }}>
 
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-          <span className="text-xs uppercase tracking-widest font-semibold" style={{ color: GOLD }}>
+      {/* ── URGENT ALERT BANNER ── */}
+      {!expired && !responding && (
+        <div
+          className="flex items-center justify-center gap-3 px-4 py-2.5 flex-shrink-0"
+          style={{
+            backgroundColor: flashOn ? GOLD : "#1a1200",
+            transition: "background-color 0.3s ease",
+          }}>
+          <span className="text-lg">🔔</span>
+          <span className="text-sm font-black tracking-widest uppercase"
+            style={{ color: flashOn ? "#000" : GOLD }}>
             {t.newRideOffer}
+          </span>
+          <span className="text-lg">🔔</span>
+        </div>
+      )}
+
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0"
+        style={{ borderColor: expired ? "#27272a" : `${GOLD}40` }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="w-2 h-2 rounded-full animate-pulse"
+            style={{ backgroundColor: expired ? "#71717a" : GOLD }} />
+          <span className="text-xs uppercase tracking-widest font-semibold" style={{ color: expired ? "#71717a" : GOLD }}>
+            {expired ? (lang === "es" ? "Oferta Expirada" : "Offer Expired") : t.newRideOffer}
           </span>
           {offer.is_source_offer && (
             <span className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -2743,35 +2824,66 @@ function OfferScreen({
           </div>
         </div>
 
-        {/* Countdown */}
-        {hasExpiry && (
-          <div className="mt-4 flex-shrink-0">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-zinc-500 uppercase tracking-widest">{t.timeRemaining}</span>
-              <span className="text-2xl font-mono font-bold tabular-nums" style={{ color: timerColor }}>
-                {mm}:{ss}
-              </span>
-            </div>
-            <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+        {/* Countdown — always visible, prominent */}
+        <div className="mt-3 flex-shrink-0 rounded-2xl px-4 py-3"
+          style={{
+            background: hasExpiry ? `${timerColor}12` : "#111",
+            border: `1px solid ${hasExpiry ? timerColor + "40" : "#27272a"}`,
+          }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs uppercase tracking-widest"
+              style={{ color: hasExpiry ? timerColor : "#71717a" }}>
+              {t.timeRemaining}
+            </span>
+            <span
+              className="font-mono font-black tabular-nums"
+              style={{
+                color: timerColor,
+                fontSize: hasExpiry && secondsLeft <= 20 ? 28 : 24,
+                // Pulse when under 20s
+                animation: hasExpiry && secondsLeft <= 20 && !expired ? "pulse 0.5s infinite" : "none",
+              }}>
+              {hasExpiry ? `${mm}:${ss}` : (lang === "es" ? "En espera" : "Awaiting")}
+            </span>
+          </div>
+          {hasExpiry && (
+            <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
               <div className="h-full rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%`, backgroundColor: timerColor }} />
             </div>
-          </div>
-        )}
+          )}
+          {!hasExpiry && (
+            <div className="text-xs text-zinc-600 text-center">
+              {lang === "es" ? "Responde lo antes posible" : "Please respond as soon as possible"}
+            </div>
+          )}
+        </div>
 
         {/* Actions */}
         <div className="mt-4 flex-shrink-0 space-y-3">
           <button
             onClick={onAccept}
             disabled={responding || expired}
-            className="w-full py-5 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-50"
-            style={{ backgroundColor: GOLD, color: "#000" }}>
-            {responding ? "..." : t.accept}
+            className="w-full rounded-2xl text-xl font-black tracking-wider transition-all active:scale-95 disabled:opacity-50"
+            style={{
+              backgroundColor: expired ? "#27272a" : GOLD,
+              color: expired ? "#71717a" : "#000",
+              padding: "20px 0",
+              boxShadow: !expired && !responding ? `0 0 24px ${GOLD}60` : "none",
+              fontSize: 20,
+              letterSpacing: "0.08em",
+            }}>
+            {responding ? (lang === "es" ? "Procesando..." : "Processing...") : t.accept}
           </button>
           <button
             onClick={onDecline}
             disabled={responding || expired}
-            className="w-full py-3 rounded-2xl border border-zinc-700 text-zinc-300 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
+            className="w-full py-4 rounded-2xl border text-sm font-semibold transition-all active:scale-95 disabled:opacity-40"
+            style={{
+              borderColor: "#dc262660",
+              color: "#f87171",
+              backgroundColor: "#dc262608",
+            }}>
             {t.decline}
           </button>
         </div>

@@ -215,13 +215,12 @@ export async function POST(req: NextRequest) {
 
     const rows = await sql`
       INSERT INTO vehicles (
-        driver_id, company_id, make, model, year, plate, color, vehicle_type,
+        driver_id, make, model, year, plate, color, vehicle_type,
         city_permit_status, airport_permit_mco_status, port_permit_canaveral_status,
         insurance_status, registration_status, vehicle_status,
         verified_at, expires_at, notes, is_primary
       ) VALUES (
         ${driver_id ? `${driver_id}::uuid` : null},
-        ${company_id ? `${company_id}::uuid` : null},
         ${make},
         ${model},
         ${year ?? null},

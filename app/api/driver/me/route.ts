@@ -131,8 +131,8 @@ export async function GET(req: NextRequest) {
         active_offer = {
           offer_id: o.offer_id,
           booking_id: o.booking_id,
-          pickup_location: o.pickup_address ?? "TBD",
-          dropoff_location: o.dropoff_address ?? "TBD",
+          pickup_location: o.pickup_address || (o.pickup_zone ? `Zone: ${o.pickup_zone}` : "TBD"),
+          dropoff_location: o.dropoff_address || (o.dropoff_zone ? `Zone: ${o.dropoff_zone}` : "TBD"),
           pickup_datetime: o.pickup_at,
           vehicle_type: o.vehicle_type ?? "Sedan",
           total_price: Number(o.total_price ?? 0),
@@ -151,6 +151,8 @@ export async function GET(req: NextRequest) {
             id AS booking_id,
             pickup_address,
             dropoff_address,
+            pickup_zone,
+            dropoff_zone,
             pickup_at,
             vehicle_type,
             total_price,
@@ -177,8 +179,8 @@ export async function GET(req: NextRequest) {
           active_offer = {
             offer_id: o.booking_id,
             booking_id: o.booking_id,
-            pickup_location: o.pickup_address ?? "TBD",
-            dropoff_location: o.dropoff_address ?? "TBD",
+            pickup_location: o.pickup_address || (o.pickup_zone ? `Zone: ${o.pickup_zone}` : "TBD"),
+            dropoff_location: o.dropoff_address || (o.dropoff_zone ? `Zone: ${o.dropoff_zone}` : "TBD"),
             pickup_datetime: o.pickup_at,
             vehicle_type: o.vehicle_type ?? "Sedan",
             total_price: Number(o.total_price ?? 0),
@@ -222,7 +224,8 @@ export async function GET(req: NextRequest) {
           passengers,
           luggage,
           updated_at,
-          captured_by_driver_code
+          captured_by_driver_code,
+          offer_expires_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}
           -- Primary guard: exclude all finalized states by status
@@ -365,8 +368,8 @@ export async function GET(req: NextRequest) {
           booking_id: r.booking_id,
           status: r.status ?? "assigned",
           dispatch_status: r.dispatch_status ?? r.status ?? "assigned",
-          pickup_location: r.pickup_address ?? "TBD",
-          dropoff_location: r.dropoff_address ?? "TBD",
+          pickup_location: r.pickup_address || (r.pickup_zone ? `Zone: ${r.pickup_zone}` : "TBD"),
+          dropoff_location: r.dropoff_address || (r.dropoff_zone ? `Zone: ${r.dropoff_zone}` : "TBD"),
           pickup_zone: r.pickup_zone ?? null,
           dropoff_zone: r.dropoff_zone ?? null,
           pickup_datetime: r.pickup_at,
@@ -388,6 +391,7 @@ export async function GET(req: NextRequest) {
           minutes_until_pickup: minutesUntilPickup !== null ? Math.round(minutesUntilPickup) : null,
           updated_at: r.updated_at ?? null,
           captured_by_driver_code: r.captured_by_driver_code ?? null,
+          offer_expires_at: r.offer_expires_at ?? null,
         };
       }
     } catch (assignErr: any) {
