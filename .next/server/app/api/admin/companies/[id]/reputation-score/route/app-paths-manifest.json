@@ -1,3 +1,0 @@
-{
-  "/api/admin/companies/[id]/reputation-score/route": "app/api/admin/companies/[id]/reputation-score/route.js"
-}

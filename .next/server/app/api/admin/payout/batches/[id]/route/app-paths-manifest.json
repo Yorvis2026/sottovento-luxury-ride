@@ -1,3 +1,0 @@
-{
-  "/api/admin/payout/batches/[id]/route": "app-edge-has-no-entrypoint"
-}

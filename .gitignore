@@ -70,3 +70,7 @@ node_modules/
 # dataconnect generated files
 .dataconnect
 .vercel
+
+# Next.js build output
+.next/
+out/
