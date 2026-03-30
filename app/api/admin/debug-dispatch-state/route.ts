@@ -61,25 +61,24 @@ export async function GET(req: NextRequest) {
   try {
     // Path A: dispatch_offers active_offer
     const offerRows = await sql`
+      -- FIX: 'do' is a reserved word in PostgreSQL — alias renamed to 'dof'
       SELECT
-        do.id AS offer_id,
-        do.booking_id,
-        do.expires_at,
-        do.response,
-        do.offer_round,
+        dof.id AS offer_id,
+        dof.booking_id,
+        dof.expires_at,
+        dof.response,
+        dof.offer_round,
         b.dispatch_status,
         b.assigned_driver_id,
         b.status AS booking_status
-      FROM dispatch_offers do
-      JOIN bookings b ON b.id = do.booking_id
-      WHERE do.driver_id = ${driverId}::uuid
-        AND do.response = 'pending'
-        AND (do.expires_at IS NULL OR do.expires_at > NOW())
+      FROM dispatch_offers dof
+      JOIN bookings b ON b.id = dof.booking_id
+      WHERE dof.driver_id = ${driverId}::uuid
+        AND dof.response = 'pending'
+        AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
         AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
-        AND NOT (b.status = 'assigned' AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('offer_pending')))
-        AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled')
-        AND NOT (b.assigned_driver_id = ${driverId}::uuid AND b.offer_accepted = true)
-      ORDER BY do.created_at DESC
+        AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled', 'assigned')
+      ORDER BY dof.created_at DESC
       LIMIT 1
     `;
     report.driver_me_path_A_active_offer = offerRows[0] ?? null;
