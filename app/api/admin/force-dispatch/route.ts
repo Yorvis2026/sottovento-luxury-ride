@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // Find eligible bookings
+    // NOTE: drivers table uses driver_status (not status) and is_eligible (not eligible)
     const eligibleBookings = body.booking_id
       ? await sql`
           SELECT
@@ -46,7 +47,8 @@ export async function POST(req: NextRequest) {
             b.pickup_address, b.dropoff_address, b.vehicle_type,
             b.pickup_at, b.total_price,
             d.id AS driver_db_id, d.driver_code, d.full_name AS driver_name,
-            d.status AS driver_status, d.eligible AS driver_eligible
+            COALESCE(d.driver_status, 'active') AS driver_status,
+            COALESCE(d.is_eligible, true) AS driver_eligible
           FROM bookings b
           LEFT JOIN drivers d ON UPPER(TRIM(d.driver_code)) = UPPER(TRIM(b.captured_by_driver_code))
           WHERE b.id = ${body.booking_id}::uuid
@@ -60,7 +62,8 @@ export async function POST(req: NextRequest) {
             b.pickup_address, b.dropoff_address, b.vehicle_type,
             b.pickup_at, b.total_price,
             d.id AS driver_db_id, d.driver_code, d.full_name AS driver_name,
-            d.status AS driver_status, d.eligible AS driver_eligible
+            COALESCE(d.driver_status, 'active') AS driver_status,
+            COALESCE(d.is_eligible, true) AS driver_eligible
           FROM bookings b
           LEFT JOIN drivers d ON UPPER(TRIM(d.driver_code)) = UPPER(TRIM(b.captured_by_driver_code))
           WHERE b.payment_status = 'paid'
