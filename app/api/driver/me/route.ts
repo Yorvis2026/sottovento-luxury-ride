@@ -96,33 +96,30 @@ export async function GET(req: NextRequest) {
     let active_offer = null;
 
     try {
+      // CRITICAL FIX: 'do' is a reserved word in PostgreSQL — alias renamed to 'dof'
       const offerRows = await sql`
         SELECT
-          do.id AS offer_id,
-          do.booking_id,
-          do.expires_at,
-          do.offer_round,
-          do.is_source_offer,
+          dof.id AS offer_id,
+          dof.booking_id,
+          dof.expires_at,
+          dof.offer_round,
+          dof.is_source_offer,
           b.pickup_address,
           b.dropoff_address,
+          b.pickup_zone,
+          b.dropoff_zone,
           b.pickup_at,
           b.vehicle_type,
           b.total_price,
           b.dispatch_status
-        FROM dispatch_offers do
-        JOIN bookings b ON b.id = do.booking_id
-        WHERE do.driver_id = ${driver.id}
-          AND do.response = 'pending'
-          AND (do.expires_at IS NULL OR do.expires_at > NOW())
-          -- Exclude all finalized or already-accepted bookings
+        FROM dispatch_offers dof
+        JOIN bookings b ON b.id = dof.booking_id
+        WHERE dof.driver_id = ${driver.id}
+          AND dof.response = 'pending'
+          AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
           AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
-          -- Exclude 'assigned' bookings unless they are explicitly awaiting driver response
-          AND NOT (b.status = 'assigned' AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('offer_pending')))
-          -- DEDUP GUARD: exclude bookings already accepted by this driver (dispatch_status=accepted)
-          AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled')
-          -- DEDUP GUARD: exclude bookings where this driver is already assigned and accepted
-          AND NOT (b.assigned_driver_id = ${driver.id} AND b.offer_accepted = true)
-        ORDER BY do.created_at DESC
+          AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled', 'assigned')
+        ORDER BY dof.created_at DESC
         LIMIT 1
       `;
 
