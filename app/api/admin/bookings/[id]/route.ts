@@ -125,7 +125,26 @@ export async function PATCH(
     // Next.js 15+ requires awaiting params
     const { id } = await params;
     const body = await req.json();
-    const { status, dispatch_status, assigned_driver_id, edit_fields } = body;
+    let { status, dispatch_status, assigned_driver_id, edit_fields } = body;
+
+    // ── Resolve assign_driver_code → assigned_driver_id ──────────────────────
+    // Admin panel sends { assign_driver_code: 'YHV001' } instead of a raw UUID.
+    // We resolve the code to the driver's UUID here so the rest of the handler
+    // can use assigned_driver_id normally.
+    if (body.assign_driver_code && !assigned_driver_id) {
+      const driverRows = await sql`
+        SELECT id FROM drivers
+        WHERE driver_code = ${(body.assign_driver_code as string).toUpperCase()}
+        LIMIT 1
+      `;
+      if (driverRows.length === 0) {
+        return NextResponse.json(
+          { error: `Driver not found: ${body.assign_driver_code}` },
+          { status: 404 }
+        );
+      }
+      assigned_driver_id = driverRows[0].id;
+    }
 
     // Edit operational fields (pickup_at, pickup_address, dropoff_address, flight_number, notes, service_type, passengers, luggage)
     if (edit_fields && typeof edit_fields === "object") {
