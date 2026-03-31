@@ -609,6 +609,30 @@ export default function DriverDashboardByCode() {
 
   const [lang, setLang] = useState<Lang>("en")
   const [summary, setSummary] = useState<DriverSummary | null>(null)
+  // ── Active Mode: cached ride state for instant re-entry after screen sleep ──
+  // Initialized from localStorage so the correct screen renders immediately
+  // without waiting for the first server fetch.
+  const [cachedRide, setCachedRide] = useState<{
+    booking_id: string
+    status: string
+    ride_mode: string | null
+    pickup_location: string
+    dropoff_location: string
+    total_price: number
+    pickup_datetime: string | null
+    client_name: string
+  } | null>(() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = localStorage.getItem(`sln_active_ride_${driverCode}`)
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      // Only use cache if it's an operational state (not completed/cancelled)
+      const OPERATIONAL = ['accepted', 'assigned', 'en_route', 'arrived', 'in_trip', 'offer_pending']
+      if (OPERATIONAL.includes(parsed.status)) return parsed
+      return null
+    } catch { return null }
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -867,6 +891,32 @@ export default function DriverDashboardByCode() {
         upcoming_rides: d.upcoming_rides ?? [],
         completed_rides: d.completed_rides ?? [],
       })
+      // ── Active Mode: persist ride state to localStorage for instant re-entry ──
+      // On screen sleep / app re-open, the cached state is read before the first fetch
+      // so the driver sees the correct operational screen immediately.
+      try {
+        const OPERATIONAL = ['accepted', 'assigned', 'en_route', 'arrived', 'in_trip', 'offer_pending']
+        const cacheKey = `sln_active_ride_${driverCode}`
+        if (activeRide && OPERATIONAL.includes(activeRide.status)) {
+          const cachePayload = {
+            booking_id: activeRide.booking_id,
+            status: activeRide.status,
+            ride_mode: activeRide.ride_mode ?? null,
+            pickup_location: activeRide.pickup_location,
+            dropoff_location: activeRide.dropoff_location,
+            total_price: activeRide.total_price,
+            pickup_datetime: activeRide.pickup_datetime ?? null,
+            client_name: activeRide.client_name,
+            cached_at: new Date().toISOString(),
+          }
+          localStorage.setItem(cacheKey, JSON.stringify(cachePayload))
+          setCachedRide(cachePayload)
+        } else {
+          // Clear cache when ride is no longer operational
+          localStorage.removeItem(cacheKey)
+          setCachedRide(null)
+        }
+      } catch {}
       setLoading(false)
     } catch {
       setError("Failed to load driver data")
@@ -1321,8 +1371,69 @@ export default function DriverDashboardByCode() {
     } catch {}
   }, [tabletUrl])
 
-  // ── Loading ──────────────────────────────────────────────────
+  // ── Loading / Active Mode Re-entry ──────────────────────────────────────────
+  // ACTIVE MODE: if we have a cached operational ride, show the ride console
+  // immediately while the server fetch completes in the background.
+  // This eliminates the loading spinner flash on screen re-activation.
   if (loading) {
+    const OPERATIONAL_CACHED = cachedRide && ['accepted', 'assigned', 'en_route', 'arrived', 'in_trip'].includes(cachedRide.status)
+    if (OPERATIONAL_CACHED && cachedRide) {
+      // Show a minimal ride control console immediately from cached data
+      const statusLabel: Record<string, string> = {
+        accepted: lang === 'es' ? 'Asignado' : 'Assigned',
+        assigned: lang === 'es' ? 'Asignado' : 'Assigned',
+        en_route: lang === 'es' ? 'En camino' : 'En Route',
+        arrived: lang === 'es' ? 'Llegaste' : 'Arrived',
+        in_trip: lang === 'es' ? 'En viaje' : 'In Trip',
+      }
+      return (
+        <div className="min-h-screen bg-black text-white flex flex-col"
+          style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+          {/* Syncing indicator */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: GOLD }} />
+              <span className="text-xs text-zinc-400">{lang === 'es' ? 'Sincronizando...' : 'Syncing...'}</span>
+            </div>
+            <div className="text-xs font-bold px-3 py-1 rounded-full"
+              style={{ backgroundColor: GOLD + '20', color: GOLD }}>
+              {statusLabel[cachedRide.status] ?? cachedRide.status.toUpperCase()}
+            </div>
+          </div>
+          {/* Ride info from cache */}
+          <div className="flex-1 px-5 py-6 space-y-5">
+            <div className="text-center mb-2">
+              <div className="text-2xl font-bold" style={{ color: GOLD }}>
+                ${cachedRide.total_price.toFixed(0)}
+              </div>
+              <div className="text-sm text-zinc-400 mt-1">{cachedRide.client_name}</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+              <div className="px-5 py-4 border-b border-zinc-800">
+                <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{lang === 'es' ? 'Recogida' : 'Pickup'}</div>
+                <div className="text-sm font-medium text-white">{cachedRide.pickup_location}</div>
+              </div>
+              <div className="px-5 py-4">
+                <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{lang === 'es' ? 'Destino' : 'Dropoff'}</div>
+                <div className="text-sm font-medium text-white">{cachedRide.dropoff_location}</div>
+              </div>
+            </div>
+            {cachedRide.pickup_datetime && (
+              <div className="text-center text-sm text-zinc-400">
+                {new Date(cachedRide.pickup_datetime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </div>
+            )}
+          </div>
+          {/* Loading indicator at bottom */}
+          <div className="px-5 pb-8 text-center">
+            <div className="w-6 h-6 border-2 rounded-full animate-spin mx-auto mb-2"
+              style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
+            <div className="text-xs text-zinc-600">{lang === 'es' ? 'Cargando controles...' : 'Loading controls...'}</div>
+          </div>
+        </div>
+      )
+    }
+    // Default loading spinner (no cached ride)
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center"
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
@@ -3058,6 +3169,9 @@ function RideFlowScreen({
   const elapsed = useElapsed(ride.trip_started_at ?? null)
   const theme = STATE_THEME[ride.status] ?? STATE_THEME.assigned
   const isRepeat = (ride.bookings_count ?? 0) > 1
+  // Active Mode: detail section is collapsed by default on mobile for console-first UX
+  // Driver sees the action button immediately without scrolling
+  const [showDetails, setShowDetails] = useState(false)
 
   const pickupDate = ride.pickup_datetime
     ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""
@@ -3329,7 +3443,17 @@ function RideFlowScreen({
             </div>
           </div>
 
-          {/* ─ Section: Passenger info ─ */}
+          {/* ─ Details toggle button ─ */}
+          <button
+            onClick={() => setShowDetails(v => !v)}
+            className="w-full px-5 py-2.5 border-t flex items-center justify-between text-xs font-medium transition-all active:opacity-70"
+            style={{ borderColor: theme.primary + "20", color: theme.primary }}>
+            <span>{showDetails ? (lang === 'es' ? '▲ Ocultar detalles' : '▲ Hide details') : (lang === 'es' ? '▼ Ver detalles del pasajero' : '▼ Passenger & trip details')}</span>
+            <span className="text-zinc-600">{ride.client_name ?? ''}</span>
+          </button>
+
+          {/* ─ Section: Passenger info (collapsible) ─ */}
+          {showDetails && (
           <div className="px-5 py-3 border-t" style={{ borderColor: theme.primary + "20" }}>
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -3348,9 +3472,10 @@ function RideFlowScreen({
               )}
             </div>
           </div>
+          )}
 
           {/* ─ Section: Service type + Flight info (airport rides) ─ */}
-          {(ride.service_type || ride.flight_number) && (
+          {showDetails && (ride.service_type || ride.flight_number) && (
             <div className="px-5 py-3 border-t" style={{ borderColor: theme.primary + "20" }}>
               <div className="grid grid-cols-2 gap-3">
                 {ride.service_type && (
@@ -3375,14 +3500,14 @@ function RideFlowScreen({
           )}
 
           {/* ─ Section: Notes ─ */}
-          {ride.notes && (
+          {showDetails && ride.notes && (
             <div className="px-5 py-3 border-t" style={{ borderColor: theme.primary + "20" }}>
               <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{t.notes}</div>
               <div className="text-sm text-zinc-300 leading-relaxed">{ride.notes}</div>
             </div>
           )}
 
-          {/* ─ Elapsed time (in_trip only) ─ */}
+          {/* ─ Elapsed time (in_trip only) ─ — always visible */}
           {cfg.showElapsed && (
             <div className="px-5 py-3 border-t flex items-center justify-between"
               style={{ borderColor: theme.primary + "30", backgroundColor: theme.primary + "08" }}>
@@ -3391,12 +3516,14 @@ function RideFlowScreen({
             </div>
           )}
 
-          {/* ─ Booking ID ─ */}
+          {/* ─ Booking ID (collapsible) ─ */}
+          {showDetails && (
           <div className="px-5 py-2 border-t border-zinc-800/50">
             <div className="text-xs text-zinc-600 font-mono truncate">
               {t.bookingId}: {ride.booking_id.slice(0, 8)}...
             </div>
           </div>
+          )}
         </div>
 
         {/* Contact actions row: Navigate + Call + Text */}
