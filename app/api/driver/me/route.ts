@@ -161,7 +161,9 @@ export async function GET(req: NextRequest) {
           bookings_count,
         };
       }
-    } catch { /* dispatch_offers may not exist */ }
+    } catch (offerErr: any) {
+      console.error('[driver/me] active_offer query failed:', offerErr?.message ?? offerErr);
+    }
 
     if (!active_offer) {
       try {
