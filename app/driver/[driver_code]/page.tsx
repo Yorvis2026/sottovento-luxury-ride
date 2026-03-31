@@ -1159,6 +1159,11 @@ export default function DriverDashboardByCode() {
       const data = await res.json()
       if (!data.error) {
         if (newStatus === "completed") {
+          // Clear localStorage cache immediately on completion — ride is done
+          try {
+            const cacheKey = `sln_active_ride_${driverCode}`
+            localStorage.removeItem(cacheKey)
+          } catch {}
           setCompletedFare(summary.assigned_ride.total_price)
           setShowCompleted(true)
           setTimeout(() => { setShowCompleted(false); setCompletedFare(null); loadData() }, 3000)

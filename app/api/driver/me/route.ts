@@ -111,9 +111,16 @@ export async function GET(req: NextRequest) {
           b.pickup_at,
           b.vehicle_type,
           b.total_price,
-          b.dispatch_status
+          b.dispatch_status,
+          b.client_id,
+          b.passengers,
+          b.luggage,
+          b.notes,
+          COALESCE(c.full_name, b.client_name_override) AS client_name,
+          COALESCE(c.phone, b.client_phone_override) AS client_phone
         FROM dispatch_offers dof
         JOIN bookings b ON b.id = dof.booking_id
+        LEFT JOIN clients c ON c.id = b.client_id
         WHERE dof.driver_id = ${driver.id}::uuid
           AND dof.response = 'pending'
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
@@ -125,6 +132,14 @@ export async function GET(req: NextRequest) {
 
       if (offerRows.length > 0) {
         const o = offerRows[0];
+        // Fetch bookings_count for repeat client detection
+        let bookings_count = 1;
+        if (o.client_id) {
+          try {
+            const cntRows = await sql`SELECT COUNT(*) AS cnt FROM bookings WHERE client_id = ${o.client_id} AND status = 'completed'`;
+            bookings_count = Number(cntRows[0]?.cnt ?? 0);
+          } catch {}
+        }
         active_offer = {
           offer_id: o.offer_id,
           booking_id: o.booking_id,
@@ -137,6 +152,12 @@ export async function GET(req: NextRequest) {
           dispatch_status: o.dispatch_status ?? "awaiting_driver_response",
           is_source_offer: o.is_source_offer ?? false,
           offer_round: o.offer_round ?? 1,
+          client_name: o.client_name ?? null,
+          client_phone: o.client_phone ?? null,
+          passengers: o.passengers ?? null,
+          luggage: o.luggage ?? null,
+          notes: o.notes ?? null,
+          bookings_count,
         };
       }
     } catch { /* dispatch_offers may not exist */ }

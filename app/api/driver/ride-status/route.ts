@@ -68,11 +68,11 @@ export async function POST(req: NextRequest) {
 
     // ── Load booking ─────────────────────────────────────────
     const bookingRows = await sql`
-      SELECT id, status, assigned_driver_id, source_driver_id,
+      SELECT id::text, status, assigned_driver_id::text, source_driver_id::text,
              total_price, pickup_address, dropoff_address,
-             pickup_at, vehicle_type, client_id
+             pickup_at, vehicle_type, client_id::text
       FROM bookings
-      WHERE id = ${booking_id}
+      WHERE id = ${booking_id}::uuid
       LIMIT 1
     `;
 
@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
     const booking = bookingRows[0];
 
     // ── Authorization ────────────────────────────────────────
-    if (booking.assigned_driver_id !== driver_id) {
+    // Normalize both to lowercase strings to avoid UUID object vs string mismatch (Neon returns UUID as string)
+    const normalizedAssignedId = String(booking.assigned_driver_id ?? "").toLowerCase().trim();
+    const normalizedDriverId = String(driver_id ?? "").toLowerCase().trim();
+    if (!normalizedAssignedId || normalizedAssignedId !== normalizedDriverId) {
       return NextResponse.json({ error: "Unauthorized: not assigned driver" }, { status: 403 });
     }
 
@@ -129,7 +132,7 @@ export async function POST(req: NextRequest) {
         SET status = 'accepted',
             dispatch_status = 'accepted',
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "en_route") {
       await sql`
@@ -138,7 +141,7 @@ export async function POST(req: NextRequest) {
             dispatch_status = 'en_route',
             en_route_at = ${now}::timestamptz,
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "arrived") {
       await sql`
@@ -147,7 +150,7 @@ export async function POST(req: NextRequest) {
             dispatch_status = 'arrived',
             arrived_at = ${now}::timestamptz,
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "in_trip") {
       await sql`
@@ -156,7 +159,7 @@ export async function POST(req: NextRequest) {
             dispatch_status = 'in_trip',
             trip_started_at = ${now}::timestamptz,
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "completed") {
       await sql`
@@ -165,7 +168,7 @@ export async function POST(req: NextRequest) {
             dispatch_status = 'completed',
             completed_at = ${now}::timestamptz,
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "cancelled") {
       await sql`
@@ -174,7 +177,7 @@ export async function POST(req: NextRequest) {
             dispatch_status = 'cancelled',
             cancelled_at = ${now}::timestamptz,
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "no_show") {
       await sql`
@@ -183,7 +186,7 @@ export async function POST(req: NextRequest) {
             dispatch_status = 'no_show',
             no_show_at = ${now}::timestamptz,
             updated_at = NOW()
-        WHERE id = ${booking_id}
+        WHERE id = ${booking_id}::uuid
       `;
     }
 
