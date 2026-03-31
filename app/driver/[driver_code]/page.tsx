@@ -49,8 +49,8 @@ const T: Record<Lang, Record<string, string>> = {
     driverDashboard: "Driver Dashboard",
     youAreOnline: "You are online",
     youAreOffline: "You are offline",
-    newRideOffer: "New Ride Offer",
-    timeRemaining: "Time remaining",
+    newRideOffer: "NEW RIDE REQUEST",
+    timeRemaining: "Accept within",
     accept: "ACCEPT",
     decline: "Decline",
     assignedRide: "Assigned Ride",
@@ -158,8 +158,8 @@ const T: Record<Lang, Record<string, string>> = {
     driverDashboard: "Panel del Conductor",
     youAreOnline: "Estás en línea",
     youAreOffline: "Estás fuera de línea",
-    newRideOffer: "Nueva Solicitud",
-    timeRemaining: "Tiempo restante",
+    newRideOffer: "NUEVA SOLICITUD",
+    timeRemaining: "Aceptar en",
     accept: "ACEPTAR",
     decline: "Rechazar",
     assignedRide: "Servicio asignado",
@@ -267,8 +267,8 @@ const T: Record<Lang, Record<string, string>> = {
     driverDashboard: "Panèl Chofè",
     youAreOnline: "Ou anliy",
     youAreOffline: "Ou pa anliy",
-    newRideOffer: "Nouvo Sèvis",
-    timeRemaining: "Tan ki rete",
+    newRideOffer: "NOUVO SÈVIS",
+    timeRemaining: "Aksepte nan",
     accept: "AKSEPTE",
     decline: "Refize",
     assignedRide: "Sèvis asiyen",
@@ -754,6 +754,35 @@ export default function DriverDashboardByCode() {
       osc.stop(ctx.currentTime + 0.6)
     } catch {}
   }, [])
+
+  // ── Dashboard banner: repeat audio + vibration every 5s while banner is active ──
+  // This fires when the driver is on the DASHBOARD (not on OfferScreen) and has a pending offer.
+  // The OfferScreen has its own independent alert loop (playOfferBeep).
+  const dashboardAlertIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    if (showOfferBanner) {
+      // Play immediately
+      playAlert()
+      try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]) } catch {}
+      // Repeat every 5 seconds
+      dashboardAlertIntervalRef.current = setInterval(() => {
+        playAlert()
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]) } catch {}
+      }, 5000)
+    } else {
+      // Clear when banner is dismissed
+      if (dashboardAlertIntervalRef.current) {
+        clearInterval(dashboardAlertIntervalRef.current)
+        dashboardAlertIntervalRef.current = null
+      }
+    }
+    return () => {
+      if (dashboardAlertIntervalRef.current) {
+        clearInterval(dashboardAlertIntervalRef.current)
+        dashboardAlertIntervalRef.current = null
+      }
+    }
+  }, [showOfferBanner, playAlert])
 
   const loadData = useCallback(async () => {
     if (!driverCode) return
@@ -2189,29 +2218,10 @@ export default function DriverDashboardByCode() {
   if (summary.active_offer && !respondResult && !isOfferAlreadyAccepted) {
     return (
       <>
-        {/* ── ALERT LAYER: Persistent red banner above OfferScreen ──────────────────── */}
-        {/* Always visible while offer is active, z-[500] to float above OfferScreen */}
-        <div
-          className="fixed top-0 left-0 right-0 z-[500] flex items-center justify-between px-4 animate-pulse"
-          style={{
-            backgroundColor: "#dc2626",
-            paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
-            paddingBottom: "10px",
-            boxShadow: "0 4px 24px #dc262680",
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-white text-base">🔴</span>
-            <span className="text-white font-bold text-sm tracking-wide">
-              {offerAlertCount > 1
-                ? (lang === "es" ? `⚠️ NUEVA SOLICITUD (${offerAlertCount})` : `⚠️ NEW REQUEST (${offerAlertCount})`)
-                : (lang === "es" ? "⚠️ NUEVA SOLICITUD" : "⚠️ NEW RIDE REQUEST")}
-            </span>
-          </div>
-          <div className="text-white text-xs font-semibold bg-white/20 rounded-lg px-3 py-1">
-            {lang === "es" ? "Activa" : "Active"}
-          </div>
-        </div>
+        {/* ── ALERT LAYER: Persistent red banner above OfferScreen ────────────────── */}
+        {/* z-[500] floats above OfferScreen (z-auto) — always visible, cannot be scrolled away */}
+        {/* This banner is redundant with OfferScreen's own banner but provides belt-and-suspenders */}
+        {/* coverage for any edge case where OfferScreen is partially obscured */}
         <OfferScreen
           offer={summary.active_offer}
           driverName={summary.driver_name}
@@ -2315,35 +2325,42 @@ export default function DriverDashboardByCode() {
     <div className="min-h-screen bg-black text-white pb-8"
       style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
 
-      {/* ── ALERT LAYER: Persistent top banner ──────────────────────────────────── */}
+      {/* ── ALERT LAYER: Persistent top banner ────────────────────────────────────── */}
       {/* Visible until driver accepts or declines the offer */}
       {showOfferBanner && (
         <div
-          className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between px-4 py-3 animate-pulse"
+          className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between px-4"
           style={{
             backgroundColor: "#dc2626",
             paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
-            boxShadow: "0 4px 24px #dc262680",
+            paddingBottom: "10px",
+            boxShadow: "0 6px 32px #dc262699",
+            animation: "bannerPulse 1s ease-in-out infinite",
           }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-white text-lg">&#x1F534;</span>
-            <span className="text-white font-bold text-sm tracking-wide">
-              {offerAlertCount > 1
-                ? (lang === "es" ? `⚠️ NUEVA SOLICITUD (${offerAlertCount})` : `⚠️ NEW REQUEST (${offerAlertCount})`)
-                : (lang === "es" ? "⚠️ NUEVA SOLICITUD" : "⚠️ NEW RIDE REQUEST")}
-            </span>
+            <span className="text-white text-xl">🔔</span>
+            <div>
+              <div className="text-white font-black text-sm tracking-widest uppercase">
+                {offerAlertCount > 1
+                  ? (lang === "es" ? `NUEVA SOLICITUD (${offerAlertCount})` : lang === "ht" ? `NOUVO SÈVIS (${offerAlertCount})` : `NEW RIDE REQUEST (${offerAlertCount})`)
+                  : (lang === "es" ? "NUEVA SOLICITUD" : lang === "ht" ? "NOUVO SÈVIS" : "NEW RIDE REQUEST")}
+              </div>
+              <div className="text-red-200 text-xs mt-0.5">
+                {lang === "es" ? "Toca para ver la oferta" : lang === "ht" ? "Klike pou wè òf la" : "Tap to view offer"}
+              </div>
+            </div>
           </div>
           <button
             onClick={() => setShowOfferAlertModal(true)}
-            className="text-white text-xs font-semibold bg-white/20 rounded-lg px-3 py-1.5 active:scale-95 transition-all"
+            className="text-black text-xs font-black bg-white rounded-lg px-4 py-2 active:scale-95 transition-all uppercase tracking-wide"
           >
-            {lang === "es" ? "Ver" : "View"}
+            {lang === "es" ? "VER" : lang === "ht" ? "WÈ" : "VIEW"}
           </button>
         </div>
       )}
 
-      {/* ── ALERT LAYER: Foreground modal (auto-opens on new offer) ───────────────── */}
+      {/* ── ALERT LAYER: Foreground modal (auto-opens on new offer) ─────────────────── */}
       {showOfferAlertModal && summary.active_offer && (
         <div
           className="fixed inset-0 z-[300] flex flex-col items-center justify-center px-6"
@@ -2416,6 +2433,33 @@ export default function DriverDashboardByCode() {
                   ${summary.active_offer.total_price.toFixed(0)}
                 </div>
               </div>
+              {/* Live countdown in the modal */}
+              {summary.active_offer.expires_at && (() => {
+                const expiresAt = new Date(summary.active_offer.expires_at).getTime()
+                const now = Date.now()
+                const secsLeft = Math.max(0, Math.floor((expiresAt - now) / 1000))
+                const mm = String(Math.floor(secsLeft / 60)).padStart(2, "0")
+                const ss = String(secsLeft % 60).padStart(2, "0")
+                const isUrgent = secsLeft <= 30
+                return (
+                  <div
+                    className="flex items-center justify-between pt-2"
+                    style={{ borderTop: "1px solid #dc262630" }}
+                  >
+                    <span className="text-xs uppercase tracking-widest"
+                      style={{ color: isUrgent ? "#ef4444" : "#71717a" }}>
+                      {lang === "es" ? "Aceptar en" : lang === "ht" ? "Aksepte nan" : "Accept within"}
+                    </span>
+                    <span className="font-mono font-black text-xl"
+                      style={{
+                        color: isUrgent ? "#ef4444" : "#f59e0b",
+                        animation: isUrgent ? "pulse 0.5s infinite" : "none",
+                      }}>
+                      {mm}:{ss}
+                    </span>
+                  </div>
+                )
+              })()}
               {offerAlertCount > 1 && (
                 <div
                   className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg"
@@ -3037,12 +3081,12 @@ function OfferScreen({
     if (expired || responding) return
     // Play immediately on mount
     playOfferBeep()
-    // Repeat every 8 seconds while offer is active
+    // Repeat every 5 seconds while offer is active (dispatcher-grade alert)
     alertIntervalRef.current = setInterval(() => {
       playOfferBeep()
-      // Vibrate on repeat too
-      try { if (navigator.vibrate) navigator.vibrate([150, 80, 150]) } catch {}
-    }, 8000)
+      // Vibrate on repeat too — urgent double-pulse pattern
+      try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]) } catch {}
+    }, 5000)
     return () => {
       if (alertIntervalRef.current) clearInterval(alertIntervalRef.current)
     }
@@ -3101,17 +3145,29 @@ function OfferScreen({
       {/* ── URGENT ALERT BANNER ── */}
       {!expired && !responding && (
         <div
-          className="flex items-center justify-center gap-3 px-4 py-2.5 flex-shrink-0"
+          className="flex items-center justify-center gap-3 px-4 flex-shrink-0"
           style={{
-            backgroundColor: flashOn ? GOLD : "#1a1200",
-            transition: "background-color 0.3s ease",
+            backgroundColor: flashOn ? "#dc2626" : "#7f1d1d",
+            transition: "background-color 0.25s ease",
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
+            paddingBottom: "10px",
+            boxShadow: flashOn ? "0 4px 32px #dc262699" : "0 2px 8px #dc262640",
           }}>
-          <span className="text-lg">🔔</span>
-          <span className="text-sm font-black tracking-widest uppercase"
-            style={{ color: flashOn ? "#000" : GOLD }}>
+          <span className="text-xl animate-bounce">🔔</span>
+          <span className="font-black tracking-widest uppercase"
+            style={{ color: "#fff", fontSize: 15, letterSpacing: "0.12em" }}>
             {t.newRideOffer}
           </span>
-          <span className="text-lg">🔔</span>
+          <span className="text-xl animate-bounce">🔔</span>
+        </div>
+      )}
+      {/* Expired banner */}
+      {expired && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2.5 flex-shrink-0"
+          style={{ backgroundColor: "#27272a", paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px" }}>
+          <span className="text-xs uppercase tracking-widest text-zinc-500 font-semibold">
+            {lang === "es" ? "Oferta Expirada" : lang === "ht" ? "Òf Ekspire" : "Offer Expired"}
+          </span>
         </div>
       )}
 
@@ -3216,17 +3272,18 @@ function OfferScreen({
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs uppercase tracking-widest"
               style={{ color: hasExpiry ? timerColor : "#71717a" }}>
-              {t.timeRemaining}
+              {hasExpiry && !expired ? t.timeRemaining : (expired ? (lang === "es" ? "Expirado" : lang === "ht" ? "Ekspire" : "Expired") : t.timeRemaining)}
             </span>
             <span
               className="font-mono font-black tabular-nums"
               style={{
                 color: timerColor,
-                fontSize: hasExpiry && secondsLeft <= 20 ? 28 : 24,
+                fontSize: hasExpiry && secondsLeft <= 20 ? 32 : 26,
                 // Pulse when under 20s
                 animation: hasExpiry && secondsLeft <= 20 && !expired ? "pulse 0.5s infinite" : "none",
+                textShadow: hasExpiry && secondsLeft <= 30 && !expired ? `0 0 12px ${timerColor}80` : "none",
               }}>
-              {hasExpiry ? `${mm}:${ss}` : (lang === "es" ? "En espera" : "Awaiting")}
+              {hasExpiry ? `${mm}:${ss}` : (lang === "es" ? "En espera" : lang === "ht" ? "Ap tann" : "Awaiting")}
             </span>
           </div>
           {hasExpiry && (
