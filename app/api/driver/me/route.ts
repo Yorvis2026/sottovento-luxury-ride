@@ -113,14 +113,14 @@ export async function GET(req: NextRequest) {
           b.total_price,
           b.dispatch_status,
           b.client_id,
-          b.passengers,
-          b.luggage,
+          b.passenger_count,
+          b.luggage_count,
           b.notes,
-          COALESCE(c.full_name, b.client_name_override) AS client_name,
-          COALESCE(c.phone, b.client_phone_override) AS client_phone
+          b.flight_number,
+          b.client_name,
+          b.client_phone
         FROM dispatch_offers dof
         JOIN bookings b ON b.id = dof.booking_id
-        LEFT JOIN clients c ON c.id = b.client_id
         WHERE dof.driver_id = ${driver.id}::uuid
           AND dof.response = 'pending'
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
@@ -154,9 +154,10 @@ export async function GET(req: NextRequest) {
           offer_round: o.offer_round ?? 1,
           client_name: o.client_name ?? null,
           client_phone: o.client_phone ?? null,
-          passengers: o.passengers ?? null,
-          luggage: o.luggage ?? null,
+          passengers: o.passenger_count ?? null,
+          luggage: o.luggage_count ?? null,
           notes: o.notes ?? null,
+          flight_number: o.flight_number ?? null,
           bookings_count,
         };
       }
