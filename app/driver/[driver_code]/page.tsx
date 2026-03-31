@@ -479,6 +479,7 @@ interface DriverSummary {
   driver_name: string
   driver_code: string
   driver_status: string
+  availability_status: 'offline' | 'available' | 'busy'
   total_clients: number
   month_earnings: number
   lifetime_earnings: number
@@ -635,6 +636,9 @@ export default function DriverDashboardByCode() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // ── Availability Engine ──────────────────────────────────────────
+  const [availabilityToggling, setAvailabilityToggling] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const [responding, setResponding] = useState(false)
@@ -881,6 +885,7 @@ export default function DriverDashboardByCode() {
         driver_name: d.full_name,
         driver_code: d.driver_code,
         driver_status: d.driver_status,
+        availability_status: (d.availability_status ?? 'offline') as 'offline' | 'available' | 'busy',
         total_clients: d.stats?.total_clients ?? 0,
         month_earnings: d.stats?.month_earnings ?? 0,
         lifetime_earnings: d.stats?.lifetime_earnings ?? 0,
@@ -927,20 +932,63 @@ export default function DriverDashboardByCode() {
   useEffect(() => {
     loadData()
     pollRef.current = setInterval(loadData, POLL_INTERVAL)
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [loadData])
-  // ── Visibility: immediate loadData when driver returns to app tab ──────────────
+    // ── Availability Engine: panel open → available ───────────────────────────────────────
+    // When the driver opens the panel, set availability_status = 'available'
+    // so they are eligible to receive dispatch offers.
+    // Fire-and-forget: does NOT block render or polling.
+    if (driverCode) {
+      fetch('/api/driver/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_code: driverCode, status: 'available' }),
+      }).catch(() => {})
+    }
+    // ── Availability Engine: panel close → offline ───────────────────────────────────────
+    // When the driver closes the panel (tab close, navigation away), set offline.
+    // Uses pagehide (more reliable than beforeunload on Safari/iOS).
+    const handlePageHide = () => {
+      if (driverCode) {
+        // Use sendBeacon for reliable delivery on page unload
+        const payload = JSON.stringify({ driver_code: driverCode, status: 'offline' })
+        if (navigator.sendBeacon) {
+          const blob = new Blob([payload], { type: 'application/json' })
+          navigator.sendBeacon('/api/driver/availability', blob)
+        } else {
+          fetch('/api/driver/availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {})
+        }
+      }
+    }
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [loadData, driverCode])
+  // ── Visibility: immediate loadData + re-available when driver returns to app tab ──────────────
   // Ensures offer appears instantly when driver opens the PWA from background.
   // Without this, the driver would wait up to POLL_INTERVAL (5s) to see a new offer.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         loadData()
+        // Re-set available when driver returns to the tab (unless busy with a ride)
+        if (driverCode) {
+          fetch('/api/driver/availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ driver_code: driverCode, status: 'available' }),
+          }).catch(() => {})
+        }
       }
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [loadData])
+  }, [loadData, driverCode])
   // ── Heartbeat: trigger server-side cron every 60s while panel is visible ─
   // Simulates Vercel Pro cron frequency on Hobby plan.
   // Covers: offer expiry for drivers who closed the app / lost signal.
@@ -1013,6 +1061,37 @@ export default function DriverDashboardByCode() {
       }
     }
   }, [])
+
+  // ── Availability Engine: manual toggle ──────────────────────────────────────────
+  // Driver can manually toggle between available and offline.
+  // Cannot toggle to offline while a ride is in progress (busy state).
+  const toggleAvailability = async () => {
+    if (!summary || availabilityToggling) return
+    // Cannot manually toggle if busy (ride in progress)
+    if (summary.availability_status === 'busy') return
+    const newStatus = summary.availability_status === 'available' ? 'offline' : 'available'
+    setAvailabilityToggling(true)
+    setAvailabilityError(null)
+    try {
+      const res = await fetch('/api/driver/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_code: summary.driver_code, status: newStatus }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setAvailabilityError(data.error)
+        setTimeout(() => setAvailabilityError(null), 4000)
+      } else {
+        // Optimistically update local state
+        setSummary((prev) => prev ? { ...prev, availability_status: newStatus as 'offline' | 'available' | 'busy' } : prev)
+      }
+    } catch {
+      setAvailabilityError('Failed to update availability')
+      setTimeout(() => setAvailabilityError(null), 4000)
+    }
+    setAvailabilityToggling(false)
+  }
 
   const respondOffer = async (response: "accepted" | "declined") => {
     if (!summary?.active_offer || responding) return
@@ -2377,15 +2456,60 @@ export default function DriverDashboardByCode() {
         </div>
         <div className="flex items-center gap-3">
           <LangToggle lang={lang} onLang={setLangAndSave} />
-          <div className="text-right">
+          <div className="flex flex-col items-end gap-1.5">
             <div className="text-sm font-medium" style={{ color: GOLD }}>{summary.driver_name}</div>
-            <div className="text-xs px-2 py-0.5 rounded-full inline-block mt-0.5"
+            {/* ── Availability Toggle (Uber-style) ────────────────────────────────────────── */}
+            {/* States: available (green), offline (red), busy (amber — system-controlled) */}
+            <button
+              onClick={toggleAvailability}
+              disabled={availabilityToggling || summary.availability_status === 'busy'}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full transition-all"
               style={{
-                backgroundColor: summary.driver_status === "active" ? "#14532d" : "#7f1d1d",
-                color: summary.driver_status === "active" ? "#4ade80" : "#f87171",
-              }}>
-              {summary.driver_status === "active" ? t.youAreOnline : t.youAreOffline}
-            </div>
+                backgroundColor:
+                  summary.availability_status === 'available' ? '#14532d' :
+                  summary.availability_status === 'busy'      ? '#78350f' :
+                  '#1c1c1e',
+                border: '1px solid',
+                borderColor:
+                  summary.availability_status === 'available' ? '#16a34a' :
+                  summary.availability_status === 'busy'      ? '#d97706' :
+                  '#3f3f46',
+                opacity: availabilityToggling ? 0.6 : 1,
+                cursor: summary.availability_status === 'busy' ? 'not-allowed' : 'pointer',
+              }}
+              title={summary.availability_status === 'busy' ? 'Busy — complete your ride first' : 'Toggle availability'}
+            >
+              {/* Toggle pill */}
+              <div className="relative w-8 h-4 rounded-full transition-all"
+                style={{
+                  backgroundColor:
+                    summary.availability_status === 'available' ? '#22c55e' :
+                    summary.availability_status === 'busy'      ? '#f59e0b' :
+                    '#52525b',
+                }}>
+                <div className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                  style={{
+                    left: summary.availability_status === 'available' || summary.availability_status === 'busy' ? '17px' : '2px',
+                  }} />
+              </div>
+              {/* Label */}
+              <span className="text-xs font-semibold tracking-wide"
+                style={{
+                  color:
+                    summary.availability_status === 'available' ? '#4ade80' :
+                    summary.availability_status === 'busy'      ? '#fbbf24' :
+                    '#71717a',
+                }}>
+                {availabilityToggling ? '...' :
+                  summary.availability_status === 'available' ? (lang === 'es' ? 'Disponible' : 'Available') :
+                  summary.availability_status === 'busy'      ? (lang === 'es' ? 'En Viaje' : 'On Ride') :
+                  (lang === 'es' ? 'Inactivo' : 'Offline')}
+              </span>
+            </button>
+            {/* Error toast */}
+            {availabilityError && (
+              <div className="text-xs text-red-400 mt-0.5 max-w-32 text-right">{availabilityError}</div>
+            )}
           </div>
         </div>
       </div>

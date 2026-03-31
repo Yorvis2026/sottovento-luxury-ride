@@ -203,6 +203,17 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      // ── Availability Engine: driver is now busy ──────────────────────
+      // Set availability_status = 'busy' so no new dispatch offers are sent
+      // while this driver is executing an active ride.
+      try {
+        await sql`
+          UPDATE drivers
+          SET availability_status = 'busy', updated_at = NOW()
+          WHERE id = ${body.driver_id}::uuid
+        `;
+      } catch { /* non-blocking — column may not exist yet on first deploy */ }
+
       const response: RespondOfferResponse = {
         booking_id: booking.id,
         assigned_driver_id: body.driver_id,
@@ -357,6 +368,9 @@ async function dispatchToNetwork(
 
     // Find next eligible active driver not in declined list
     // NOTE: service_types may be NULL for some drivers — treat NULL as universally eligible
+    // AVAILABILITY ENGINE: Only dispatch to drivers with availability_status = 'available'
+    // Drivers who are 'offline' or 'busy' (executing another ride) are excluded.
+    // COALESCE fallback: if column doesn't exist yet, treat all active drivers as available.
     const candidateRows = await sql`
       SELECT id, driver_code, full_name
       FROM drivers
@@ -364,6 +378,7 @@ async function dispatchToNetwork(
         AND is_eligible = true
         AND (license_expires_at IS NULL OR license_expires_at > NOW())
         AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
+        AND COALESCE(availability_status, 'available') = 'available'
         AND id NOT IN (
           SELECT unnest(${declinedIds.length > 0 ? declinedIds : ['00000000-0000-0000-0000-000000000000']}::uuid[])
         )

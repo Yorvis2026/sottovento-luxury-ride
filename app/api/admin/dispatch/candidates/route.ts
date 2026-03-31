@@ -82,7 +82,8 @@ export async function GET(req: NextRequest) {
         COALESCE(d.rides_completed, 0)::integer                 AS rides_completed,
         COALESCE(d.on_time_rides, 0)::integer                   AS on_time_rides,
         COALESCE(d.late_cancel_count, 0)::integer               AS late_cancel_count,
-        COALESCE(d.complaint_count, 0)::integer                 AS complaint_count
+        COALESCE(d.complaint_count, 0)::integer                 AS complaint_count,
+        COALESCE(d.availability_status, 'offline')              AS availability_status
       FROM drivers d
       WHERE d.driver_status IN ('active', 'provisional')
         AND d.is_eligible = true
@@ -166,6 +167,7 @@ export async function GET(req: NextRequest) {
         complaint_recent:                 behavior.complaint,
         no_response_recent:               behavior.no_response,
         vehicle:                          vehicleMap[d.id] ?? null,
+        availability_status:              d.availability_status ?? 'offline',
       };
     });
 

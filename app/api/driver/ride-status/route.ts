@@ -321,6 +321,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Availability Engine: update driver availability on terminal states ──
+    // completed / cancelled / no_show → driver goes back to available
+    // (they are no longer executing a ride, so they can receive new offers)
+    if (["completed", "cancelled", "no_show"].includes(new_status)) {
+      try {
+        await sql`
+          UPDATE drivers
+          SET availability_status = 'available', updated_at = NOW()
+          WHERE id = ${driver_id}::uuid
+        `;
+      } catch { /* non-blocking — column may not exist yet on first deploy */ }
+    }
+
     return NextResponse.json({
       success: true,
       booking_id,

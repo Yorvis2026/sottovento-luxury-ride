@@ -31,6 +31,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "code is required" }, { status: 400 });
     }
 
+    // ── Ensure availability_status column exists (idempotent migration) ──
+    try {
+      await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS availability_status TEXT NOT NULL DEFAULT 'offline'`;
+    } catch { /* already exists */ }
+
     // ── Load driver ──────────────────────────────────────────
     const rows = await sql`
       SELECT
@@ -41,6 +46,7 @@ export async function GET(req: NextRequest) {
         email,
         driver_status,
         is_eligible,
+        COALESCE(availability_status, 'offline') AS availability_status,
         created_at
       FROM drivers
       WHERE driver_code = ${code.toUpperCase()}
