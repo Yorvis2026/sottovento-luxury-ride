@@ -211,6 +211,10 @@ export async function GET(req: NextRequest) {
           dropoff_address,
           pickup_zone,
           dropoff_zone,
+          pickup_lat,
+          pickup_lng,
+          dropoff_lat,
+          dropoff_lng,
           pickup_at,
           vehicle_type,
           total_price,
@@ -389,6 +393,10 @@ export async function GET(req: NextRequest) {
           updated_at: r.updated_at ?? null,
           captured_by_driver_code: r.captured_by_driver_code ?? null,
           offer_expires_at: r.offer_expires_at ?? null,
+          pickup_lat: r.pickup_lat ? Number(r.pickup_lat) : null,
+          pickup_lng: r.pickup_lng ? Number(r.pickup_lng) : null,
+          dropoff_lat: r.dropoff_lat ? Number(r.dropoff_lat) : null,
+          dropoff_lng: r.dropoff_lng ? Number(r.dropoff_lng) : null,
         };
       }
     } catch (assignErr: any) {

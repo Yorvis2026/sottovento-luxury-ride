@@ -419,6 +419,10 @@ interface ActiveRide {
   updated_at?: string | null
   dispatch_status?: string | null
   offer_expires_at?: string | null
+  pickup_lat?: number | null
+  pickup_lng?: number | null
+  dropoff_lat?: number | null
+  dropoff_lng?: number | null
 }
 
 interface UpcomingRide {
@@ -659,6 +663,20 @@ export default function DriverDashboardByCode() {
   // Shows real-time minutes overdue in RideFlowScreen when pickup_at has passed
   const [overdueSeconds, setOverdueSeconds] = useState<number>(0)
   const overdueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // ── Geofence Override Modal ───────────────────────────────────────────────
+  // Shown when driver tries to trigger arrived/start_trip/complete_trip
+  // while not within the allowed radius of pickup/dropoff.
+  // Persists: driver coords, expected coords, distance, timestamp, override_confirmed=true
+  const [showGeoModal, setShowGeoModal] = useState(false)
+  const [geoModalData, setGeoModalData] = useState<{
+    action: RideStatus
+    message: string
+    driverLat: number
+    driverLng: number
+    targetLat: number
+    targetLng: number
+    distanceMeters: number
+  } | null>(null)
   // ── Cancel Reason Modal (Fases 1-9) ──────────────────────────────────────
   // showCancelModal: shows the cancel reason selection modal
   // cancelReason: selected reason key
@@ -1059,7 +1077,18 @@ export default function DriverDashboardByCode() {
     })
   }, [])
 
-  // ── Execute the actual ride transition ────────────────────────────
+  // ── Haversine distance (meters) between two GPS coords ──────────────────────────────
+  const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371000 // Earth radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLng = (lng2 - lng1) * Math.PI / 180
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng/2) * Math.sin(dLng/2)
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  }
+
+  // ── Execute the actual ride transition ────────────────────────────────────
   const executeTransition = async (newStatus: RideStatus, overrideType?: string) => {
     if (!summary?.assigned_ride || transitioning) return
     setTransitioning(true)
@@ -1134,6 +1163,50 @@ export default function DriverDashboardByCode() {
         setShowOverdueModal(true)
         setPendingTransition(newStatus)
         return
+      }
+    }
+
+    // ── GEOFENCE GUARDRAIL: validate driver proximity for critical state transitions ────────────────────────────────────
+    // Actions: arrived (pickup), in_trip (pickup), completed (dropoff)
+    // Radius: 300m for arrived/in_trip (pickup), 500m for completed (dropoff)
+    // If outside radius: show GeoModal with override option
+    // All overrides are persisted in audit_logs with override_type='geo_override'
+    if (["arrived", "in_trip", "completed"].includes(newStatus)) {
+      const ride = summary.assigned_ride
+      const coords = await getGPS()
+      if (coords) {
+        const isPickupAction = newStatus === "arrived" || newStatus === "in_trip"
+        const targetLat = isPickupAction ? ride.pickup_lat : ride.dropoff_lat
+        const targetLng = isPickupAction ? ride.pickup_lng : ride.dropoff_lng
+        if (targetLat != null && targetLng != null) {
+          const distanceMeters = haversineDistance(coords.lat, coords.lng, targetLat, targetLng)
+          const allowedRadius = newStatus === "completed" ? 500 : 300 // meters
+          if (distanceMeters > allowedRadius) {
+            const geoMessages: Record<string, string> = {
+              arrived: lang === "es"
+                ? `No estás en el punto de recogida. ¿Deseas continuar de todas formas? (${Math.round(distanceMeters)}m de distancia)`
+                : `You are not at the exact pickup point. Continue anyway? (${Math.round(distanceMeters)}m away)`,
+              in_trip: lang === "es"
+                ? `No estás en el punto de recogida. ¿Seguro que deseas iniciar el viaje? (${Math.round(distanceMeters)}m de distancia)`
+                : `You are not at the pickup point. Are you sure you want to start the ride? (${Math.round(distanceMeters)}m away)`,
+              completed: lang === "es"
+                ? `No estás cerca del destino. ¿Seguro que deseas finalizar el viaje? (${Math.round(distanceMeters)}m de distancia)`
+                : `You are not near the drop-off point. Are you sure you want to complete the ride? (${Math.round(distanceMeters)}m away)`,
+            }
+            setGeoModalData({
+              action: newStatus,
+              message: geoMessages[newStatus] ?? geoMessages.arrived,
+              driverLat: coords.lat,
+              driverLng: coords.lng,
+              targetLat,
+              targetLng,
+              distanceMeters: Math.round(distanceMeters),
+            })
+            setPendingTransition(newStatus)
+            setShowGeoModal(true)
+            return
+          }
+        }
       }
     }
 
@@ -1472,7 +1545,77 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────
+  // ── GEOFENCE OVERRIDE MODAL ─────────────────────────────────────────────────────────────────────────────────
+  // Shown when driver is outside allowed radius for arrived/start_trip/complete_trip
+  if (showGeoModal && geoModalData) {
+    const actionLabels: Record<string, string> = {
+      arrived:   lang === "es" ? "Llegada al punto de recogida" : "Arrived at Pickup",
+      in_trip:   lang === "es" ? "Inicio del viaje" : "Start Trip",
+      completed: lang === "es" ? "Finalizar viaje" : "Complete Ride",
+    }
+    const actionLabel = actionLabels[geoModalData.action] ?? geoModalData.action
+    const distanceText = geoModalData.distanceMeters >= 1000
+      ? `${(geoModalData.distanceMeters / 1000).toFixed(1)} km`
+      : `${geoModalData.distanceMeters} m`
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/90 px-6 z-50"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-orange-500/40 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+            <div className="text-2xl">📍</div>
+            <div>
+              <div className="text-sm font-semibold text-orange-400">
+                {lang === "es" ? "Fuera del área permitida" : "Outside Allowed Area"}
+              </div>
+              <div className="text-xs text-zinc-500">{actionLabel}</div>
+            </div>
+          </div>
+          {/* Body */}
+          <div className="px-5 py-4">
+            <div className="text-sm text-zinc-300 mb-3">{geoModalData.message}</div>
+            <div className="bg-orange-500/10 rounded-lg px-3 py-2 mb-4 space-y-1">
+              <div className="text-xs text-orange-400/80">
+                {lang === "es" ? `Distancia al punto esperado: ` : `Distance to expected point: `}
+                <span className="font-semibold">{distanceText}</span>
+              </div>
+              <div className="text-xs text-zinc-500">
+                {lang === "es"
+                  ? "Si confirmas, la acción quedará registrada con tus coordenadas GPS actuales."
+                  : "If you confirm, the action will be logged with your current GPS coordinates."}
+              </div>
+            </div>
+          </div>
+          {/* Actions */}
+          <div className="px-5 pb-5 space-y-2">
+            <button
+              onClick={() => {
+                setShowGeoModal(false)
+                if (pendingTransition) {
+                  executeTransition(pendingTransition, "geo_override")
+                  setPendingTransition(null)
+                  setGeoModalData(null)
+                }
+              }}
+              className="w-full py-3.5 rounded-xl text-sm font-semibold border border-orange-500/60 text-orange-400 transition-all active:scale-95">
+              {lang === "es" ? "Confirmar de todas formas" : "Confirm Anyway"}
+            </button>
+            <button
+              onClick={() => {
+                setShowGeoModal(false)
+                setPendingTransition(null)
+                setGeoModalData(null)
+              }}
+              className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm transition-all active:scale-95">
+              {lang === "es" ? "Cancelar" : "Cancel"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────────────────────────
   if (showEarlyStartModal && summary?.assigned_ride) {
     const pickupTime = summary.assigned_ride.pickup_datetime
       ? new Date(summary.assigned_ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
