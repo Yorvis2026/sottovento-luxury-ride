@@ -52,14 +52,15 @@ export async function GET(req: NextRequest) {
           b.total_price,
           b.dispatch_status,
           b.client_id,
-          b.passenger_count,
-          b.luggage_count,
+          COALESCE(b.passenger_count, b.passengers, 1) AS passenger_count,
+          COALESCE(b.luggage_count, 0) AS luggage_count,
           b.notes,
           b.flight_number,
-          b.client_name,
-          b.client_phone
+          c.full_name AS client_name,
+          c.phone AS client_phone
         FROM dispatch_offers dof
         JOIN bookings b ON b.id = dof.booking_id
+        LEFT JOIN clients c ON c.id = b.client_id
         WHERE dof.driver_id = ${driver_id}::uuid
           AND dof.response = 'pending'
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
