@@ -114,7 +114,7 @@ export async function GET(req: NextRequest) {
           b.dispatch_status
         FROM dispatch_offers dof
         JOIN bookings b ON b.id = dof.booking_id
-        WHERE dof.driver_id = ${driver.id}
+        WHERE dof.driver_id = ${driver.id}::uuid
           AND dof.response = 'pending'
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
           AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
@@ -157,9 +157,9 @@ export async function GET(req: NextRequest) {
             offer_expires_at
           FROM bookings
           WHERE (
-            (dispatch_status = 'awaiting_driver_response' AND assigned_driver_id = ${driver.id})
-            OR (dispatch_status = 'awaiting_source_owner' AND source_driver_id = ${driver.id})
-            OR (dispatch_status = 'awaiting_sln_member' AND assigned_driver_id = ${driver.id})
+            (dispatch_status = 'awaiting_driver_response' AND assigned_driver_id = ${driver.id}::uuid)
+            OR (dispatch_status = 'awaiting_source_owner' AND source_driver_id = ${driver.id}::uuid)
+            OR (dispatch_status = 'awaiting_sln_member' AND assigned_driver_id = ${driver.id}::uuid)
           )
           -- CRITICAL FIX: 'assigned' was excluded here, but auto-assigned bookings have
           -- status='assigned' AND dispatch_status='offer_pending'. They ARE valid offers.
@@ -228,7 +228,7 @@ export async function GET(req: NextRequest) {
           captured_by_driver_code,
           offer_expires_at
         FROM bookings
-        WHERE assigned_driver_id = ${driver.id}
+        WHERE assigned_driver_id = ${driver.id}::uuid
           -- Primary guard: exclude all finalized states by status
           AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
