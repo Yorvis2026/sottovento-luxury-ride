@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
 
     // Load driver
     const driverRows = await sql`
-      SELECT id, driver_code, driver_status, assigned_driver_id,
+      SELECT id, driver_code, driver_status,
              COALESCE(availability_status, 'offline') AS availability_status
       FROM drivers
       WHERE driver_code = ${driver_code.toUpperCase()}
