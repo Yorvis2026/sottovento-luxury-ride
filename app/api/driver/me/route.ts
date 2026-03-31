@@ -286,7 +286,7 @@ export async function GET(req: NextRequest) {
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND pickup_at IS NOT NULL
-              AND pickup_at >= NOW() - INTERVAL '6 hours'
+              AND pickup_at >= NOW() - INTERVAL '24 hours'
               AND pickup_at <= NOW() + INTERVAL '120 minutes'
             )
             OR
@@ -294,7 +294,7 @@ export async function GET(req: NextRequest) {
               status = 'assigned'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND pickup_at IS NOT NULL
-              AND pickup_at >= NOW() - INTERVAL '6 hours'
+              AND pickup_at >= NOW() - INTERVAL '24 hours'
               AND pickup_at <= NOW() + INTERVAL '120 minutes'
             )
           )
