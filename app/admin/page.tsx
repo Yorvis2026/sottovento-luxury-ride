@@ -2484,6 +2484,48 @@ export default function AdminPanel() {
                               <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10 }}>COMPLAINTS: {d.complaint_count}</span>
                             )}
                           </div>
+                          {/* BM5: Legal Affiliation Type Selector (Admin Only) */}
+                          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: "#888", letterSpacing: 1 }}>FLEET AFFILIATION:</span>
+                            <select
+                              value={d.legal_affiliation_type ?? "GENERAL_NETWORK_DRIVER"}
+                              onChange={async (e) => {
+                                const newAff = e.target.value;
+                                try {
+                                  const res = await fetch(`/api/admin/drivers/${d.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ legal_affiliation_type: newAff }),
+                                  });
+                                  if (res.ok) {
+                                    loadDrivers();
+                                  }
+                                } catch {}
+                              }}
+                              style={{
+                                background: d.legal_affiliation_type === "SOTTOVENTO_LEGAL_FLEET"
+                                  ? "#1a0a2e"
+                                  : d.legal_affiliation_type === "PARTNER_LEGAL_FLEET"
+                                  ? "#0c2340"
+                                  : "#1a1a1a",
+                                color: d.legal_affiliation_type === "SOTTOVENTO_LEGAL_FLEET"
+                                  ? "#c9a84c"
+                                  : d.legal_affiliation_type === "PARTNER_LEGAL_FLEET"
+                                  ? "#38bdf8"
+                                  : "#888",
+                                border: `1px solid ${d.legal_affiliation_type === "SOTTOVENTO_LEGAL_FLEET" ? "#c9a84c" : d.legal_affiliation_type === "PARTNER_LEGAL_FLEET" ? "#38bdf8" : "#333"}`,
+                                borderRadius: 6,
+                                padding: "4px 8px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <option value="SOTTOVENTO_LEGAL_FLEET">⚡ SOTTOVENTO LEGAL FLEET</option>
+                              <option value="PARTNER_LEGAL_FLEET">🤝 PARTNER LEGAL FLEET</option>
+                              <option value="GENERAL_NETWORK_DRIVER">🌐 GENERAL NETWORK DRIVER</option>
+                            </select>
+                          </div>
                         </div>
                       );
                     })()}

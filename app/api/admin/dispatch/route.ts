@@ -411,6 +411,66 @@ export async function GET() {
             `.catch(() => {});
           }
 
+          // ── BM5 Event Logging — dispatch_event_log ─────────────────────────
+          const topRankedForLog = engineResult.ranked[0];
+          if (topRankedForLog) {
+            // Log dispatch_priority_applied
+            sql`
+              INSERT INTO dispatch_event_log (
+                booking_id, driver_id, event_type, priority_level,
+                legal_affiliation_type, reliability_score, notes, created_at
+              ) VALUES (
+                ${candidate.id}::uuid,
+                ${topRankedForLog.id}::uuid,
+                'dispatch_priority_applied',
+                ${topRankedForLog.dispatch_priority_rank},
+                ${topRankedForLog.legal_affiliation_type ?? 'GENERAL_NETWORK_DRIVER'},
+                ${topRankedForLog.reliability_score ?? 65},
+                ${topRankedForLog.priority_reason},
+                NOW()
+              )
+            `.catch(() => {});
+
+            // Log captor_offer_sent if source driver override
+            if (engineResult.source_driver_override) {
+              sql`
+                INSERT INTO dispatch_event_log (
+                  booking_id, driver_id, event_type, priority_level,
+                  legal_affiliation_type, reliability_score, notes, created_at
+                ) VALUES (
+                  ${candidate.id}::uuid,
+                  ${topRankedForLog.id}::uuid,
+                  'captor_offer_sent',
+                  1,
+                  ${topRankedForLog.legal_affiliation_type ?? 'GENERAL_NETWORK_DRIVER'},
+                  ${topRankedForLog.reliability_score ?? 65},
+                  'CAPTURE_PRIORITY_ABSOLUTE — captor offered first',
+                  NOW()
+                )
+              `.catch(() => {});
+            }
+
+            // Log legal_affiliation_override if SOTTOVENTO_LEGAL_FLEET was prioritized
+            if (topRankedForLog.legal_affiliation_type === 'SOTTOVENTO_LEGAL_FLEET' &&
+                engineResult.ranked.some(r => r.legal_affiliation_type === 'GENERAL_NETWORK_DRIVER')) {
+              sql`
+                INSERT INTO dispatch_event_log (
+                  booking_id, driver_id, event_type, priority_level,
+                  legal_affiliation_type, reliability_score, notes, created_at
+                ) VALUES (
+                  ${candidate.id}::uuid,
+                  ${topRankedForLog.id}::uuid,
+                  'legal_affiliation_override',
+                  1,
+                  'SOTTOVENTO_LEGAL_FLEET',
+                  ${topRankedForLog.reliability_score ?? 65},
+                  'SOTTOVENTO_LEGAL_FLEET prioritized over GENERAL_NETWORK_DRIVER',
+                  NOW()
+                )
+              `.catch(() => {});
+            }
+          }
+
           // Pick top-ranked driver
           const topDriver = engineResult.ranked[0];
           if (!topDriver) continue; // No eligible driver found
