@@ -627,6 +627,7 @@ export default function DriverDashboardByCode() {
     total_price: number
     pickup_datetime: string | null
     client_name: string
+    cached_at?: string
   } | null>(() => {
     if (typeof window === 'undefined') return null
     try {
@@ -952,7 +953,7 @@ export default function DriverDashboardByCode() {
             dropoff_location: activeRide.dropoff_location,
             total_price: activeRide.total_price,
             pickup_datetime: activeRide.pickup_datetime ?? null,
-            client_name: activeRide.client_name,
+            client_name: activeRide.client_name ?? "",
             cached_at: new Date().toISOString(),
           }
           localStorage.setItem(cacheKey, JSON.stringify(cachePayload))
@@ -2134,7 +2135,7 @@ export default function DriverDashboardByCode() {
   }
 
   // ── CANCEL REASON MODAL ────────────────────────────────────────────
-  if (showCancelModal) {lModal) {
+  if (showCancelModal) {
     const CANCEL_REASONS = [
       { key: "PASSENGER_NO_SHOW",  label: lang === "es" ? "Pasajero no se presentó"   : lang === "ht" ? "Pasaje pa parèt"        : "Passenger No-Show",      icon: "🚶" },
       { key: "PASSENGER_REQUESTED",label: lang === "es" ? "Pasajero solicitó cancelar" : lang === "ht" ? "Pasaje mande kanselasyon" : "Passenger Requested",    icon: "📞" },
