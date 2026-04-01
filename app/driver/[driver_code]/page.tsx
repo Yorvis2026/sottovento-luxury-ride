@@ -428,6 +428,12 @@ interface ActiveRide {
   driver_exit_reason?: string | null
   driver_exit_at?: string | null
   driver_exit_case?: string | null
+  // Bloque 2: Post-Accept Guardrail fields
+  risk_source?: string | null
+  auto_escalated_at?: string | null
+  auto_escalation_case?: string | null
+  accepted_at?: string | null
+  is_at_risk?: boolean
 }
 
 interface UpcomingRide {
@@ -4015,23 +4021,41 @@ function RideFlowScreen({
               </button>
             )}
 
-            {/* ── AT-RISK BANNER (Bloque 1) ────────────────────────────────────────── */}
-            {/* Shown when dispatch has flagged this ride as at-risk */}
-            {ride.at_risk_flagged_at && (
-              <div className="flex items-start gap-3 px-4 py-3 rounded-xl animate-pulse"
-                style={{ backgroundColor: "#7c2d1220", border: "1px solid #f9731640" }}>
+            {/* ── AT-RISK BANNER (Bloque 2: Post-Accept Guardrail) ──────────────────── */}
+            {/* Shown when the guardrail has auto-escalated this ride */}
+            {(ride.is_at_risk || ride.at_risk_flagged_at) && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
+                style={{ backgroundColor: "#7c2d1230", border: "1px solid #f9731660", animation: "bannerPulse 1.5s ease-in-out infinite" }}>
                 <span className="text-xl flex-shrink-0">🚨</span>
-                <div>
-                  <div className="text-sm font-semibold text-orange-400">
-                    {lang === "es" ? "Despacho en alerta" : lang === "ht" ? "Dispach an alèt" : "Dispatch Alert"}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-orange-400">
+                    {lang === "es" ? "Alerta de Despacho" : lang === "ht" ? "Alèt Dispach" : "Dispatch Alert"}
                   </div>
-                  <div className="text-xs text-zinc-400 mt-0.5">
-                    {lang === "es"
-                      ? "El despacho está monitoreando este servicio. Confirma tu estado."
-                      : lang === "ht"
-                      ? "Dispach ap surveye sèvis sa. Konfime éta ou."
-                      : "Dispatch is monitoring this ride. Please confirm your status."}
+                  <div className="text-xs text-zinc-300 mt-0.5 leading-relaxed">
+                    {ride.auto_escalation_case === 'C'
+                      ? (lang === "es"
+                          ? "Reasignación crítica en curso. Confirma tu estado inmediatamente."
+                          : lang === "ht"
+                          ? "Reasiyasyon kritik an kous. Konfime eta ou imedyatman."
+                          : "Critical reassignment in progress. Confirm your status immediately.")
+                      : ride.auto_escalation_case === 'B'
+                      ? (lang === "es"
+                          ? "Reasignación urgente iniciada. El despacho está monitoreando."
+                          : lang === "ht"
+                          ? "Reasiyasyon ijans kòmanse. Dispach ap surveye."
+                          : "Urgent reassignment initiated. Dispatch is monitoring.")
+                      : (lang === "es"
+                          ? "El despacho está monitoreando este servicio. Confirma tu estado."
+                          : lang === "ht"
+                          ? "Dispach ap surveye sèvis sa. Konfime eta ou."
+                          : "Dispatch is monitoring this ride. Please confirm your status.")}
                   </div>
+                  {ride.risk_source === 'post_accept_guardrail' && (
+                    <div className="text-xs text-orange-500/70 mt-1 font-mono">
+                      {lang === "es" ? "Guardrail automático activado" : lang === "ht" ? "Gad otomatik aktive" : "Auto-guardrail triggered"}
+                      {ride.auto_escalation_case ? ` · Case ${ride.auto_escalation_case}` : ""}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

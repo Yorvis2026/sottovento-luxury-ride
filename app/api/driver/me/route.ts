@@ -263,7 +263,11 @@ export async function GET(req: NextRequest) {
           driver_exit_comment,
           driver_exit_at,
           driver_exit_case,
-          at_risk_flagged_at
+          at_risk_flagged_at,
+          risk_source,
+          auto_escalated_at,
+          auto_escalation_case,
+          accepted_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}::uuid
           -- Primary guard: exclude all finalized states by status
@@ -458,8 +462,12 @@ export async function GET(req: NextRequest) {
           driver_exit_comment: r.driver_exit_comment ?? null,
           driver_exit_at: r.driver_exit_at ?? null,
           driver_exit_case: r.driver_exit_case ?? null,
-          // At-risk guardrail
+          // At-risk guardrail (Bloque Maestro 2)
           at_risk_flagged_at: r.at_risk_flagged_at ?? null,
+          risk_source: r.risk_source ?? null,
+          auto_escalated_at: r.auto_escalated_at ?? null,
+          auto_escalation_case: r.auto_escalation_case ?? null,
+          accepted_at: r.accepted_at ?? null,
           is_at_risk: !!r.at_risk_flagged_at,
         };
       }

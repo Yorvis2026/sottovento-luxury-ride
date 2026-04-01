@@ -170,6 +170,7 @@ export async function POST(req: NextRequest) {
           executor_driver_id    = ${body.driver_id}::uuid,
           offer_accepted        = true,
           offer_accepted_at     = ${respondedAt}::timestamptz,
+          accepted_at           = ${respondedAt}::timestamptz,
           status                = 'accepted',
           dispatch_status       = 'assigned',
           updated_at            = NOW()
