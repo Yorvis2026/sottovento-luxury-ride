@@ -226,6 +226,22 @@ export async function POST(req: NextRequest) {
         `;
       } catch { /* non-blocking */ }
 
+      // ── BM7: Trigger client communication for reassignment ──
+      try {
+        const { triggerCommunication } = await import("@/lib/communication/trigger-engine");
+        await triggerCommunication({
+          booking_id,
+          event_type: "driver_reassigned",
+          trigger_source: isCritical ? "sla_critical_auto_rescue" : "admin_override_rescue",
+          metadata: {
+            new_driver_name: topCandidate.full_name,
+            new_driver_phone: topCandidate.phone,
+            rescue_tier: topCandidate.driver_tier,
+          },
+          db: sql,
+        });
+      } catch { /* non-blocking */ }
+
       return NextResponse.json({
         success: true,
         action: "rescue_assigned",

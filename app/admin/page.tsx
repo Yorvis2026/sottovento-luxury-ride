@@ -497,6 +497,15 @@ export default function AdminPanel() {
   const [smartReassignMsg, setSmartReassignMsg] = useState<{[key: string]: string}>({})
   const [runningSmartReassign, setRunningSmartReassign] = useState<{[key: string]: boolean}>({})
   const [markingSafe, setMarkingSafe] = useState<{[key: string]: boolean}>({})
+  // BM7: Communication Queue
+  const [commQueue, setCommQueue] = useState<{pending_drafts: any[], recent_sent: any[], stats: any}>({ pending_drafts: [], recent_sent: [], stats: {} })
+  const [loadingCommQueue, setLoadingCommQueue] = useState(false)
+  const [commQueueMsg, setCommQueueMsg] = useState("")
+  const [approvingComm, setApprovingComm] = useState<{[key: string]: boolean}>({})
+  const [expandedCommLog, setExpandedCommLog] = useState<string | null>(null)
+  const [commLogData, setCommLogData] = useState<{[bookingId: string]: any[]}>({})
+  const [runningBm7Mig, setRunningBm7Mig] = useState(false)
+  const [bm7MigMsg, setBm7MigMsg] = useState("")
   // Invite form
   const [inviteForm, setInviteForm] = useState({ type: "individual", email: "", phone: "", commission_rate: "0.10", name: "", send_email: true })
   const [inviteMsg, setInviteMsg] = useState("")
@@ -566,6 +575,7 @@ export default function AdminPanel() {
   const loadFallbackQueue = useCallback(async () => { setLoadingFallbackQueue(true); try { const r = await fetch("/api/admin/fallback-pool-dispatch"); if (r.ok) { const d = await r.json(); setFallbackQueue(d.queue ?? []) } } catch { } finally { setLoadingFallbackQueue(false) } }, [])
   const loadCancelMetrics = useCallback(async () => { setLoadingCancelMetrics(true); try { const r = await fetch("/api/admin/cancel-metrics"); if (r.ok) setCancelMetricsData(await r.json()) } catch { } finally { setLoadingCancelMetrics(false) } }, [])
   const loadSlaQueue = useCallback(async () => { setLoadingSlaQueue(true); try { const r = await fetch("/api/admin/sla-queue", { headers: { "x-admin-key": "sln-admin-2024" } }); if (r.ok) { const d = await r.json(); setSlaQueue(d.queue ?? []) } } catch { } finally { setLoadingSlaQueue(false) } }, [])
+  const loadCommQueue = useCallback(async () => { setLoadingCommQueue(true); try { const r = await fetch("/api/admin/communication-queue", { headers: { "x-admin-key": "sln-admin-2024" } }); if (r.ok) { const d = await r.json(); setCommQueue(d) } } catch { } finally { setLoadingCommQueue(false) } }, [])
   const loadPartners = useCallback(async () => { setLoadingPartners(true); try { const r = await fetch("/api/admin/partners"); if (r.ok) { const d = await r.json(); setPartners(d.partners ?? []) } } catch { } finally { setLoadingPartners(false) } }, [])
   const loadPartnerCompanies = useCallback(async () => { try { const r = await fetch("/api/admin/partner-companies"); if (r.ok) { const d = await r.json(); setPartnerCompanies(d.companies ?? []) } } catch { } }, [])
   const loadPartnerInvites = useCallback(async () => { try { const r = await fetch("/api/admin/partner-invites"); if (r.ok) { const d = await r.json(); setPartnerInvites(d.invites ?? []) } } catch { } }, [])
@@ -573,7 +583,7 @@ export default function AdminPanel() {
   const loadPartnerCompliance = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings?compliance=true"); if (r.ok) { const d = await r.json(); setPartnerCompliance(d.compliance ?? []) } } catch { } }, [])
 
   useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings(); loadCancelMetrics() } }, [authed, loadDashboard, loadDrivers, loadBookings, loadCancelMetrics])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue(); loadCancelMetrics(); loadSlaQueue() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadCancelMetrics, loadSlaQueue, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue(); loadCancelMetrics(); loadSlaQueue(); loadCommQueue() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadCancelMetrics, loadSlaQueue, loadCommQueue, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
   useEffect(() => { if (tab !== "partners") return; if (partnerTab === "earnings") loadPartnerEarnings(); if (partnerTab === "compliance") loadPartnerCompliance() }, [partnerTab, tab, loadPartnerEarnings, loadPartnerCompliance])
 
   // ---- ACTIONS ----
@@ -2211,6 +2221,95 @@ export default function AdminPanel() {
                   )}
                 </div>
 
+                {/* ══════════════════════════════════════════════
+                    BM7: CLIENT COMMUNICATION QUEUE
+                ══════════════════════════════════════════════ */}
+                <div id="bucket-comm-queue" style={{ ...S.card, marginBottom: 16, marginTop: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#818cf8" }}>📨 Client Communication Queue — BM7</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Pending approvals, recent notifications, and channel delivery status</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {commQueue.stats?.pending_count > 0 && <span style={{ ...S.badge("#1e1b4b"), color: "#818cf8", fontSize: 11 }}>⚠️ {commQueue.stats.pending_count} pending</span>}
+                      <button onClick={() => { setRunningBm7Mig(true); setBm7MigMsg(""); fetch("/api/admin/migrate-bm7", { headers: { "x-admin-key": "sln-admin-2024" } }).then(r => r.json()).then(d => setBm7MigMsg(d.success ? "✓ BM7 migration OK" : `❌ ${d.error ?? "Error"}`)).catch(() => setBm7MigMsg("❌ Network error")).finally(() => setRunningBm7Mig(false)) }} disabled={runningBm7Mig} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1e1b4b", color: "#818cf8", border: "1px solid #3730a3" }}>{runningBm7Mig ? "..." : "🔧 Run BM7 Migration"}</button>
+                      <button onClick={() => loadCommQueue()} disabled={loadingCommQueue} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px" }}>{loadingCommQueue ? "..." : "🔄 Refresh"}</button>
+                    </div>
+                  </div>
+                  {bm7MigMsg && <div style={{ fontSize: 12, marginBottom: 10, color: bm7MigMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{bm7MigMsg}</div>}
+                  {commQueueMsg && <div style={{ fontSize: 12, marginBottom: 10, color: commQueueMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{commQueueMsg}</div>}
+                  {/* Stats Row */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8, marginBottom: 16 }}>
+                    {[{label: "Sent 24h", value: commQueue.stats?.sent_24h ?? 0, color: "#4ade80"}, {label: "Failed 24h", value: commQueue.stats?.failed_24h ?? 0, color: "#f87171"}, {label: "Via Email", value: commQueue.stats?.sent_email ?? 0, color: "#818cf8"}, {label: "Via SMS", value: commQueue.stats?.sent_sms ?? 0, color: "#60a5fa"}, {label: "Via WhatsApp", value: commQueue.stats?.sent_whatsapp ?? 0, color: "#4ade80"}].map(s => (
+                      <div key={s.label} style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Pending Drafts */}
+                  {commQueue.pending_drafts?.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, color: "#818cf8", fontWeight: 700, marginBottom: 8, letterSpacing: 1 }}>⏳ PENDING ADMIN APPROVAL</div>
+                      {commQueue.pending_drafts.map((d: any) => (
+                        <div key={d.id} style={{ background: "#0d0d1a", border: "1px solid #3730a3", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                                <span style={{ ...S.badge("#1e1b4b"), color: "#818cf8", fontSize: 10 }}>{d.message_type?.toUpperCase()}</span>
+                                <span style={{ ...S.badge("#1a1a1a"), color: "#888", fontSize: 10 }}>{d.trigger_source}</span>
+                                <span style={{ fontSize: 11, color: "#555" }}>{d.booking_id?.slice(0,8).toUpperCase()}</span>
+                              </div>
+                              <div style={{ fontSize: 13, color: "#e5e5e5" }}>👤 {d.client_name ?? "Unknown"} {d.client_phone ? `· ${d.client_phone}` : ""}</div>
+                              {d.client_email && <div style={{ fontSize: 12, color: "#888" }}>✉️ {d.client_email}</div>}
+                              <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>{new Date(d.created_at).toLocaleString()}</div>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <button disabled={approvingComm[d.id]} onClick={async () => { setApprovingComm(p => ({...p, [d.id]: true})); setCommQueueMsg(""); try { const r = await fetch("/api/admin/communication-approve", { method: "POST", headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" }, body: JSON.stringify({ log_id: d.id, action: "approve" }) }); const res = await r.json(); setCommQueueMsg(r.ok ? `✅ Sent via ${res.channel_used}` : `❌ ${res.error ?? "Error"}`); loadCommQueue() } catch { setCommQueueMsg("❌ Network error") } finally { setApprovingComm(p => ({...p, [d.id]: false})) } }} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#14532d", color: "#4ade80", border: "none" }}>{approvingComm[d.id] ? "..." : "✅ Approve & Send"}</button>
+                              <button disabled={approvingComm[d.id]} onClick={async () => { setApprovingComm(p => ({...p, [d.id]: true})); try { await fetch("/api/admin/communication-approve", { method: "POST", headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" }, body: JSON.stringify({ log_id: d.id, action: "cancel" }) }); loadCommQueue() } catch { } finally { setApprovingComm(p => ({...p, [d.id]: false})) } }} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b0000", color: "#f87171", border: "none" }}>✕ Cancel</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Recent Sent */}
+                  <div>
+                    <div style={{ fontSize: 12, color: "#555", fontWeight: 700, marginBottom: 8, letterSpacing: 1 }}>📬 RECENT NOTIFICATIONS (24h)</div>
+                    {!commQueue.recent_sent?.length ? (
+                      <div style={{ color: "#555", fontSize: 13 }}>No notifications sent in the last 24 hours.</div>
+                    ) : commQueue.recent_sent.slice(0, 10).map((n: any) => (
+                      <div key={n.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #1a1a1a" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                            <span style={{ ...S.badge(n.delivery_status === "sent" ? "#14532d" : "#3b0000"), color: n.delivery_status === "sent" ? "#4ade80" : "#f87171", fontSize: 10 }}>{n.delivery_status?.toUpperCase()}</span>
+                            <span style={{ ...S.badge("#1a1a1a"), color: "#888", fontSize: 10 }}>{n.channel?.toUpperCase()}</span>
+                            <span style={{ fontSize: 11, color: "#818cf8" }}>{n.message_type}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: "#888" }}>👤 {n.client_name ?? "?"} · {new Date(n.created_at).toLocaleString()}</div>
+                        </div>
+                        <button onClick={async () => { if (expandedCommLog === n.booking_id) { setExpandedCommLog(null); return }; setExpandedCommLog(n.booking_id); if (!commLogData[n.booking_id]) { try { const r = await fetch(`/api/admin/communication-log?booking_id=${n.booking_id}`, { headers: { "x-admin-key": "sln-admin-2024" } }); if (r.ok) { const d = await r.json(); setCommLogData(p => ({...p, [n.booking_id]: d.timeline ?? []})) } } catch { } } }} style={{ ...S.btn(), fontSize: 10, padding: "3px 8px" }}>📋 Timeline</button>
+                      </div>
+                    ))}
+                    {/* Expanded Timeline */}
+                    {expandedCommLog && commLogData[expandedCommLog] && (
+                      <div style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 8, padding: "12px 14px", marginTop: 8 }}>
+                        <div style={{ fontSize: 12, color: "#818cf8", fontWeight: 700, marginBottom: 8 }}>📋 Communication Timeline — {expandedCommLog?.slice(0,8).toUpperCase()}</div>
+                        {commLogData[expandedCommLog].map((entry: any) => (
+                          <div key={entry.id} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: "1px solid #111" }}>
+                            <div style={{ width: 60, fontSize: 10, color: "#555", flexShrink: 0 }}>{new Date(entry.created_at).toLocaleTimeString()}</div>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ ...S.badge(entry.delivery_status === "sent" ? "#14532d" : entry.delivery_status === "failed" ? "#3b0000" : "#1e1b4b"), color: entry.delivery_status === "sent" ? "#4ade80" : entry.delivery_status === "failed" ? "#f87171" : "#818cf8", fontSize: 10 }}>{entry.delivery_status?.toUpperCase()}</span>
+                              {" "}<span style={{ fontSize: 12, color: "#aaa" }}>{entry.message_type}</span>
+                              {" via "}<span style={{ fontSize: 12, color: "#60a5fa" }}>{entry.channel}</span>
+                              {entry.approved_by_admin && <span style={{ fontSize: 10, color: "#c9a84c", marginLeft: 6 }}>★ Admin approved</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {/* ══════════════════════════════════════════════
                     BUCKET 7: RECENTLY CANCELLED (red — last 24h)
                 ══════════════════════════════════════════════ */}

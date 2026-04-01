@@ -62,6 +62,21 @@ export async function POST(req: NextRequest) {
       `;
     } catch { /* non-blocking */ }
 
+    // ── BM7: Trigger client notification — driver confirmed on the way ──
+    try {
+      const { triggerCommunication } = await import("@/lib/communication/trigger-engine");
+      await triggerCommunication({
+        booking_id,
+        event_type: "driver_confirmed_on_way",
+        trigger_source: "driver_self_confirm",
+        metadata: {
+          driver_code,
+          confirmed_at: now,
+        },
+        db: sql,
+      });
+    } catch { /* non-blocking */ }
+
     return NextResponse.json({
       success: true,
       booking_id,

@@ -197,6 +197,25 @@ export async function GET(req: NextRequest) {
             `;
           } catch { /* non-blocking */ }
 
+          // ── BM7: Trigger client communication for SLA escalation ──
+          if (newSlaState === "sla_high_risk" || newSlaState === "sla_critical") {
+            try {
+              const { triggerCommunication } = await import("@/lib/communication/trigger-engine");
+              await triggerCommunication({
+                booking_id: booking.id,
+                event_type: newSlaState === "sla_critical" ? "sla_critical" : "sla_high_risk",
+                trigger_source: "sla_engine",
+                metadata: {
+                  minutes_to_pickup: minutesToPickup.toFixed(1),
+                  sla_level: slaLevel,
+                  is_airport: isAirport,
+                  driver_code: booking.driver_code,
+                },
+                db: sql,
+              });
+            } catch { /* non-blocking */ }
+          }
+
           escalated.push({
             booking_id: booking.id,
             prev_state: prevState,
