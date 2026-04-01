@@ -52,6 +52,9 @@ export async function POST() {
   await run("add affects_payout", async () => {
     await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS affects_payout BOOLEAN DEFAULT FALSE`
   })
+  await run("add cancellation_fee", async () => {
+    await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_fee NUMERIC(10,2) DEFAULT 0`
+  })
 
   // 2. Backfill cancelled_by_type from cancel_responsibility
   await run("backfill cancelled_by_type from cancel_responsibility", async () => {
