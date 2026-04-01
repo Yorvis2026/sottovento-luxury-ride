@@ -682,7 +682,30 @@ export default function DriverDashboardByCode() {
   const [driverExitComment, setDriverExitComment] = useState<string>("")
   const [driverExitSubmitting, setDriverExitSubmitting] = useState(false)
   const [driverExitResult, setDriverExitResult] = useState<{ success: boolean; case: string; new_status: string } | null>(null)
-  // ── Upcoming ride detail expand ─────────────────────────────────
+  // ── Fallback Offer Modal (Bloque Maestro 3) ──────────────────────
+  // Shown when a fallback pool offer arrives (another driver failed)
+  const [showFallbackOfferModal, setShowFallbackOfferModal] = useState(false)
+  const [fallbackOfferData, setFallbackOfferData] = useState<{
+    offer_id: string
+    booking_id: string
+    pickup_location: string
+    dropoff_location: string
+    pickup_datetime: string | null
+    vehicle_type: string
+    total_price: number
+    expires_at: string
+    fallback_case_level: string
+    fallback_priority_level: string
+    passengers: number | null
+    notes: string | null
+    flight_number: string | null
+    client_name: string | null
+  } | null>(null)
+  const [fallbackOfferCountdown, setFallbackOfferCountdown] = useState<number>(120)
+  const fallbackCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [fallbackOfferSubmitting, setFallbackOfferSubmitting] = useState(false)
+  const prevFallbackOfferIdRef = useRef<string | null>(null)
+  // ── Upcoming ride detail expand ───────────────────────────────────────────────
   const [expandedRideId, setExpandedRideId] = useState<string | null>(null)
   // ── Completed ride detail expand ─────────────────────────────────
   const [expandedCompletedId, setExpandedCompletedId] = useState<string | null>(null)
@@ -914,6 +937,57 @@ export default function DriverDashboardByCode() {
       prevRideIdRef.current = newRideId
       prevOfferIdRef.current = newOfferId
       prevRideUpdatedAtRef.current = newUpdatedAt
+
+      // ── Fallback Offer Detection (Bloque Maestro 3) ──────────────────────
+      const newFallbackOfferId = d.fallback_offer?.offer_id ?? null
+      const fallbackOfferChanged = newFallbackOfferId !== null && newFallbackOfferId !== prevFallbackOfferIdRef.current
+      if (fallbackOfferChanged && d.fallback_offer) {
+        const fo = d.fallback_offer
+        setFallbackOfferData({
+          offer_id: fo.offer_id,
+          booking_id: fo.booking_id,
+          pickup_location: fo.pickup_location ?? 'TBD',
+          dropoff_location: fo.dropoff_location ?? 'TBD',
+          pickup_datetime: fo.pickup_datetime ?? null,
+          vehicle_type: fo.vehicle_type ?? 'Sedan',
+          total_price: fo.total_price ?? 0,
+          expires_at: fo.expires_at,
+          fallback_case_level: fo.fallback_case_level ?? 'A',
+          fallback_priority_level: fo.fallback_priority_level ?? 'normal',
+          passengers: fo.passengers ?? null,
+          notes: fo.notes ?? null,
+          flight_number: fo.flight_number ?? null,
+          client_name: fo.client_name ?? null,
+        })
+        // Compute countdown from expires_at
+        const secsLeft = Math.max(0, Math.round((new Date(fo.expires_at).getTime() - Date.now()) / 1000))
+        setFallbackOfferCountdown(secsLeft)
+        setShowFallbackOfferModal(true)
+        // Start countdown timer
+        if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
+        fallbackCountdownRef.current = setInterval(() => {
+          setFallbackOfferCountdown(prev => {
+            if (prev <= 1) {
+              clearInterval(fallbackCountdownRef.current!)
+              setShowFallbackOfferModal(false)
+              setFallbackOfferData(null)
+              return 0
+            }
+            return prev - 1
+          })
+        }, 1000)
+        // Alert
+        try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]) } catch {}
+        if (document.visibilityState === 'visible') { try { playAlert() } catch {} }
+      }
+      // Clear fallback offer modal when offer disappears
+      if (!d.fallback_offer && prevFallbackOfferIdRef.current !== null) {
+        setShowFallbackOfferModal(false)
+        setFallbackOfferData(null)
+        if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
+      }
+      prevFallbackOfferIdRef.current = newFallbackOfferId
+
       // DEDUP GUARD: clear lastAcceptedBookingIdRef once backend confirms status='accepted'
       // for that booking (either in assigned_ride or upcoming_rides).
       // This allows future offers for a different booking to appear normally.
@@ -1698,6 +1772,179 @@ export default function DriverDashboardByCode() {
           onClick={() => { setShowNewRideAlert(false); setNewRideAlertData(null) }}
           className="mt-4 text-sm py-2" style={{ color: "#555" }}>
           {lang === "es" ? "Cerrar" : "Dismiss"}
+        </button>
+      </div>
+    )
+  }
+
+  // ── FALLBACK OFFER MODAL (Bloque Maestro 3) ──────────────────────────────
+  // Full-screen urgent modal with 2-minute countdown
+  if (showFallbackOfferModal && fallbackOfferData) {
+    const fo = fallbackOfferData
+    const pickupFormatted = fo.pickup_datetime
+      ? new Date(fo.pickup_datetime).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : lang === "es" ? "Hora por confirmar" : "Time TBD"
+    const ORANGE = "#FF6B00"
+    const RED = "#FF2D2D"
+    const caseColors: Record<string, string> = { A: GOLD, B: ORANGE, C: RED }
+    const caseColor = caseColors[fo.fallback_case_level] ?? ORANGE
+    const caseLabel: Record<string, string> = {
+      A: lang === "es" ? "REASIGNACIÓN URGENTE" : "URGENT REASSIGNMENT",
+      B: lang === "es" ? "REASIGNACIÓN CRÍTICA" : "CRITICAL REASSIGNMENT",
+      C: lang === "es" ? "FALLA CRÍTICA DE CONDUCTOR" : "CRITICAL DRIVER FAILURE",
+    }
+    const countdownMins = Math.floor(fallbackOfferCountdown / 60)
+    const countdownSecs = fallbackOfferCountdown % 60
+    const countdownStr = `${countdownMins}:${String(countdownSecs).padStart(2, "0")}`
+    const isExpiring = fallbackOfferCountdown <= 30
+
+    const handleFallbackAccept = async () => {
+      if (!fo || fallbackOfferSubmitting) return
+      setFallbackOfferSubmitting(true)
+      try {
+        const res = await fetch("/api/dispatch/respond-fallback-offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            offer_id: fo.offer_id,
+            driver_code: driverCode,
+            response: "accepted",
+          }),
+        })
+        const data = await res.json()
+        if (res.ok && data.ok) {
+          if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
+          setShowFallbackOfferModal(false)
+          setFallbackOfferData(null)
+          prevFallbackOfferIdRef.current = null
+          setNewRideAlertData({
+            pickup: fo.pickup_location,
+            dropoff: fo.dropoff_location,
+            fare: fo.total_price,
+            pickup_time: fo.pickup_datetime,
+          })
+          setShowNewRideAlert(true)
+        } else {
+          alert(data.error ?? (lang === "es" ? "Error al aceptar la oferta" : "Error accepting offer"))
+        }
+      } catch (err) {
+        alert(lang === "es" ? "Error de red" : "Network error")
+      } finally {
+        setFallbackOfferSubmitting(false)
+      }
+    }
+
+    const handleFallbackDecline = async () => {
+      if (!fo || fallbackOfferSubmitting) return
+      setFallbackOfferSubmitting(true)
+      try {
+        await fetch("/api/dispatch/respond-fallback-offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            offer_id: fo.offer_id,
+            driver_code: driverCode,
+            response: "declined",
+          }),
+        })
+      } catch {}
+      if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
+      setShowFallbackOfferModal(false)
+      setFallbackOfferData(null)
+      setFallbackOfferSubmitting(false)
+    }
+
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center px-5 z-[110]"
+        style={{ backgroundColor: "#000", paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
+        {/* Urgency badge */}
+        <div className="mb-3 px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase animate-pulse"
+          style={{ backgroundColor: caseColor + "25", color: caseColor, border: `1px solid ${caseColor}70` }}>
+          {caseLabel[fo.fallback_case_level] ?? "FALLBACK OFFER"}
+        </div>
+        {/* Pulsing alert ring */}
+        <div className="relative mb-4">
+          <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: caseColor + "30", transform: "scale(1.5)" }} />
+          <div className="relative w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: caseColor + "15", border: `2px solid ${caseColor}` }}>
+            <span className="text-3xl">🚨</span>
+          </div>
+        </div>
+        {/* Title */}
+        <div className="text-center mb-3">
+          <div className="text-xl font-bold text-white mb-1">
+            {lang === "es" ? "Oferta de Reasignación" : "Reassignment Offer"}
+          </div>
+          <div className="text-xs" style={{ color: caseColor + "cc" }}>
+            {lang === "es" ? "El conductor original no pudo completar este servicio" : "The original driver could not complete this ride"}
+          </div>
+        </div>
+        {/* Countdown timer */}
+        <div className="mb-4 flex flex-col items-center">
+          <div className={`text-4xl font-black tabular-nums ${isExpiring ? "animate-pulse" : ""}`}
+            style={{ color: isExpiring ? RED : caseColor }}>
+            {countdownStr}
+          </div>
+          <div className="text-xs text-zinc-500 mt-1">
+            {lang === "es" ? "tiempo restante" : "time remaining"}
+          </div>
+        </div>
+        {/* Ride details card */}
+        <div className="w-full max-w-sm rounded-2xl overflow-hidden mb-5"
+          style={{ background: "#111", border: `1.5px solid ${caseColor}60`, boxShadow: `0 0 20px ${caseColor}30` }}>
+          <div className="px-4 py-3 space-y-2.5">
+            <div className="flex items-start gap-3">
+              <span className="text-green-400 mt-0.5">↑</span>
+              <div>
+                <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: caseColor + "80" }}>{lang === "es" ? "Recogida" : "Pickup"}</div>
+                <div className="text-sm font-medium text-white">{fo.pickup_location}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="text-red-400 mt-0.5">↓</span>
+              <div>
+                <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: caseColor + "80" }}>{lang === "es" ? "Destino" : "Dropoff"}</div>
+                <div className="text-sm font-medium text-white">{fo.dropoff_location}</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${caseColor}20` }}>
+              <div className="text-xs text-zinc-500">{lang === "es" ? "Fecha/Hora" : "Pickup Time"}</div>
+              <div className="text-xs text-zinc-300">{pickupFormatted}</div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-zinc-500">{lang === "es" ? "Tarifa" : "Fare"}</div>
+              <div className="text-xl font-bold" style={{ color: caseColor }}>${fo.total_price.toFixed(0)}</div>
+            </div>
+            {fo.passengers && (
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-zinc-500">{lang === "es" ? "Pasajeros" : "Passengers"}</div>
+                <div className="text-xs text-zinc-300">{fo.passengers}</div>
+              </div>
+            )}
+            {fo.flight_number && (
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-zinc-500">{lang === "es" ? "Vuelo" : "Flight"}</div>
+                <div className="text-xs text-zinc-300">{fo.flight_number}</div>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Accept CTA */}
+        <button
+          onClick={handleFallbackAccept}
+          disabled={fallbackOfferSubmitting || fallbackOfferCountdown === 0}
+          className="w-full max-w-sm py-4 rounded-2xl text-base font-black text-white transition-all active:scale-95 disabled:opacity-50 mb-3"
+          style={{ backgroundColor: caseColor, fontSize: 16, letterSpacing: "0.04em" }}>
+          {fallbackOfferSubmitting
+            ? (lang === "es" ? "Aceptando..." : "Accepting...")
+            : (lang === "es" ? "✓ Aceptar Servicio" : "✓ Accept Ride")}
+        </button>
+        {/* Decline */}
+        <button
+          onClick={handleFallbackDecline}
+          disabled={fallbackOfferSubmitting}
+          className="text-sm py-2 disabled:opacity-50"
+          style={{ color: "#555" }}>
+          {lang === "es" ? "No puedo aceptar" : "Cannot accept"}
         </button>
       </div>
     )

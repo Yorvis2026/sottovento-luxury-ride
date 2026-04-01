@@ -134,6 +134,7 @@ export async function GET(req: NextRequest) {
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
           AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
           AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled', 'assigned')
+          AND COALESCE(dof.is_fallback_offer, false) = false
         ORDER BY dof.created_at DESC
         LIMIT 1
       `;
@@ -220,6 +221,71 @@ export async function GET(req: NextRequest) {
           };
         }
       } catch { /* dispatch columns not yet migrated */ }
+    }
+
+    // ── Fallback offer (Bloque Maestro 3) ─────────────────────
+    // Check if driver has a pending fallback pool offer
+    let fallback_offer = null;
+    if (!active_offer) {
+      try {
+        const fbOfferRows = await sql`
+          SELECT
+            dof.id AS offer_id,
+            dof.booking_id,
+            dof.expires_at,
+            dof.offer_round,
+            dof.fallback_case_level,
+            dof.fallback_priority_level,
+            b.pickup_address,
+            b.dropoff_address,
+            b.pickup_zone,
+            b.dropoff_zone,
+            b.pickup_at,
+            b.vehicle_type,
+            b.total_price,
+            b.service_type,
+            b.passengers,
+            b.notes,
+            b.flight_number,
+            c.full_name AS client_name,
+            c.phone AS client_phone
+          FROM dispatch_offers dof
+          JOIN bookings b ON b.id = dof.booking_id
+          LEFT JOIN clients c ON c.id = b.client_id
+          WHERE dof.driver_id = ${driver.id}::uuid
+            AND dof.response = 'pending'
+            AND dof.is_fallback_offer = true
+            AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
+            AND b.status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
+          ORDER BY dof.created_at DESC
+          LIMIT 1
+        `;
+        if (fbOfferRows.length > 0) {
+          const fo = fbOfferRows[0];
+          fallback_offer = {
+            offer_id: fo.offer_id,
+            booking_id: fo.booking_id,
+            pickup_location: fo.pickup_address || (fo.pickup_zone ? `Zone: ${fo.pickup_zone}` : 'TBD'),
+            dropoff_location: fo.dropoff_address || (fo.dropoff_zone ? `Zone: ${fo.dropoff_zone}` : 'TBD'),
+            pickup_datetime: fo.pickup_at,
+            vehicle_type: fo.vehicle_type ?? 'Sedan',
+            total_price: Number(fo.total_price ?? 0),
+            expires_at: fo.expires_at,
+            offer_round: fo.offer_round ?? 1,
+            fallback_case_level: fo.fallback_case_level,
+            fallback_priority_level: fo.fallback_priority_level,
+            service_type: fo.service_type ?? 'transfer',
+            passengers: fo.passengers ?? null,
+            notes: fo.notes ?? null,
+            flight_number: fo.flight_number ?? null,
+            client_name: fo.client_name ?? null,
+            client_phone: fo.client_phone ?? null,
+            is_fallback_offer: true,
+          };
+        }
+      } catch (fbErr: any) {
+        console.error('[driver/me] fallback_offer query failed:', fbErr?.message);
+      }
     }
 
     // ── Assigned ride: current/past pickup OR LIVE_FLOW ────────
@@ -469,6 +535,12 @@ export async function GET(req: NextRequest) {
           auto_escalation_case: r.auto_escalation_case ?? null,
           accepted_at: r.accepted_at ?? null,
           is_at_risk: !!r.at_risk_flagged_at,
+          // Fallback pool fields (Bloque Maestro 3)
+          fallback_case_level: r.fallback_case_level ?? null,
+          fallback_trigger_reason: r.fallback_trigger_reason ?? null,
+          original_driver_id: r.original_driver_id ?? null,
+          fallback_pool_started_at: r.fallback_pool_started_at ?? null,
+          reassigned_at: r.reassigned_at ?? null,
         };
       }
     } catch (assignErr: any) {
@@ -609,6 +681,7 @@ export async function GET(req: NextRequest) {
         assigned_ride,
         upcoming_rides,
         completed_rides,
+        fallback_offer,
       },
     });
   } catch (err: any) {

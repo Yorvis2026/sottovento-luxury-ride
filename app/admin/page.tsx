@@ -448,6 +448,12 @@ export default function AdminPanel() {
   const [runningReclassify, setRunningReclassify] = useState(false)
   const [reclassifyMsg, setReclassifyMsg] = useState("")
 
+  // ── Fallback Queue (Bloque Maestro 3) ──────────────────────────────────
+  const [fallbackQueue, setFallbackQueue] = useState<any[]>([])
+  const [loadingFallbackQueue, setLoadingFallbackQueue] = useState(false)
+  const [fallbackQueueMsg, setFallbackQueueMsg] = useState("")
+  const [runningFallbackDispatch, setRunningFallbackDispatch] = useState<string | null>(null)
+
   const [loadingDash, setLoadingDash] = useState(false)
   const [loadingDrivers, setLoadingDrivers] = useState(false)
   const [loadingBookings, setLoadingBookings] = useState(false)
@@ -532,6 +538,7 @@ export default function AdminPanel() {
   const loadFinance = useCallback(async () => { setLoadingFinance(true); try { const r = await fetch("/api/admin/finance"); if (r.ok) setFinance(await r.json()) } catch { } finally { setLoadingFinance(false) } }, [])
   const loadCrown = useCallback(async () => { setLoadingCrown(true); try { const r = await fetch("/api/admin/crown-moment"); if (r.ok) setCrownData(await r.json()) } catch { } finally { setLoadingCrown(false) } }, [])
   const loadDispatch = useCallback(async () => { setLoadingDispatch(true); try { const r = await fetch("/api/admin/dispatch"); if (r.ok) setDispatchData(await r.json()) } catch { } finally { setLoadingDispatch(false) } }, [])
+  const loadFallbackQueue = useCallback(async () => { setLoadingFallbackQueue(true); try { const r = await fetch("/api/admin/fallback-pool-dispatch"); if (r.ok) { const d = await r.json(); setFallbackQueue(d.queue ?? []) } } catch { } finally { setLoadingFallbackQueue(false) } }, [])
   const loadPartners = useCallback(async () => { setLoadingPartners(true); try { const r = await fetch("/api/admin/partners"); if (r.ok) { const d = await r.json(); setPartners(d.partners ?? []) } } catch { } finally { setLoadingPartners(false) } }, [])
   const loadPartnerCompanies = useCallback(async () => { try { const r = await fetch("/api/admin/partner-companies"); if (r.ok) { const d = await r.json(); setPartnerCompanies(d.companies ?? []) } } catch { } }, [])
   const loadPartnerInvites = useCallback(async () => { try { const r = await fetch("/api/admin/partner-invites"); if (r.ok) { const d = await r.json(); setPartnerInvites(d.invites ?? []) } } catch { } }, [])
@@ -539,7 +546,7 @@ export default function AdminPanel() {
   const loadPartnerCompliance = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings?compliance=true"); if (r.ok) { const d = await r.json(); setPartnerCompliance(d.compliance ?? []) } } catch { } }, [])
 
   useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings() } }, [authed, loadDashboard, loadDrivers, loadBookings])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") loadDispatch(); if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
   useEffect(() => { if (tab !== "partners") return; if (partnerTab === "earnings") loadPartnerEarnings(); if (partnerTab === "compliance") loadPartnerCompliance() }, [partnerTab, tab, loadPartnerEarnings, loadPartnerCompliance])
 
   // ---- ACTIONS ----
@@ -1390,6 +1397,7 @@ export default function AdminPanel() {
                 { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "🚗", anchor: "bucket-in-progress" },
                 { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "✅", anchor: "bucket-completed" },
                 { label: "Cancelled (24h)", count: (dispatchData as any)?.recentlyCancelled?.length ?? 0, color: "#f87171", icon: "❌", anchor: "bucket-recently-cancelled" },
+                { label: "Fallback Queue", count: fallbackQueue.length, color: "#fb923c", icon: "🔄", anchor: "bucket-fallback-queue" },
               ].map(k => (
                 <div
                   key={k.anchor}
@@ -2109,6 +2117,108 @@ export default function AdminPanel() {
                             style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b2200", color: "#f59e0b", border: "none" }}
                           >⚠️ Reabrir para Revisión</button>
                           <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              {/* ════════════════════════════════════════════════
+                    BUCKET 8: FALLBACK QUEUE (Bloque Maestro 3)
+                ════════════════════════════════════════════════ */}
+                <div id="bucket-fallback-queue" style={{ ...S.card, marginBottom: 16, marginTop: 16, borderColor: fallbackQueue.length > 0 ? "#fb923c40" : "#222" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#fb923c" }}>🔄 Fallback Queue</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Bookings en espera de reasignación por fallback pool — Bloque Maestro 3</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ ...S.badge("#3b1a00"), color: "#fb923c" }}>{fallbackQueue.length}</span>
+                      <button onClick={() => { loadFallbackQueue(); setFallbackQueueMsg("") }} disabled={loadingFallbackQueue} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px" }}>{loadingFallbackQueue ? "..." : "🔄 Refresh"}</button>
+                      <button
+                        onClick={async () => {
+                          setFallbackQueueMsg("Running dispatch...")
+                          try {
+                            const r = await fetch("/api/admin/fallback-pool-dispatch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "run_all" }) })
+                            const d = await r.json()
+                            setFallbackQueueMsg(r.ok ? `✅ Dispatched ${d.dispatched ?? 0} booking(s)` : `❌ ${d.error ?? "Error"}`)
+                            loadFallbackQueue(); loadDispatch()
+                          } catch { setFallbackQueueMsg("❌ Network error") }
+                        }}
+                        style={{ ...S.btn(true), fontSize: 11, padding: "4px 12px", background: "#fb923c", color: "#000", border: "none" }}
+                      >⚡ Run Dispatch</button>
+                    </div>
+                  </div>
+                  {fallbackQueueMsg && <div style={{ fontSize: 12, marginBottom: 10, color: fallbackQueueMsg.startsWith("✅") ? "#4ade80" : fallbackQueueMsg.startsWith("❌") ? "#f87171" : "#fb923c" }}>{fallbackQueueMsg}</div>}
+                  {!fallbackQueue.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>Sin bookings en fallback queue</div>
+                  ) : fallbackQueue.map((b: any) => {
+                    const caseColors: Record<string, string> = { A: "#c9a84c", B: "#fb923c", C: "#ef4444" }
+                    const caseColor = caseColors[b.fallback_case_level] ?? "#fb923c"
+                    const isRunning = runningFallbackDispatch === b.id
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #2a1500" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: caseColor, fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ ...S.badge("#3b1a00"), color: caseColor, fontSize: 10, fontWeight: 700 }}>CASE {b.fallback_case_level ?? "?"}</span>
+                              {b.dispatch_status === "urgent_reassignment" && <span style={{ ...S.badge("#3b0000"), color: "#ef4444", fontSize: 10 }}>URGENT</span>}
+                              {b.dispatch_status === "critical_driver_failure" && <span style={{ ...S.badge("#3b0000"), color: "#ef4444", fontSize: 10, fontWeight: 700 }}>CRITICAL</span>}
+                              {b.fallback_attempts != null && <span style={{ fontSize: 10, color: "#888" }}>Attempts: {b.fallback_attempts}</span>}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: caseColor }}>{b.pickup_zone || b.pickup_address || "?"} &rarr; {b.dropoff_zone || b.dropoff_address || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{b.pickup_at ? new Date(b.pickup_at).toLocaleString() : "?"} &middot; ${b.total_price?.toFixed(0) ?? "?"} &middot; {b.vehicle_type || "?"}</div>
+                            {b.client_name && <div style={{ fontSize: 12, color: "#aaa" }}>👤 {b.client_name} {b.client_phone ? `• ${b.client_phone}` : ""}</div>}
+                            {b.driver_exit_reason && <div style={{ fontSize: 11, color: "#f87171", marginTop: 4 }}>Exit reason: {b.driver_exit_reason.replace(/_/g, " ")}</div>}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                            {/* Manual Dispatch */}
+                            <button
+                              disabled={isRunning}
+                              onClick={async () => {
+                                setRunningFallbackDispatch(b.id)
+                                setFallbackQueueMsg("")
+                                try {
+                                  const r = await fetch("/api/admin/fallback-pool-dispatch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dispatch_single", booking_id: b.id }) })
+                                  const d = await r.json()
+                                  setFallbackQueueMsg(r.ok ? `✅ Dispatched: ${d.message ?? "OK"}` : `❌ ${d.error ?? "Error"}`)
+                                  loadFallbackQueue(); loadDispatch()
+                                } catch { setFallbackQueueMsg("❌ Network error") } finally { setRunningFallbackDispatch(null) }
+                              }}
+                              style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1a2a1a", color: "#4ade80", border: "1px solid #14532d", opacity: isRunning ? 0.5 : 1 }}
+                            >{isRunning ? "..." : "⚡ Dispatch"}</button>
+                            {/* Force Assign */}
+                            <button
+                              disabled={isRunning}
+                              onClick={async () => {
+                                const driverCode = window.prompt("Driver code to force-assign:")
+                                if (!driverCode) return
+                                setRunningFallbackDispatch(b.id)
+                                try {
+                                  const r = await fetch("/api/admin/fallback-pool-dispatch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "force_assign", booking_id: b.id, driver_code: driverCode }) })
+                                  const d = await r.json()
+                                  setFallbackQueueMsg(r.ok ? `✅ Force assigned to ${driverCode}` : `❌ ${d.error ?? "Error"}`)
+                                  loadFallbackQueue(); loadDispatch()
+                                } catch { setFallbackQueueMsg("❌ Network error") } finally { setRunningFallbackDispatch(null) }
+                              }}
+                              style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#1a1a3a", color: "#a78bfa", border: "1px solid #3b1f5e", opacity: isRunning ? 0.5 : 1 }}
+                            >🎯 Force Assign</button>
+                            {/* Cancel */}
+                            <button
+                              disabled={isRunning}
+                              onClick={async () => {
+                                if (!window.confirm(`Cancel booking ${b.booking_ref || b.id?.slice(0,8)}?`)) return
+                                setRunningFallbackDispatch(b.id)
+                                try {
+                                  const r = await fetch("/api/admin/fallback-pool-dispatch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel_booking", booking_id: b.id }) })
+                                  const d = await r.json()
+                                  setFallbackQueueMsg(r.ok ? `✅ Booking cancelled` : `❌ ${d.error ?? "Error"}`)
+                                  loadFallbackQueue(); loadDispatch()
+                                } catch { setFallbackQueueMsg("❌ Network error") } finally { setRunningFallbackDispatch(null) }
+                              }}
+                              style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#3b0000", color: "#f87171", border: "none", opacity: isRunning ? 0.5 : 1 }}
+                            >✕ Cancel</button>
+                          </div>
                         </div>
                       </div>
                     )
