@@ -36,8 +36,18 @@ async function logEvent(bookingId: string, driverId: string | null, eventType: s
 async function getCandidateDrivers(booking: any, excludeIds: string[], limit: number) {
   const excluded = excludeIds.length > 0 ? excludeIds : ['00000000-0000-0000-0000-000000000000'];
   const rows = await sql`
-    SELECT d.id, d.driver_code, d.full_name, d.availability_status
+    SELECT
+      d.id,
+      d.driver_code,
+      d.full_name,
+      d.availability_status,
+      -- BM5: Legal Affiliation Priority Layer
+      COALESCE(d.legal_affiliation_type, 'GENERAL_NETWORK_DRIVER') AS legal_affiliation_type,
+      COALESCE(d.reliability_score, 65)::numeric                   AS reliability_score,
+      COALESCE(d.driver_tier, 'STANDARD')                          AS driver_tier,
+      COALESCE(pc.partner_dispatch_mode, 'CAPTURE_ONLY')           AS company_partner_dispatch_mode
     FROM drivers d
+    LEFT JOIN partner_companies pc ON d.company_id = pc.id
     WHERE d.driver_status = 'active'
       AND d.is_eligible = true
       AND (d.license_expires_at IS NULL OR d.license_expires_at > NOW())
@@ -47,7 +57,16 @@ async function getCandidateDrivers(booking: any, excludeIds: string[], limit: nu
         SELECT unnest(${excluded}::uuid[])
       )
       AND d.id != ${booking.assigned_driver_id || '00000000-0000-0000-0000-000000000000'}::uuid
-    ORDER BY d.created_at ASC
+    ORDER BY
+      -- BM5 Fallback Ordering: SOTTOVENTO_LEGAL_FLEET first, then PARTNER_LEGAL (SUBNETWORK_PRIORITY), then GENERAL
+      CASE COALESCE(d.legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
+        WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
+        WHEN 'PARTNER_LEGAL_FLEET'    THEN 2
+        ELSE 3
+      END ASC,
+      -- Within group: reliability_score DESC (highest DRS first)
+      COALESCE(d.reliability_score, 65) DESC,
+      d.created_at ASC
     LIMIT ${limit}
   `;
   return rows;

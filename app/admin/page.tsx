@@ -2591,8 +2591,119 @@ export default function AdminPanel() {
                 </div>
               )}
             </div>
-            {/* ── End Vehicle Eligibility Gates Panel ─────────────────────────── */}
+             {/* ── End Vehicle Eligibility Gates Panel ─────────────────────────── */}
 
+            {/* ── BM5: Driver Reliability Score Engine Control ─────────────────── */}
+            <div style={{ marginTop: 32 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>⚡ Driver Reliability Score Engine <span style={{ fontSize: 11, color: "#c9a84c", letterSpacing: 2, marginLeft: 8 }}>BM5</span></div>
+                  <div style={{ color: "#555", fontSize: 12 }}>DRS formula · Legal affiliation tier · Dispatch ordering · Partner governance mode</div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={async () => {
+                      setRunningBm5Mig(true); setBm5MigMsg("")
+                      try {
+                        const res = await fetch(`${BASE_URL}/api/admin/migrate-bm5`, { method: "POST", headers: { "x-admin-key": "sln-admin-2024" } })
+                        const data = await res.json()
+                        setBm5MigMsg(data.message ?? JSON.stringify(data))
+                      } catch (e: any) { setBm5MigMsg(e.message) }
+                      finally { setRunningBm5Mig(false) }
+                    }}
+                    style={{ ...S.btn(), fontSize: 12 }}
+                    disabled={runningBm5Mig}
+                  >{runningBm5Mig ? "Running..." : "Run BM5 Migration"}</button>
+                  <button
+                    onClick={async () => {
+                      setRunningRecalc(true); setRecalcMsg("")
+                      try {
+                        const res = await fetch(`${BASE_URL}/api/admin/recalculate-driver-scores`, { method: "POST", headers: { "x-admin-key": "sln-admin-2024" } })
+                        const data = await res.json()
+                        setRecalcMsg(`✓ Recalculated ${data.updated_count ?? 0} drivers · ${data.tier_breakdown ? Object.entries(data.tier_breakdown).map(([k,v]) => `${k}:${v}`).join(" · ") : ""}`)
+                        loadDrivers()
+                      } catch (e: any) { setRecalcMsg(e.message) }
+                      finally { setRunningRecalc(false) }
+                    }}
+                    style={{ ...S.btn(true), fontSize: 12 }}
+                    disabled={runningRecalc}
+                  >{runningRecalc ? "Recalculating..." : "⚡ Recalculate All Scores"}</button>
+                </div>
+              </div>
+              {bm5MigMsg && <div style={{ ...S.card, color: bm5MigMsg.includes("error") || bm5MigMsg.includes("Error") ? "#f87171" : "#4ade80", marginBottom: 12, fontSize: 13 }}>{bm5MigMsg}</div>}
+              {recalcMsg && <div style={{ ...S.card, color: "#4ade80", marginBottom: 12, fontSize: 13 }}>{recalcMsg}</div>}
+
+              {/* BM5 Driver Reliability Table */}
+              {drivers.length > 0 && (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid #222" }}>
+                        {["Driver", "Code", "Affiliation", "DRS Score", "Tier BM5", "Acceptance", "Completion", "Cancel Rate", "On-Time", "Response"].map(h => (
+                          <th key={h} style={{ padding: "8px 12px", textAlign: "left", color: "#555", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drivers.map((d: any) => {
+                        const affColor: Record<string, { bg: string; text: string }> = {
+                          SOTTOVENTO_LEGAL_FLEET: { bg: "#1a0a2e", text: "#c9a84c" },
+                          PARTNER_LEGAL_FLEET:    { bg: "#0c2340", text: "#38bdf8" },
+                          GENERAL_NETWORK_DRIVER: { bg: "#1a1a1a", text: "#888" },
+                        }
+                        const tierBm5Color: Record<string, { bg: string; text: string }> = {
+                          ELITE:       { bg: "#1a0a2e", text: "#c9a84c" },
+                          PREMIUM:     { bg: "#14532d", text: "#4ade80" },
+                          STANDARD:    { bg: "#0c2340", text: "#38bdf8" },
+                          RESTRICTED:  { bg: "#3b0000", text: "#f87171" },
+                          OBSERVATION: { bg: "#3b2200", text: "#f59e0b" },
+                        }
+                        const affType = d.legal_affiliation_type ?? "GENERAL_NETWORK_DRIVER"
+                        const tierBm5 = d.driver_tier ?? "STANDARD"
+                        const ac = affColor[affType] ?? affColor.GENERAL_NETWORK_DRIVER
+                        const tc = tierBm5Color[tierBm5] ?? tierBm5Color.STANDARD
+                        const drs = d.reliability_score ?? 65
+                        const drsColor = drs >= 85 ? "#c9a84c" : drs >= 70 ? "#4ade80" : drs >= 55 ? "#38bdf8" : drs >= 40 ? "#f59e0b" : "#f87171"
+                        return (
+                          <tr key={d.id} style={{ borderBottom: "1px solid #1a1a1a" }}>
+                            <td style={{ padding: "8px 12px", color: "#fff", fontWeight: 600 }}>{d.full_name}</td>
+                            <td style={{ padding: "8px 12px", color: "#c9a84c", fontFamily: "monospace" }}>{d.driver_code}</td>
+                            <td style={{ padding: "8px 12px" }}>
+                              <span style={{ ...S.badge(ac.bg), color: ac.text, fontSize: 10 }}>
+                                {affType === "SOTTOVENTO_LEGAL_FLEET" ? "SLN LEGAL" : affType === "PARTNER_LEGAL_FLEET" ? "PARTNER LEGAL" : "GENERAL"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "8px 12px" }}>
+                              <span style={{ fontSize: 18, fontWeight: 700, color: drsColor }}>{drs}</span>
+                              <span style={{ fontSize: 10, color: "#555", marginLeft: 4 }}>/100</span>
+                            </td>
+                            <td style={{ padding: "8px 12px" }}>
+                              <span style={{ ...S.badge(tc.bg), color: tc.text, fontSize: 10 }}>{tierBm5}</span>
+                            </td>
+                            <td style={{ padding: "8px 12px", color: d.acceptance_rate != null ? (d.acceptance_rate >= 0.85 ? "#4ade80" : d.acceptance_rate >= 0.70 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.acceptance_rate != null ? `${Math.round(d.acceptance_rate * 100)}%` : "—"}
+                            </td>
+                            <td style={{ padding: "8px 12px", color: d.completion_rate != null ? (d.completion_rate >= 0.95 ? "#4ade80" : d.completion_rate >= 0.85 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.completion_rate != null ? `${Math.round(d.completion_rate * 100)}%` : "—"}
+                            </td>
+                            <td style={{ padding: "8px 12px", color: d.driver_cancel_rate != null ? (d.driver_cancel_rate <= 0.05 ? "#4ade80" : d.driver_cancel_rate <= 0.10 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.driver_cancel_rate != null ? `${Math.round(d.driver_cancel_rate * 100)}%` : "—"}
+                            </td>
+                            <td style={{ padding: "8px 12px", color: d.on_time_score != null ? (d.on_time_score >= 0.90 ? "#4ade80" : d.on_time_score >= 0.75 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.on_time_score != null ? `${Math.round(d.on_time_score * 100)}%` : "—"}
+                            </td>
+                            <td style={{ padding: "8px 12px", color: d.dispatch_response_score != null ? (d.dispatch_response_score >= 0.90 ? "#4ade80" : d.dispatch_response_score >= 0.75 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.dispatch_response_score != null ? `${Math.round(d.dispatch_response_score * 100)}%` : "—"}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            {/* ── End BM5 Driver Reliability Score Engine Control ───────────────── */}
           </div>
         )}
 
@@ -3049,6 +3160,28 @@ export default function AdminPanel() {
                       <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>STAFF</div><div style={{ fontWeight: 700 }}>{c.staff_count ?? 0}</div></div>
                       <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>MTD</div><div style={{ fontWeight: 700, color: "#c9a84c" }}>${Number(c.earnings_mtd ?? 0).toFixed(2)}</div></div>
                       <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#888" }}>LIFETIME</div><div style={{ fontWeight: 700 }}>${Number(c.total_earnings ?? 0).toFixed(2)}</div></div>
+                      {/* BM5: Partner Dispatch Mode Switch */}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                        <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>DISPATCH MODE</div>
+                        <select
+                          value={c.partner_dispatch_mode ?? "CAPTURE_ONLY"}
+                          onChange={async (e) => {
+                            const newMode = e.target.value
+                            try {
+                              await fetch(`${BASE_URL}/api/admin/partners/companies`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                body: JSON.stringify({ company_id: c.id, partner_dispatch_mode: newMode })
+                              })
+                              loadPartnerCompanies()
+                            } catch {}
+                          }}
+                          style={{ background: c.partner_dispatch_mode === "SUBNETWORK_PRIORITY" ? "#0c2340" : "#1a1a1a", color: c.partner_dispatch_mode === "SUBNETWORK_PRIORITY" ? "#38bdf8" : "#888", border: `1px solid ${c.partner_dispatch_mode === "SUBNETWORK_PRIORITY" ? "#38bdf8" : "#333"}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          <option value="CAPTURE_ONLY">CAPTURE ONLY</option>
+                          <option value="SUBNETWORK_PRIORITY">SUBNETWORK PRIORITY</option>
+                        </select>
+                      </div>
                       <span style={{ ...S.badge("#052e16"), color: "#4ade80" }}>{c.status?.toUpperCase()}</span>
                     </div>
                   ))}

@@ -519,6 +519,18 @@ interface DriverSummary {
   upcoming_rides: UpcomingRide[]
   completed_rides: CompletedRide[]
   cancelled_rides: CancelledRide[]
+  // BM5: Driver Reliability Score Engine
+  reliability_score?: number
+  driver_tier?: string
+  legal_affiliation_type?: string
+  acceptance_rate?: number
+  completion_rate?: number
+  driver_cancel_rate?: number
+  fallback_response_rate?: number
+  on_time_score?: number
+  dispatch_response_score?: number
+  driver_score_total?: number
+  driver_score_tier?: string
 }
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
@@ -1037,6 +1049,18 @@ export default function DriverDashboardByCode() {
         upcoming_rides: d.upcoming_rides ?? [],
         completed_rides: d.completed_rides ?? [],
         cancelled_rides: d.cancelled_rides ?? [],
+        // BM5: Driver Reliability Score Engine
+        reliability_score: d.reliability_score ?? undefined,
+        driver_tier: d.driver_tier ?? undefined,
+        legal_affiliation_type: d.legal_affiliation_type ?? undefined,
+        acceptance_rate: d.acceptance_rate ?? undefined,
+        completion_rate: d.completion_rate ?? undefined,
+        driver_cancel_rate: d.driver_cancel_rate ?? undefined,
+        fallback_response_rate: d.fallback_response_rate ?? undefined,
+        on_time_score: d.on_time_score ?? undefined,
+        dispatch_response_score: d.dispatch_response_score ?? undefined,
+        driver_score_total: d.driver_score_total ?? undefined,
+        driver_score_tier: d.driver_score_tier ?? undefined,
       })
       // ── Active Mode: persist ride state to localStorage for instant re-entry ──
       // On screen sleep / app re-open, the cached state is read before the first fetch
@@ -3053,6 +3077,63 @@ export default function DriverDashboardByCode() {
             ))}
           </div>
 
+          {/* BM5: Driver Reliability Score Card */}
+          {(summary.reliability_score != null || summary.driver_tier != null) && (
+            <div className="px-4 mt-5">
+              <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">
+                {lang === "es" ? "Mi Puntaje de Confiabilidad" : lang === "ht" ? "Nòt Fyabilite Mwen" : "My Reliability Score"}
+              </div>
+              <div className="rounded-xl border bg-zinc-900 overflow-hidden" style={{ borderColor: summary.reliability_score != null && summary.reliability_score >= 85 ? "#c9a84c" : summary.reliability_score != null && summary.reliability_score >= 70 ? "#22c55e" : summary.reliability_score != null && summary.reliability_score >= 55 ? "#38bdf8" : "#3f3f46" }}>
+                {/* Header row */}
+                <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-widest mb-1">DRS · Sottovento Reliability Engine</div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-4xl font-bold" style={{ color: summary.reliability_score != null && summary.reliability_score >= 85 ? "#c9a84c" : summary.reliability_score != null && summary.reliability_score >= 70 ? "#4ade80" : summary.reliability_score != null && summary.reliability_score >= 55 ? "#38bdf8" : summary.reliability_score != null && summary.reliability_score >= 40 ? "#f59e0b" : "#f87171" }}>
+                        {summary.reliability_score ?? "—"}
+                      </span>
+                      <span className="text-zinc-500 text-sm">/100</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {summary.driver_tier && (
+                      <span className="text-xs font-bold px-3 py-1.5 rounded-full" style={{
+                        background: summary.driver_tier === "ELITE" ? "#1a0a2e" : summary.driver_tier === "PREMIUM" ? "#052e16" : summary.driver_tier === "STANDARD" ? "#0c2340" : summary.driver_tier === "RESTRICTED" ? "#3b0000" : "#3b2200",
+                        color: summary.driver_tier === "ELITE" ? "#c9a84c" : summary.driver_tier === "PREMIUM" ? "#4ade80" : summary.driver_tier === "STANDARD" ? "#38bdf8" : summary.driver_tier === "RESTRICTED" ? "#f87171" : "#f59e0b"
+                      }}>{summary.driver_tier}</span>
+                    )}
+                    {summary.legal_affiliation_type && (
+                      <div className="text-xs mt-1" style={{ color: summary.legal_affiliation_type === "SOTTOVENTO_LEGAL_FLEET" ? "#c9a84c" : summary.legal_affiliation_type === "PARTNER_LEGAL_FLEET" ? "#38bdf8" : "#6b7280" }}>
+                        {summary.legal_affiliation_type === "SOTTOVENTO_LEGAL_FLEET" ? "SLN LEGAL FLEET" : summary.legal_affiliation_type === "PARTNER_LEGAL_FLEET" ? "PARTNER LEGAL" : "GENERAL NETWORK"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Metrics grid */}
+                <div className="grid grid-cols-2 divide-x divide-y divide-zinc-800">
+                  {[
+                    { label: lang === "es" ? "Aceptación" : "Acceptance", value: summary.acceptance_rate, good: 0.85, warn: 0.70, format: "pct" },
+                    { label: lang === "es" ? "Completación" : "Completion", value: summary.completion_rate, good: 0.95, warn: 0.85, format: "pct" },
+                    { label: lang === "es" ? "Tasa de Cancelación" : "Cancel Rate", value: summary.driver_cancel_rate, good: 0.05, warn: 0.10, format: "pct", inverse: true },
+                    { label: lang === "es" ? "Puntualidad" : "On-Time", value: summary.on_time_score, good: 0.90, warn: 0.75, format: "pct" },
+                    { label: lang === "es" ? "Resp. Despacho" : "Dispatch Resp.", value: summary.dispatch_response_score, good: 0.90, warn: 0.75, format: "pct" },
+                    { label: lang === "es" ? "Resp. Fallback" : "Fallback Resp.", value: summary.fallback_response_rate, good: 0.80, warn: 0.60, format: "pct" },
+                  ].map((m) => {
+                    const v = m.value
+                    const color = v == null ? "#6b7280" : m.inverse ? (v <= m.good ? "#4ade80" : v <= m.warn ? "#f59e0b" : "#f87171") : (v >= m.good ? "#4ade80" : v >= m.warn ? "#f59e0b" : "#f87171")
+                    return (
+                      <div key={m.label} className="px-4 py-3">
+                        <div className="text-xs text-zinc-500 mb-1">{m.label}</div>
+                        <div className="text-base font-semibold" style={{ color }}>
+                          {v != null ? `${Math.round(v * 100)}%` : "—"}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
           {/* Tablet section */}
           <div className="px-4 mt-5">
             <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 mb-2">{t.myTablet}</div>

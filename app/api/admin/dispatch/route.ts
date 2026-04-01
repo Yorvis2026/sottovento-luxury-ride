@@ -277,10 +277,21 @@ export async function GET() {
             COALESCE(d.on_time_rides, 0)::integer                   AS on_time_rides,
             COALESCE(d.late_cancel_count, 0)::integer               AS late_cancel_count,
             COALESCE(d.complaint_count, 0)::integer                 AS complaint_count,
+            -- ── BM5: Legal Affiliation + Reliability Score ─────────────────────
+            COALESCE(d.legal_affiliation_type, 'GENERAL_NETWORK_DRIVER') AS legal_affiliation_type,
+            COALESCE(d.reliability_score, 65)::numeric              AS reliability_score,
+            COALESCE(d.driver_tier, 'STANDARD')                     AS driver_tier,
+            COALESCE(d.acceptance_rate, 0.75)::numeric              AS acceptance_rate,
+            COALESCE(d.completion_rate, 0.90)::numeric              AS completion_rate,
+            COALESCE(d.driver_cancel_rate, 0.05)::numeric           AS driver_cancel_rate,
+            COALESCE(d.fallback_response_rate, 0.80)::numeric       AS fallback_response_rate,
+            COALESCE(d.on_time_score, 0.85)::numeric                AS on_time_score,
+            COALESCE(d.dispatch_response_score, 0.85)::numeric      AS dispatch_response_score,
             -- ── Affiliate Company fields (Convergence Phase 1) ─────────────────
             d.company_id                                            AS company_id,
             pc.name                                                 AS company_name,
-            pc.brand_name                                           AS company_brand_display_name
+            pc.brand_name                                           AS company_brand_display_name,
+            COALESCE(pc.partner_dispatch_mode, 'CAPTURE_ONLY')      AS company_partner_dispatch_mode
           FROM drivers d
           LEFT JOIN partner_companies pc ON d.company_id = pc.id
           WHERE d.driver_status IN ('active', 'provisional')
@@ -337,6 +348,8 @@ export async function GET() {
             pickup_zone:          candidate.pickup_zone ?? "",
             service_type:         (candidate.service_type as ServiceType) || "standard",
             source_driver_id:     sourceDriverId,
+            source_partner_id:    null,
+            booking_source:       candidate.booking_origin ?? 'manual_admin',
             service_location_type: slt as any,
           };
 
@@ -354,6 +367,18 @@ export async function GET() {
               late_cancel_recent: behavior.late_cancel,
               complaint_recent: behavior.complaint,
               no_response_recent: behavior.no_response,
+              // BM5 fields
+              legal_affiliation_type: d.legal_affiliation_type ?? 'GENERAL_NETWORK_DRIVER',
+              reliability_score: Number(d.reliability_score ?? 65),
+              driver_tier: d.driver_tier ?? 'STANDARD',
+              acceptance_rate: Number(d.acceptance_rate ?? 0.75),
+              completion_rate: Number(d.completion_rate ?? 0.90),
+              driver_cancel_rate: Number(d.driver_cancel_rate ?? 0.05),
+              fallback_response_rate: Number(d.fallback_response_rate ?? 0.80),
+              on_time_score: Number(d.on_time_score ?? 0.85),
+              dispatch_response_score: Number(d.dispatch_response_score ?? 0.85),
+              company_id: d.company_id ?? null,
+              company_partner_dispatch_mode: d.company_partner_dispatch_mode ?? 'CAPTURE_ONLY',
               vehicle: vehicleMap[d.id] ?? null,
             };
           });

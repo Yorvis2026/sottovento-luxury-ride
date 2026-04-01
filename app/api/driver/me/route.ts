@@ -48,7 +48,19 @@ export async function GET(req: NextRequest) {
         driver_status,
         is_eligible,
         COALESCE(availability_status, 'offline') AS availability_status,
-        created_at
+        created_at,
+        -- BM5: Driver Reliability Score Engine
+        COALESCE(reliability_score, 65) AS reliability_score,
+        COALESCE(driver_tier, 'STANDARD') AS driver_tier,
+        COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER') AS legal_affiliation_type,
+        acceptance_rate,
+        completion_rate,
+        driver_cancel_rate,
+        fallback_response_rate,
+        on_time_score,
+        dispatch_response_score,
+        driver_score_total,
+        driver_score_tier
       FROM drivers
       WHERE driver_code = ${code.toUpperCase()}
       LIMIT 1
