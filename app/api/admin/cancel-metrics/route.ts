@@ -89,9 +89,9 @@ export async function GET() {
         b.cancelled_at,
         COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
         b.cancelled_by_id,
-        COALESCE(b.cancel_reason_code, UPPER(REPLACE(COALESCE(b.cancel_reason, 'UNKNOWN'), ' ', '_'))) AS cancel_reason_code,
+        COALESCE(b.cancel_reason_code, UPPER(REPLACE(COALESCE(b.cancellation_reason, 'UNKNOWN'), ' ', '_'))) AS cancel_reason_code,
         COALESCE(b.cancel_reason_text,
-          CASE UPPER(REPLACE(COALESCE(b.cancel_reason, ''), ' ', '_'))
+          CASE UPPER(REPLACE(COALESCE(b.cancellation_reason, ''), ' ', '_'))
             WHEN 'PASSENGER_NO_SHOW'                THEN 'Passenger no-show'
             WHEN 'PASSENGER_CANCELLED'              THEN 'Client cancelled'
             WHEN 'PASSENGER_UNREACHABLE'            THEN 'Passenger unreachable'
