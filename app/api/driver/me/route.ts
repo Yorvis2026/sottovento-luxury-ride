@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const code = searchParams.get("code");
+    const debug = searchParams.get("debug") === "1";
 
     if (!code) {
       return NextResponse.json({ error: "code is required" }, { status: 400 });
@@ -325,6 +326,16 @@ export async function GET(req: NextRequest) {
           pickup_at ASC
         LIMIT 1
       `;
+
+      if (debug) {
+        return NextResponse.json({
+          _debug: true,
+          driver_id: driver.id,
+          assigned_rows_count: assignedRows.length,
+          assigned_rows: assignedRows,
+          query_window: "7 days past to 120 minutes future",
+        });
+      }
 
       if (assignedRows.length > 0) {
         const r = assignedRows[0];
