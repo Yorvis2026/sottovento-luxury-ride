@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     if (new Date(offer.expires_at) < new Date()) {
       await sql`
         UPDATE dispatch_offers
-        SET response = 'timeout', timeout_at = NOW(), updated_at = NOW()
+        SET response = 'timeout', timeout_at = NOW()
         WHERE id = ${offer_id}::uuid
       `;
       await logEvent(bookingId, driverId, 'fallback_offer_timeout', {
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
         // Already assigned to another driver (double-assign prevention)
         await sql`
           UPDATE dispatch_offers
-          SET response = 'superseded', updated_at = NOW()
+          SET response = 'superseded'
           WHERE id = ${offer_id}::uuid
         `;
         await logEvent(bookingId, driverId, 'fallback_offer_superseded', {
@@ -133,14 +133,14 @@ export async function POST(req: Request) {
       // Mark this offer as accepted
       await sql`
         UPDATE dispatch_offers
-        SET response = 'accepted', updated_at = NOW()
+        SET response = 'accepted'
         WHERE id = ${offer_id}::uuid
       `;
 
       // Supersede all other pending fallback offers for this booking (Case B: top-3)
       await sql`
         UPDATE dispatch_offers
-        SET response = 'superseded', updated_at = NOW()
+        SET response = 'superseded'
         WHERE booking_id = ${bookingId}::uuid
           AND id != ${offer_id}::uuid
           AND response = 'pending'
@@ -205,7 +205,7 @@ export async function POST(req: Request) {
       // DECLINE
       await sql`
         UPDATE dispatch_offers
-        SET response = 'declined', declined_at = NOW(), updated_at = NOW()
+        SET response = 'declined', declined_at = NOW()
         WHERE id = ${offer_id}::uuid
       `;
 
