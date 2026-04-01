@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     SELECT bcl.*, b.client_email, b.client_phone, b.client_name,
            b.pickup_address, b.dropoff_address
     FROM booking_communication_log bcl
-    LEFT JOIN bookings b ON b.booking_id = bcl.booking_id
+    LEFT JOIN bookings b ON b.id = bcl.booking_id
     WHERE bcl.id = ${log_id}
       AND bcl.delivery_status = 'pending'
     LIMIT 1
