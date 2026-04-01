@@ -164,7 +164,12 @@ export async function POST(req: NextRequest) {
     const prevStatus = booking.status;
     const prevDispatchStatus = booking.dispatch_status;
 
-    // ── Update booking ────────────────────────────────────────
+    // ── Bloque Maestro — Cancellation Metrics Sync: cancel_stage for driver-exit ────────────────────────────────────────────
+    const cancelStage = prevStatus === 'en_route' ? 'en_route'
+      : prevStatus === 'arrived' ? 'arrived'
+      : 'post_accept_pre_dispatch';
+
+    // ── Update booking ────────────────────────────────────────────
     await sql`
       UPDATE bookings
       SET
@@ -176,11 +181,15 @@ export async function POST(req: NextRequest) {
         driver_exit_prev_status          = ${prevStatus},
         driver_exit_prev_dispatch_status = ${prevDispatchStatus},
         driver_exit_case                 = ${exitCase},
+        cancelled_by_type                = 'driver',
+        cancelled_by_id                  = ${driver.id}::uuid,
+        cancel_stage                     = ${cancelStage},
+        affects_driver_metrics           = TRUE,
+        affects_payout                   = FALSE,
+        cancelled_at                     = ${nowIso}::timestamptz,
         updated_at                       = NOW()
       WHERE id = ${booking_id}::uuid
-    `;
-
-    // ── Update driver availability ────────────────────────────
+    `;  // ── Update driver availability ────────────────────────────
     // Case A: driver is free → back to available
     // Case B/C: driver may need to be retained → available but flagged
     // In all cases: remove busy since they're no longer executing

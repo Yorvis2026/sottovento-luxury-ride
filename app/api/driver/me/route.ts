@@ -667,6 +667,61 @@ export async function GET(req: NextRequest) {
       }));
     } catch { /* non-blocking */ }
 
+    // ── Section 6: cancelled_rides (Bloque Maestro — Cancellation Metrics Sync) ──────────
+    let cancelled_rides: Record<string, unknown>[] = [];
+    let cancelled_rides_count = 0;
+    try {
+      const cancelledRows = await sql`
+        SELECT
+          b.id AS booking_id,
+          b.status,
+          b.pickup_address,
+          b.dropoff_address,
+          b.pickup_at,
+          b.cancelled_at,
+          b.vehicle_type,
+          b.total_price,
+          COALESCE(b.cancel_reason, b.cancellation_reason, '') AS cancel_reason,
+          COALESCE(b.cancel_responsibility, '') AS cancel_responsibility,
+          COALESCE(b.cancelled_by_type,
+            CASE b.cancel_responsibility
+              WHEN 'passenger' THEN 'client'
+              WHEN 'driver'    THEN 'driver'
+              WHEN 'dispatch'  THEN 'admin'
+              ELSE 'system'
+            END
+          ) AS cancelled_by_type,
+          COALESCE(b.early_cancel, FALSE) AS early_cancel,
+          COALESCE(b.late_cancel, FALSE) AS late_cancel,
+          COALESCE(b.passenger_no_show, FALSE) AS passenger_no_show,
+          COALESCE(cl.full_name, b.client_name_override) AS client_name
+        FROM bookings b
+        LEFT JOIN clients cl ON cl.id = b.client_id
+        WHERE b.assigned_driver_id = ${driver.id}
+          AND (b.status = 'cancelled' OR b.cancelled_at IS NOT NULL)
+        ORDER BY COALESCE(b.cancelled_at, b.updated_at) DESC NULLS LAST
+        LIMIT 30
+      `;
+      cancelled_rides = cancelledRows.map((r) => ({
+        booking_id: r.booking_id,
+        status: r.status,
+        pickup_location: r.pickup_address ?? 'TBD',
+        dropoff_location: r.dropoff_address ?? 'TBD',
+        pickup_datetime: r.pickup_at,
+        cancelled_at: r.cancelled_at,
+        vehicle_type: r.vehicle_type ?? 'Sedan',
+        total_price: Number(r.total_price ?? 0),
+        cancel_reason: r.cancel_reason ?? null,
+        cancel_responsibility: r.cancel_responsibility ?? null,
+        cancelled_by_type: r.cancelled_by_type ?? 'system',
+        early_cancel: Boolean(r.early_cancel),
+        late_cancel: Boolean(r.late_cancel),
+        passenger_no_show: Boolean(r.passenger_no_show),
+        client_name: r.client_name ?? null,
+      }));
+      cancelled_rides_count = cancelled_rides.length;
+    } catch { /* non-blocking */ }
+
     return NextResponse.json({
       driver: {
         ...driver,
@@ -681,6 +736,7 @@ export async function GET(req: NextRequest) {
         assigned_ride,
         upcoming_rides,
         completed_rides,
+        cancelled_rides,
         fallback_offer,
       },
     });

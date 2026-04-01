@@ -284,7 +284,20 @@ export async function POST(req: NextRequest) {
       // Columns may already exist — safe to ignore
     }
 
-    // ── Update booking ────────────────────────────────────────
+    // ── Bloque Maestro — Cancellation Metrics Sync: attribution fields ────────────────────────────────────────────
+    // cancel_stage: when in the ride lifecycle was the cancellation made
+    const cancelStage = booking.status === 'offer_pending' ? 'pre_accept'
+      : booking.status === 'accepted' || booking.status === 'assigned' ? 'post_accept_pre_dispatch'
+      : booking.status === 'en_route' ? 'en_route'
+      : booking.status === 'arrived' ? 'arrived'
+      : 'unknown';
+
+    // affects_driver_metrics: true if driver is responsible
+    const affectsDriverMetrics = responsibility === 'driver';
+    // affects_payout: true if driver is NOT responsible (driver gets paid on passenger cancel)
+    const affectsPayout = responsibility === 'passenger';
+
+    // ── Update booking ────────────────────────────────────────────
     await sql`
       UPDATE bookings
       SET
@@ -303,11 +316,14 @@ export async function POST(req: NextRequest) {
         source_driver_share_amount  = ${feeSplit.source_driver_share_amount},
         platform_share_amount       = ${feeSplit.platform_share_amount},
         fee_split_strategy          = ${feeSplit.fee_split_strategy},
+        cancelled_by_type           = 'driver',
+        cancelled_by_id             = ${driver_id}::uuid,
+        cancel_stage                = ${cancelStage},
+        affects_driver_metrics      = ${affectsDriverMetrics},
+        affects_payout              = ${affectsPayout},
         updated_at                  = NOW()
       WHERE id = ${booking_id}::uuid
-    `;
-
-    // ── Incident Registry: write to audit_logs (Fase 8) ──────
+    `;  // ── Incident Registry: write to audit_logs (Fase 8) ──────
     const incidentData = {
       cancel_reason,
       cancel_responsibility:       responsibility,

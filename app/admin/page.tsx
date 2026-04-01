@@ -1990,6 +1990,49 @@ export default function AdminPanel() {
                   })}
                 </div>
                 {/* ══════════════════════════════════════════════
+                    CANCEL METRICS PANEL (Bloque Maestro — Cancellation Metrics Sync)
+                ══════════════════════════════════════════════ */}
+                {(dispatchData as any)?.cancelMetrics && (
+                  <div id="cancel-metrics-panel" style={{ ...S.card, marginBottom: 16, marginTop: 16, borderColor: "#3b0000" }}>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>📊 Cancellation Metrics</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Fuente única de verdad — basada en <code style={{ color: "#f87171", fontSize: 11 }}>status = cancelled OR cancelled_at IS NOT NULL</code></div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
+                      {[
+                        { label: "Last 24h",   value: (dispatchData as any).cancelMetrics.counts.last_24h,   color: "#f87171" },
+                        { label: "Today",      value: (dispatchData as any).cancelMetrics.counts.today,      color: "#f87171" },
+                        { label: "This Week",  value: (dispatchData as any).cancelMetrics.counts.this_week,  color: "#fb923c" },
+                        { label: "This Month", value: (dispatchData as any).cancelMetrics.counts.this_month, color: "#fbbf24" },
+                        { label: "All Time",   value: (dispatchData as any).cancelMetrics.counts.total,      color: "#888" },
+                      ].map(m => (
+                        <div key={m.label} style={{ background: "#0d0000", border: "1px solid #3b0000", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
+                          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{m.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 8, fontWeight: 600 }}>Breakdown por origen</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                      {[
+                        { label: "By Client",  value: (dispatchData as any).cancelMetrics.breakdown.by_client, color: "#fbbf24", icon: "👤" },
+                        { label: "By Driver",  value: (dispatchData as any).cancelMetrics.breakdown.by_driver, color: "#f87171", icon: "🚗" },
+                        { label: "By Admin",   value: (dispatchData as any).cancelMetrics.breakdown.by_admin,  color: "#a78bfa", icon: "🛠️" },
+                        { label: "By System",  value: (dispatchData as any).cancelMetrics.breakdown.by_system, color: "#6b7280", icon: "⚙️" },
+                      ].map(m => (
+                        <div key={m.label} style={{ background: "#0d0000", border: "1px solid #2a1a1a", borderRadius: 8, padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 16 }}>{m.icon}</span>
+                          <div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
+                            <div style={{ fontSize: 10, color: "#666" }}>{m.label}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ══════════════════════════════════════════════
                     BUCKET 7: RECENTLY CANCELLED (red — last 24h)
                 ══════════════════════════════════════════════ */}
                 <div id="bucket-recently-cancelled" style={{ ...S.card, marginBottom: 16, marginTop: 16 }}>

@@ -485,6 +485,24 @@ interface CompletedRide {
   cancelled_at?: string | null
 }
 
+interface CancelledRide {
+  booking_id: string
+  status: string
+  pickup_location: string
+  dropoff_location: string
+  pickup_datetime: string | null
+  cancelled_at: string | null
+  vehicle_type: string
+  total_price: number
+  cancel_reason?: string | null
+  cancel_responsibility?: string | null
+  cancelled_by_type?: string | null
+  early_cancel?: boolean
+  late_cancel?: boolean
+  passenger_no_show?: boolean
+  client_name?: string | null
+}
+
 interface DriverSummary {
   driver_id: string
   driver_name: string
@@ -500,6 +518,7 @@ interface DriverSummary {
   assigned_ride: ActiveRide | null
   upcoming_rides: UpcomingRide[]
   completed_rides: CompletedRide[]
+  cancelled_rides: CancelledRide[]
 }
 
 const BASE_URL = "https://www.sottoventoluxuryride.com"
@@ -660,7 +679,7 @@ export default function DriverDashboardByCode() {
   const [showCompleted, setShowCompleted] = useState(false)
   const [smsSending, setSmsSending] = useState(false)
   const [smsSent, setSmsSent] = useState(false)
-  const [dashTab, setDashTab] = useState<"overview" | "upcoming" | "completed" | "earnings">("overview")
+  const [dashTab, setDashTab] = useState<"overview" | "upcoming" | "completed" | "cancelled" | "earnings">("overview")
     // ── Temporal guardrail modals ─────────────────────────────
   const [showEarlyStartModal, setShowEarlyStartModal] = useState(false)
   const [showOverdueModal, setShowOverdueModal] = useState(false)
@@ -1017,6 +1036,7 @@ export default function DriverDashboardByCode() {
         assigned_ride: activeRide,
         upcoming_rides: d.upcoming_rides ?? [],
         completed_rides: d.completed_rides ?? [],
+        cancelled_rides: d.cancelled_rides ?? [],
       })
       // ── Active Mode: persist ride state to localStorage for instant re-entry ──
       // On screen sleep / app re-open, the cached state is read before the first fetch
@@ -2996,8 +3016,9 @@ export default function DriverDashboardByCode() {
           { key: "overview",  label: "Overview",  badge: null },
           { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
           { key: "completed", label: lang === "es" ? "Completados" : "Completed", badge: null },
+          { key: "cancelled", label: lang === "es" ? "Cancelados" : "Cancelled", badge: (summary?.cancelled_rides?.length ?? 0) > 0 ? (summary?.cancelled_rides?.length ?? 0) : null },
           { key: "earnings",  label: lang === "es" ? "Ganancias" : "Earnings",  badge: null },
-        ] as { key: "overview" | "upcoming" | "completed" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
+        ] as { key: "overview" | "upcoming" | "completed" | "cancelled" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
           <button key={tab.key}
             onClick={() => setDashTab(tab.key)}
             className="relative pb-2 pt-1 flex-1 text-xs font-medium uppercase tracking-widest transition-all text-center"
@@ -3406,6 +3427,79 @@ export default function DriverDashboardByCode() {
                         </div>
                       </div>
                     )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: CANCELLED ── */}
+      {dashTab === "cancelled" && (
+        <div className="px-4 mt-4">
+          {!summary.cancelled_rides || summary.cancelled_rides.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-4xl mb-3">✅</div>
+              <div className="text-zinc-500 text-sm">
+                {lang === "es" ? "No hay viajes cancelados" : "No cancelled rides"}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 pb-6">
+              {summary.cancelled_rides.map((ride) => {
+                const cancelDate = ride.cancelled_at
+                  ? new Date(ride.cancelled_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
+                const cancelTime = ride.cancelled_at
+                  ? new Date(ride.cancelled_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                const byType = ride.cancelled_by_type ?? "system"
+                const byTypeColor: Record<string, string> = {
+                  client: "#fbbf24", driver: "#f87171", admin: "#a78bfa", system: "#6b7280"
+                }
+                const byTypeLabel: Record<string, string> = {
+                  client: lang === "es" ? "Por Cliente" : "By Client",
+                  driver: lang === "es" ? "Por Conductor" : "By Driver",
+                  admin: lang === "es" ? "Por Admin" : "By Admin",
+                  system: lang === "es" ? "Sistema" : "System",
+                }
+                const timingBadge = ride.late_cancel
+                  ? { label: lang === "es" ? "⏰ Cancel. tardía" : "⏰ Late cancel", color: "#f87171" }
+                  : ride.early_cancel
+                  ? { label: lang === "es" ? "✅ Cancel. temprana" : "✅ Early cancel", color: "#4ade80" }
+                  : null
+                return (
+                  <div key={ride.booking_id}
+                    className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+                    <div className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
+                          <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-bold text-zinc-500">${ride.total_price.toFixed(0)}</div>
+                          <div className="text-xs mt-0.5" style={{ color: byTypeColor[byType] ?? "#6b7280" }}>
+                            {byTypeLabel[byType] ?? byType}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {cancelDate && <span className="text-xs text-zinc-400">{cancelDate}</span>}
+                        {cancelTime && <span className="text-xs text-zinc-500">{cancelTime}</span>}
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type}</span>
+                        {timingBadge && (
+                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "#1a1a1a", color: timingBadge.color }}>
+                            {timingBadge.label}
+                          </span>
+                        )}
+                        <span className="text-xs text-zinc-600 font-mono ml-auto">{ride.booking_id.slice(0, 8)}…</span>
+                      </div>
+                      {ride.cancel_reason && (
+                        <div className="mt-2 text-xs text-zinc-500 italic">
+                          "{ride.cancel_reason}"
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}

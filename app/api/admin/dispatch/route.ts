@@ -441,6 +441,94 @@ export async function GET() {
       }
     }
 
+    // ── Cancel metrics (Bloque Maestro — Cancellation Metrics Sync) ──────────
+    let cancelMetrics: any = null;
+    try {
+      const cancelCounts = await sql`
+        SELECT
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND cancelled_at >= NOW() - INTERVAL '24 hours'
+          ) AS last_24h,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND cancelled_at >= DATE_TRUNC('day', NOW())
+          ) AS today,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND cancelled_at >= DATE_TRUNC('week', NOW())
+          ) AS this_week,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND cancelled_at >= DATE_TRUNC('month', NOW())
+          ) AS this_month,
+          COUNT(*) FILTER (
+            WHERE status = 'cancelled' OR cancelled_at IS NOT NULL
+          ) AS total,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND COALESCE(cancelled_by_type,
+                CASE cancel_responsibility
+                  WHEN 'passenger' THEN 'client'
+                  WHEN 'driver'    THEN 'driver'
+                  WHEN 'dispatch'  THEN 'admin'
+                  ELSE 'system'
+                END
+              ) = 'client'
+          ) AS by_client,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND COALESCE(cancelled_by_type,
+                CASE cancel_responsibility
+                  WHEN 'passenger' THEN 'client'
+                  WHEN 'driver'    THEN 'driver'
+                  WHEN 'dispatch'  THEN 'admin'
+                  ELSE 'system'
+                END
+              ) = 'driver'
+          ) AS by_driver,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND COALESCE(cancelled_by_type,
+                CASE cancel_responsibility
+                  WHEN 'passenger' THEN 'client'
+                  WHEN 'driver'    THEN 'driver'
+                  WHEN 'dispatch'  THEN 'admin'
+                  ELSE 'system'
+                END
+              ) = 'admin'
+          ) AS by_admin,
+          COUNT(*) FILTER (
+            WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+              AND COALESCE(cancelled_by_type,
+                CASE cancel_responsibility
+                  WHEN 'passenger' THEN 'client'
+                  WHEN 'driver'    THEN 'driver'
+                  WHEN 'dispatch'  THEN 'admin'
+                  ELSE 'system'
+                END
+              ) = 'system'
+          ) AS by_system
+        FROM bookings
+      `;
+      const cc = cancelCounts[0];
+      cancelMetrics = {
+        counts: {
+          last_24h:   Number(cc.last_24h ?? 0),
+          today:      Number(cc.today ?? 0),
+          this_week:  Number(cc.this_week ?? 0),
+          this_month: Number(cc.this_month ?? 0),
+          total:      Number(cc.total ?? 0),
+        },
+        breakdown: {
+          by_client: Number(cc.by_client ?? 0),
+          by_driver: Number(cc.by_driver ?? 0),
+          by_admin:  Number(cc.by_admin ?? 0),
+          by_system: Number(cc.by_system ?? 0),
+        },
+      };
+    } catch { /* non-blocking */ }
+
     return NextResponse.json({
       driverIssue,
       needsReview,
@@ -449,6 +537,7 @@ export async function GET() {
       inProgress,
       completed,
       recentlyCancelled,
+      cancelMetrics,
       total: rows.length,
       counts: {
         driverIssue: driverIssue.length,
