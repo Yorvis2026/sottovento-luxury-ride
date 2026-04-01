@@ -115,7 +115,7 @@ export async function GET() {
         d.driver_code AS assigned_driver_code,
         d.full_name AS assigned_driver_name,
         -- Client info
-        COALESCE(cl.full_name, b.client_name_override) AS client_name
+        COALESCE(cl.full_name, '') AS client_name
       FROM bookings b
       LEFT JOIN drivers d ON d.id = b.assigned_driver_id
       LEFT JOIN clients cl ON cl.id = b.client_id
