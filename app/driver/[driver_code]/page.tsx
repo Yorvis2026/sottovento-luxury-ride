@@ -747,10 +747,20 @@ export default function DriverDashboardByCode() {
   const [driverExitComment, setDriverExitComment] = useState<string>("")
   const [driverExitSubmitting, setDriverExitSubmitting] = useState(false)
   const [driverExitResult, setDriverExitResult] = useState<{ success: boolean; case: string; new_status: string } | null>(null)
-  // ── BM6: SLA Protection state ─────────────────────────────
+    // ── BM6: SLA Protection state ─────────────────────
   const [sendingImOnMyWay, setSendingImOnMyWay] = useState(false)
   const [imOnMyWaySent, setImOnMyWaySent] = useState(false)
-  // ── Fallback Offer Modal (Bloque Maestro 3) ──────────────────────
+  // ── BM8 Annex: Airport Load Awareness ────────────────────
+  const [airportLoad, setAirportLoad] = useState<{
+    airport_code: string
+    arrivals_next_60m: number
+    arrivals_next_120m: number
+    airport_load_level: 'low' | 'moderate' | 'high' | 'peak'
+    terminal_congestion_hint: string | null
+    delay_pressure_index: number
+    source: string
+  } | null>(null)
+  // ── Fallback Offer Modal (Bloque Maestro 3) ───────────────────────
   // Shown when a fallback pool offer arrives (another driver failed)
   const [showFallbackOfferModal, setShowFallbackOfferModal] = useState(false)
   const [fallbackOfferData, setFallbackOfferData] = useState<{
@@ -893,6 +903,14 @@ export default function DriverDashboardByCode() {
       }
     }
   }, [showOfferBanner, playAlert])
+
+  // ── BM8 Annex: Airport Load fetch (non-blocking) ─────────────
+  const loadAirportLoad = useCallback(async (airportCode: string) => {
+    try {
+      const r = await fetch(`/api/admin/airport-load?airport_code=${encodeURIComponent(airportCode)}`, { cache: 'no-store' })
+      if (r.ok) { const d = await r.json(); setAirportLoad(d) }
+    } catch { /* non-blocking */ }
+  }, [])
 
   const loadData = useCallback(async () => {
     if (!driverCode) return
@@ -1070,6 +1088,19 @@ export default function DriverDashboardByCode() {
           lastAcceptedBookingIdRef.current = null
         }
       }
+      // ── BM8 Annex: Trigger airport load if ride is airport type ──
+      if (activeRide) {
+        const combined = ((activeRide.pickup_location ?? '') + ' ' + (activeRide.dropoff_location ?? '')).toLowerCase()
+        const isAirportRide = combined.includes('airport') || combined.includes('mco') || combined.includes('mia') || combined.includes('fll') || !!activeRide.airport_code
+        if (isAirportRide) {
+          loadAirportLoad(activeRide.airport_code ?? 'MCO')
+        } else {
+          setAirportLoad(null)
+        }
+      } else {
+        setAirportLoad(null)
+      }
+
       setSummary({
         driver_id: d.id,
         driver_name: d.full_name,
@@ -4724,8 +4755,43 @@ function RideFlowScreen({
                 </div>
               )
             })()}
+            {/* ── BM8 ANNEX: AIRPORT LOAD AWARENESS WIDGET ──────────────────────── */}
+            {airportLoad && (() => {
+              const loadLevel = airportLoad.airport_load_level
+              const loadColors: Record<string, { bg: string; border: string; text: string; label: string }> = {
+                low:      { bg: '#0a1a0a30', border: '#4ade80', text: '#4ade80', label: lang === 'es' ? 'Bajo' : 'Low' },
+                moderate: { bg: '#1a1a0030', border: '#facc15', text: '#facc15', label: lang === 'es' ? 'Moderado' : 'Moderate' },
+                high:     { bg: '#1a0a0030', border: '#f97316', text: '#f97316', label: lang === 'es' ? 'Alto' : 'High' },
+                peak:     { bg: '#2a000030', border: '#f87171', text: '#f87171', label: lang === 'es' ? 'Pico' : 'Peak' },
+              }
+              const c = loadColors[loadLevel] ?? loadColors.moderate
+              return (
+                <div className="flex flex-col gap-1.5 px-4 py-3 rounded-xl"
+                  style={{ backgroundColor: c.bg, border: `1px solid ${c.border}40` }}>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold" style={{ color: c.text }}>
+                      ✈️ {airportLoad.airport_code} {lang === 'es' ? 'Actividad Aeroportuaria' : 'Airport Activity'}
+                    </div>
+                    <div className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${c.border}20`, color: c.text }}>
+                      {c.label}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-zinc-400">
+                    <span>{lang === 'es' ? 'Llegadas próx. 60 min' : 'Arrivals next 60 min'}</span>
+                    <span className="font-mono" style={{ color: c.text }}>{airportLoad.arrivals_next_60m}</span>
+                    <span>{lang === 'es' ? 'Llegadas próx. 120 min' : 'Arrivals next 120 min'}</span>
+                    <span className="font-mono" style={{ color: c.text }}>{airportLoad.arrivals_next_120m}</span>
+                  </div>
+                  {airportLoad.terminal_congestion_hint && (
+                    <div className="text-xs mt-0.5" style={{ color: `${c.text}99` }}>
+                      {airportLoad.terminal_congestion_hint}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
-            {/* ── BM6: SLA PROTECTION BANNER ──────────────────────────────────── */}
+            {/* ── BM6: SLA PROTECTION BANNER ────────────────────────────────────── */}
             {ride.sla_current_state && ride.sla_current_state !== 'none' && !ride.driver_im_on_my_way && (() => {
               const isCritical = ride.sla_current_state === 'sla_critical'
               const isHighRisk = ride.sla_current_state === 'sla_high_risk'

@@ -515,6 +515,10 @@ export default function AdminPanel() {
   const [runningFlightRefresh, setRunningFlightRefresh] = useState<{[key: string]: boolean}>({})
   const [flightRefreshMsg, setFlightRefreshMsg] = useState<{[key: string]: string}>({})
   const [expandedAirportId, setExpandedAirportId] = useState<string | null>(null)
+  // BM8 Annex: Airport Load Awareness
+  const [airportLoadDetail, setAirportLoadDetail] = useState<any | null>(null)
+  const [loadingAirportLoad, setLoadingAirportLoad] = useState(false)
+  const [airportLoadMsg, setAirportLoadMsg] = useState("")
   // Invite form
   const [inviteForm, setInviteForm] = useState({ type: "individual", email: "", phone: "", commission_rate: "0.10", name: "", send_email: true })
   const [inviteMsg, setInviteMsg] = useState("")
@@ -2340,6 +2344,53 @@ export default function AdminPanel() {
                   </div>
                   {bm8MigMsg && <div style={{ fontSize: 12, marginBottom: 10, color: bm8MigMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{bm8MigMsg}</div>}
                   {airportQueueMsg && <div style={{ fontSize: 12, marginBottom: 10, color: airportQueueMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{airportQueueMsg}</div>}
+                  {/* ── BM8 Annex: Airport Load Detail ─────────────────────────────── */}
+                  <div style={{ background: "#050d1a", border: "1px solid #1e3a5f", borderRadius: 10, padding: "12px 16px", marginBottom: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8" }}>Airport Load Intelligence</div>
+                      <button
+                        onClick={async () => {
+                          setLoadingAirportLoad(true); setAirportLoadMsg("");
+                          try {
+                            const r = await fetch("/api/admin/airport-load?airport_code=MCO", { headers: { "x-admin-key": "sln-admin-2024" } });
+                            const d = await r.json();
+                            if (r.ok) { setAirportLoadDetail(d); setAirportLoadMsg("") }
+                            else { setAirportLoadMsg(`❌ ${d.error ?? "Error"}`); }
+                          } catch { setAirportLoadMsg("❌ Network error") }
+                          finally { setLoadingAirportLoad(false) }
+                        }}
+                        disabled={loadingAirportLoad}
+                        style={{ fontSize: 11, padding: "3px 10px", background: "#0c2340", color: "#38bdf8", border: "1px solid #1e3a5f", borderRadius: 6, cursor: "pointer" }}
+                      >{loadingAirportLoad ? "Loading..." : "📊 Load Airport Activity"}</button>
+                    </div>
+                    {airportLoadMsg && <div style={{ fontSize: 11, color: "#f87171", marginBottom: 6 }}>{airportLoadMsg}</div>}
+                    {airportLoadDetail ? (
+                      <div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                          {[{label: "Load Level", value: (airportLoadDetail.airport_load_level ?? "--").toUpperCase(), color: airportLoadDetail.airport_load_level === "peak" ? "#f87171" : airportLoadDetail.airport_load_level === "high" ? "#f97316" : airportLoadDetail.airport_load_level === "moderate" ? "#facc15" : "#4ade80"}, {label: "Arr. 30m", value: airportLoadDetail.arrivals_next_30m ?? 0, color: "#38bdf8"}, {label: "Arr. 60m", value: airportLoadDetail.arrivals_next_60m ?? 0, color: "#38bdf8"}, {label: "Arr. 120m", value: airportLoadDetail.arrivals_next_120m ?? 0, color: "#38bdf8"}, {label: "Delayed", value: airportLoadDetail.delayed_flights_count ?? 0, color: "#f59e0b"}, {label: "Cancelled", value: airportLoadDetail.cancelled_flights_count ?? 0, color: "#f87171"}, {label: "Diverted", value: airportLoadDetail.diverted_flights_count ?? 0, color: "#a78bfa"}, {label: "Delay Index", value: `${airportLoadDetail.delay_pressure_index ?? 0}%`, color: "#fb923c"}].map(s => (
+                          <div key={s.label} style={{ background: "#0a0a0a", border: `1px solid ${s.color}30`, borderRadius: 8, padding: "6px 12px", textAlign: "center" }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
+                            <div style={{ fontSize: 10, color: "#555", marginTop: 1 }}>{s.label}</div>
+                          </div>
+                        ))}
+                        </div>
+                        {airportLoadDetail.terminal_congestion_hint && (
+                          <div style={{ fontSize: 11, color: "#f97316", marginBottom: 6 }}>Terminal: {airportLoadDetail.terminal_congestion_hint}</div>
+                        )}
+                        {airportLoadDetail.terminal_load_summary && Object.keys(airportLoadDetail.terminal_load_summary).length > 0 && (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {Object.entries(airportLoadDetail.terminal_load_summary).map(([t, cnt]: [string, any]) => (
+                              <span key={t} style={{ fontSize: 11, padding: "2px 8px", background: "#0c2340", color: "#38bdf8", border: "1px solid #1e3a5f", borderRadius: 4 }}>T-{t}: {cnt}</span>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 10, color: "#444", marginTop: 6 }}>Source: {airportLoadDetail.source} · {airportLoadDetail.bookings_tracked ?? 0} bookings tracked</div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: "#555" }}>Click "Load Airport Activity" to view real-time airport load context for MCO.</div>
+                    )}
+                  </div>
+
                   {/* Stats row */}
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
                     {[{label: "Monitored", value: airportQueue.stats?.monitoring_active ?? 0, color: "#38bdf8"}, {label: "Delayed", value: airportQueue.stats?.delayed_count ?? 0, color: "#f59e0b"}, {label: "Landed", value: airportQueue.stats?.landed_count ?? 0, color: "#34d399"}, {label: "Irregular", value: airportQueue.stats?.irregular_count ?? 0, color: "#f87171"}, {label: "Manual Review", value: airportQueue.stats?.manual_review_count ?? 0, color: "#fb923c"}, {label: "Verified", value: airportQueue.stats?.verified_count ?? 0, color: "#4ade80"}, {label: "Not Found", value: airportQueue.stats?.not_found_count ?? 0, color: "#fde68a"}].map(s => (
