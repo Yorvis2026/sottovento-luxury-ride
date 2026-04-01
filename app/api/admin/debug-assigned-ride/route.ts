@@ -68,9 +68,19 @@ export async function GET(req: NextRequest) {
       LIMIT 10
     `
     
+    // Step 4: Direct check for booking 3f3bad18
+    const directCheck = await sql`
+      SELECT id, status, dispatch_status, pickup_at, assigned_driver_id::text as assigned_driver_id_text
+      FROM bookings
+      WHERE id = '3f3bad18-c920-467a-9296-d1d1cff7fad0'
+      LIMIT 1
+    `
+    
     return NextResponse.json({
       driver: { id: driver.id, code: driver.driver_code, availability: driver.availability_status },
       assigned_ride_query_result: assignedRides,
+      direct_check_3f3bad18: directCheck,
+      driver_id_matches: directCheck.length > 0 ? directCheck[0].assigned_driver_id_text === String(driver.id) : false,
       all_driver_bookings: allBookings.map(b => ({
         id: String(b.id).substring(0, 8),
         status: b.status,
