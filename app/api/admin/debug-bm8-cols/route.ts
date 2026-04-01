@@ -1,5 +1,7 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { neon } from "@neondatabase/serverless";
+const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 export async function GET(req: Request) {
   const key = req.headers.get("x-admin-key");
