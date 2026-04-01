@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
         b.pickup_time,
         b.pending_client_notification
       FROM booking_communication_log bcl
-      LEFT JOIN bookings b ON b.id = bcl.booking_id
+      LEFT JOIN bookings b ON b.id = bcl.booking_id::uuid
       WHERE bcl.delivery_status = 'pending'
       ORDER BY bcl.created_at DESC
       LIMIT 50
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
         bcl.metadata,
         b.client_name
       FROM booking_communication_log bcl
-      LEFT JOIN bookings b ON b.id = bcl.booking_id
+      LEFT JOIN bookings b ON b.id = bcl.booking_id::uuid
       WHERE bcl.delivery_status IN ('sent', 'delivered', 'failed')
         AND bcl.created_at > NOW() - INTERVAL '24 hours'
       ORDER BY bcl.created_at DESC
