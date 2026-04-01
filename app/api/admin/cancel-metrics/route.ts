@@ -14,6 +14,15 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
 //
 // Uses a single source of truth:
 //   status = 'cancelled' OR cancelled_at IS NOT NULL
+//
+// Column reference (verified against actual DB schema + migrations):
+//   bookings: id, status, pickup_address, dropoff_address, pickup_at,
+//             cancelled_at, cancel_reason, cancel_responsibility,
+//             cancellation_fee, total_price, assigned_driver_id, client_id,
+//             cancelled_by_type*, cancelled_by_id*, cancel_reason_code*,
+//             cancel_reason_text*, cancel_stage*, affects_driver_metrics*,
+//             affects_payout*
+//   (* added by migrate-cancel-metrics migration)
 // ============================================================
 
 export async function GET() {
@@ -41,24 +50,48 @@ export async function GET() {
         COUNT(*) FILTER (
           WHERE status = 'cancelled' OR cancelled_at IS NOT NULL
         ) AS total,
-        -- By type breakdown (using new cancelled_by_type column)
+        -- By type breakdown (using new cancelled_by_type column, fallback to cancel_responsibility)
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type, 'system') = 'client'
+            AND COALESCE(cancelled_by_type,
+              CASE cancel_responsibility
+                WHEN 'passenger' THEN 'client'
+                WHEN 'driver' THEN 'driver'
+                WHEN 'dispatch' THEN 'admin'
+                ELSE 'system'
+              END, 'system') = 'client'
         ) AS by_client,
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type, 'system') = 'driver'
+            AND COALESCE(cancelled_by_type,
+              CASE cancel_responsibility
+                WHEN 'passenger' THEN 'client'
+                WHEN 'driver' THEN 'driver'
+                WHEN 'dispatch' THEN 'admin'
+                ELSE 'system'
+              END, 'system') = 'driver'
         ) AS by_driver,
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type, 'system') = 'admin'
+            AND COALESCE(cancelled_by_type,
+              CASE cancel_responsibility
+                WHEN 'passenger' THEN 'client'
+                WHEN 'driver' THEN 'driver'
+                WHEN 'dispatch' THEN 'admin'
+                ELSE 'system'
+              END, 'system') = 'admin'
         ) AS by_admin,
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type, 'system') = 'system'
+            AND COALESCE(cancelled_by_type,
+              CASE cancel_responsibility
+                WHEN 'passenger' THEN 'client'
+                WHEN 'driver' THEN 'driver'
+                WHEN 'dispatch' THEN 'admin'
+                ELSE 'system'
+              END, 'system') = 'system'
         ) AS by_system,
-        -- Stage breakdown
+        -- Stage breakdown (uses cancel_stage if available, else inferred)
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND COALESCE(cancel_stage, 'before_assignment') = 'before_assignment'
@@ -83,15 +116,26 @@ export async function GET() {
       SELECT
         b.id AS booking_id,
         b.status,
-        b.pickup_address,
-        b.dropoff_address,
+        COALESCE(b.pickup_address, '') AS pickup_address,
+        COALESCE(b.dropoff_address, '') AS dropoff_address,
         b.pickup_at,
         b.cancelled_at,
-        COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
+        -- Attribution: prefer new column, fallback to cancel_responsibility
+        COALESCE(b.cancelled_by_type,
+          CASE b.cancel_responsibility
+            WHEN 'passenger' THEN 'client'
+            WHEN 'driver' THEN 'driver'
+            WHEN 'dispatch' THEN 'admin'
+            ELSE 'system'
+          END, 'system') AS cancelled_by_type,
         b.cancelled_by_id,
-        COALESCE(b.cancel_reason_code, UPPER(REPLACE(COALESCE(b.cancellation_reason, 'UNKNOWN'), ' ', '_'))) AS cancel_reason_code,
+        -- Reason code: prefer new column, fallback to cancel_reason
+        COALESCE(b.cancel_reason_code,
+          UPPER(REPLACE(COALESCE(b.cancel_reason, 'UNKNOWN'), ' ', '_'))
+        ) AS cancel_reason_code,
+        -- Reason text: prefer new column, fallback to cancel_reason
         COALESCE(b.cancel_reason_text,
-          CASE UPPER(REPLACE(COALESCE(b.cancellation_reason, ''), ' ', '_'))
+          CASE UPPER(REPLACE(COALESCE(b.cancel_reason, ''), ' ', '_'))
             WHEN 'PASSENGER_NO_SHOW'                THEN 'Passenger no-show'
             WHEN 'PASSENGER_CANCELLED'              THEN 'Client cancelled'
             WHEN 'PASSENGER_UNREACHABLE'            THEN 'Passenger unreachable'
@@ -103,12 +147,12 @@ export async function GET() {
             WHEN 'DRIVER_EMERGENCY'                 THEN 'Driver emergency'
             WHEN 'DISPATCH_REQUEST'                 THEN 'Dispatch cancelled'
             WHEN 'OTHER'                            THEN 'Other reason'
-            ELSE COALESCE(b.cancellation_reason, 'Unknown')
+            ELSE COALESCE(b.cancel_reason, 'Unknown')
           END
         ) AS cancel_reason_text,
         COALESCE(b.cancel_stage, 'before_assignment') AS cancel_stage,
-        b.affects_driver_metrics,
-        b.affects_payout,
+        COALESCE(b.affects_driver_metrics, FALSE) AS affects_driver_metrics,
+        COALESCE(b.affects_payout, FALSE) AS affects_payout,
         b.total_price,
         COALESCE(b.cancellation_fee, 0) AS cancellation_fee,
         -- Driver info
