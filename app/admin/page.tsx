@@ -2627,7 +2627,8 @@ export default function AdminPanel() {
                       try {
                         const res = await fetch(`${BASE_URL}/api/admin/recalculate-driver-scores`, { method: "POST", headers: { "x-admin-key": "sln-admin-2024" } })
                         const data = await res.json()
-                        setRecalcMsg(`✓ Recalculated ${data.updated_count ?? 0} drivers · ${data.tier_breakdown ? Object.entries(data.tier_breakdown).map(([k,v]) => `${k}:${v}`).join(" · ") : ""}`)
+                        setRecalcMsg(`✓ Recalculated ${data.processed ?? 0} drivers · ${data.tier_distribution ? Object.entries(data.tier_distribution).map(([k,v]) => `${k}:${v}`).join(" · ") : ""}`)
+                        setBm5Drivers(data.drivers ?? [])
                         loadDrivers()
                       } catch (e: any) { setRecalcMsg(e.message) }
                       finally { setRunningRecalc(false) }
