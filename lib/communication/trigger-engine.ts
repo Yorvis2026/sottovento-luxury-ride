@@ -286,3 +286,93 @@ export function buildMessageContent(
       };
   }
 }
+
+// ── High-Level triggerCommunication Helper ───────────────────
+// Called from BM6 endpoints (smart-reassign, sla-evaluate, driver-im-on-my-way)
+// Fetches booking + client data, evaluates trigger, and sends notification.
+// ─────────────────────────────────────────────────────────────
+import { neon } from "@neondatabase/serverless";
+import { sendClientNotification } from "./channel-engine";
+
+export interface TriggerCommunicationInput {
+  booking_id: string;
+  event_type: CommunicationEvent;
+  trigger_source: string;
+  metadata?: Record<string, unknown>;
+  db: ReturnType<typeof neon>;
+}
+
+export async function triggerCommunication(input: TriggerCommunicationInput): Promise<void> {
+  const { booking_id, event_type, trigger_source, metadata = {}, db } = input;
+
+  try {
+    // Fetch booking + client data
+    const rows = await db`
+      SELECT
+        b.id,
+        b.client_id,
+        b.pickup_at,
+        b.pickup_address,
+        b.dropoff_address,
+        b.pending_client_notification,
+        b.client_communication_opt_in,
+        b.sla_protection_level,
+        cl.full_name  AS client_name,
+        cl.email      AS client_email,
+        cl.phone      AS client_phone,
+        d.full_name   AS driver_name,
+        d.phone       AS driver_phone
+      FROM bookings b
+      LEFT JOIN clients cl ON cl.id = b.client_id::uuid
+      LEFT JOIN drivers d  ON d.id  = b.assigned_driver_id::uuid
+      WHERE b.id = ${booking_id}::uuid
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) return;
+
+    const booking = rows[0];
+
+    // Check opt-in (default true if null)
+    if (booking.client_communication_opt_in === false) return;
+
+    // Build context
+    const minutesToPickup = booking.pickup_at
+      ? (new Date(booking.pickup_at).getTime() - Date.now()) / 60000
+      : null;
+
+    const ctx: TriggerContext = {
+      bookingId: booking_id,
+      event: event_type,
+      minutesToPickup,
+      clientEmail: booking.client_email ?? null,
+      clientPhone: booking.client_phone ?? null,
+      clientName: booking.client_name ?? null,
+      driverName: (metadata.new_driver_name as string) ?? booking.driver_name ?? null,
+      driverPhone: (metadata.new_driver_phone as string) ?? booking.driver_phone ?? null,
+    };
+
+    // Evaluate trigger
+    const result = await evaluateCommunicationTrigger(ctx, db);
+
+    if (!result.should_notify && !result.create_draft) return;
+
+    // Send or create draft
+    await sendClientNotification(
+      {
+        bookingId: booking_id,
+        event: event_type,
+        ctx,
+        channelPriority: result.channel_priority,
+        templateUsed: result.template ?? "generic_v1",
+        triggerSource: trigger_source,
+        eventReference: trigger_source,
+        approvedByAdmin: false,
+        createDraftOnly: result.create_draft ?? false,
+      },
+      db
+    );
+  } catch {
+    // Non-blocking — never throw from communication layer
+  }
+}

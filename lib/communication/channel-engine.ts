@@ -24,6 +24,7 @@ export interface SendNotificationParams {
   triggerSource?: string;
   eventReference?: string;
   approvedByAdmin?: boolean;
+  createDraftOnly?: boolean;
 }
 
 export interface SendResult {
@@ -43,6 +44,31 @@ export async function sendClientNotification(
   let channelUsed = "none";
   let deliveryStatus: "sent" | "failed" | "pending" = "failed";
   let errorMsg: string | undefined;
+
+  // If draft only, skip actual send and log as pending
+  if (params.createDraftOnly) {
+    try {
+      await sql`
+        INSERT INTO booking_communication_log (
+          booking_id, message_type, channel, template_used,
+          delivery_status, sent_at, approved_by_admin,
+          trigger_source, event_reference, metadata
+        ) VALUES (
+          ${params.bookingId},
+          ${params.event},
+          ${'email'},
+          ${params.templateUsed},
+          ${'pending'},
+          ${null},
+          ${false},
+          ${params.triggerSource ?? 'system'},
+          ${params.eventReference ?? null},
+          ${JSON.stringify({ draft: true, client_email: params.ctx.clientEmail })}
+        )
+      `;
+    } catch { /* non-blocking */ }
+    return { success: false, channel_used: 'draft', delivery_status: 'pending' };
+  }
 
   // Try channels in priority order
   for (const channel of params.channelPriority) {
@@ -145,7 +171,7 @@ export async function sendClientNotification(
         UPDATE bookings
         SET last_client_notification_at = NOW(),
             last_client_notification_type = ${params.event}
-        WHERE booking_id = ${params.bookingId}
+        WHERE id = ${params.bookingId}::uuid
       `;
     } catch {
       // Non-blocking

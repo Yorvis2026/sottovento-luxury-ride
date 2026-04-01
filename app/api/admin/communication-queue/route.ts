@@ -31,16 +31,16 @@ export async function GET(req: NextRequest) {
         bcl.event_reference,
         bcl.metadata,
         bcl.created_at,
-        b.client_name,
-        b.client_phone,
-        b.client_email,
+        cl.full_name  AS client_name,
+        cl.phone      AS client_phone,
+        cl.email      AS client_email,
         b.pickup_address,
         b.dropoff_address,
-        b.pickup_date,
-        b.pickup_time,
+        b.pickup_at,
         b.pending_client_notification
       FROM booking_communication_log bcl
-      LEFT JOIN bookings b ON b.id = bcl.booking_id::uuid
+      LEFT JOIN bookings b  ON b.id = bcl.booking_id::uuid
+      LEFT JOIN clients cl  ON cl.id = b.client_id::uuid
       WHERE bcl.delivery_status = 'pending'
       ORDER BY bcl.created_at DESC
       LIMIT 50
@@ -59,9 +59,10 @@ export async function GET(req: NextRequest) {
         bcl.approved_by_admin,
         bcl.trigger_source,
         bcl.metadata,
-        b.client_name
+        cl.full_name AS client_name
       FROM booking_communication_log bcl
-      LEFT JOIN bookings b ON b.id = bcl.booking_id::uuid
+      LEFT JOIN bookings b  ON b.id = bcl.booking_id::uuid
+      LEFT JOIN clients cl  ON cl.id = b.client_id::uuid
       WHERE bcl.delivery_status IN ('sent', 'delivered', 'failed')
         AND bcl.created_at > NOW() - INTERVAL '24 hours'
       ORDER BY bcl.created_at DESC

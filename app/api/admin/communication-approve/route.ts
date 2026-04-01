@@ -24,10 +24,14 @@ export async function POST(req: NextRequest) {
 
   // Get the pending draft
   const draftRows = await sql`
-    SELECT bcl.*, b.client_email, b.client_phone, b.client_name,
+    SELECT bcl.*,
+           cl.email   AS client_email,
+           cl.phone   AS client_phone,
+           cl.full_name AS client_name,
            b.pickup_address, b.dropoff_address
     FROM booking_communication_log bcl
-    LEFT JOIN bookings b ON b.id = bcl.booking_id::uuid
+    LEFT JOIN bookings b  ON b.id = bcl.booking_id::uuid
+    LEFT JOIN clients cl  ON cl.id = b.client_id::uuid
     WHERE bcl.id = ${log_id}
       AND bcl.delivery_status = 'pending'
     LIMIT 1
