@@ -489,6 +489,14 @@ export default function AdminPanel() {
   const [recalcMsg, setRecalcMsg] = useState("")
   const [bm5Drivers, setBm5Drivers] = useState<any[]>([])
   const [updatingPartnerMode, setUpdatingPartnerMode] = useState<string | null>(null)
+  // BM6: SLA Protection Queue
+  const [slaQueue, setSlaQueue] = useState<any[]>([])
+  const [loadingSlaQueue, setLoadingSlaQueue] = useState(false)
+  const [slaEvalMsg, setSlaEvalMsg] = useState("")
+  const [runningSlaEval, setRunningSlaEval] = useState(false)
+  const [smartReassignMsg, setSmartReassignMsg] = useState<{[key: string]: string}>({})
+  const [runningSmartReassign, setRunningSmartReassign] = useState<{[key: string]: boolean}>({})
+  const [markingSafe, setMarkingSafe] = useState<{[key: string]: boolean}>({})
   // Invite form
   const [inviteForm, setInviteForm] = useState({ type: "individual", email: "", phone: "", commission_rate: "0.10", name: "", send_email: true })
   const [inviteMsg, setInviteMsg] = useState("")
@@ -557,6 +565,7 @@ export default function AdminPanel() {
   const loadDispatch = useCallback(async () => { setLoadingDispatch(true); try { const r = await fetch("/api/admin/dispatch"); if (r.ok) setDispatchData(await r.json()) } catch { } finally { setLoadingDispatch(false) } }, [])
   const loadFallbackQueue = useCallback(async () => { setLoadingFallbackQueue(true); try { const r = await fetch("/api/admin/fallback-pool-dispatch"); if (r.ok) { const d = await r.json(); setFallbackQueue(d.queue ?? []) } } catch { } finally { setLoadingFallbackQueue(false) } }, [])
   const loadCancelMetrics = useCallback(async () => { setLoadingCancelMetrics(true); try { const r = await fetch("/api/admin/cancel-metrics"); if (r.ok) setCancelMetricsData(await r.json()) } catch { } finally { setLoadingCancelMetrics(false) } }, [])
+  const loadSlaQueue = useCallback(async () => { setLoadingSlaQueue(true); try { const r = await fetch("/api/admin/sla-queue", { headers: { "x-admin-key": "sln-admin-2024" } }); if (r.ok) { const d = await r.json(); setSlaQueue(d.queue ?? []) } } catch { } finally { setLoadingSlaQueue(false) } }, [])
   const loadPartners = useCallback(async () => { setLoadingPartners(true); try { const r = await fetch("/api/admin/partners"); if (r.ok) { const d = await r.json(); setPartners(d.partners ?? []) } } catch { } finally { setLoadingPartners(false) } }, [])
   const loadPartnerCompanies = useCallback(async () => { try { const r = await fetch("/api/admin/partner-companies"); if (r.ok) { const d = await r.json(); setPartnerCompanies(d.companies ?? []) } } catch { } }, [])
   const loadPartnerInvites = useCallback(async () => { try { const r = await fetch("/api/admin/partner-invites"); if (r.ok) { const d = await r.json(); setPartnerInvites(d.invites ?? []) } } catch { } }, [])
@@ -564,7 +573,7 @@ export default function AdminPanel() {
   const loadPartnerCompliance = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings?compliance=true"); if (r.ok) { const d = await r.json(); setPartnerCompliance(d.compliance ?? []) } } catch { } }, [])
 
   useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings(); loadCancelMetrics() } }, [authed, loadDashboard, loadDrivers, loadBookings, loadCancelMetrics])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue(); loadCancelMetrics() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadCancelMetrics, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue(); loadCancelMetrics(); loadSlaQueue() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadCancelMetrics, loadSlaQueue, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
   useEffect(() => { if (tab !== "partners") return; if (partnerTab === "earnings") loadPartnerEarnings(); if (partnerTab === "compliance") loadPartnerCompliance() }, [partnerTab, tab, loadPartnerEarnings, loadPartnerCompliance])
 
   // ---- ACTIONS ----
@@ -2080,6 +2089,125 @@ export default function AdminPanel() {
                     </>
                   ) : (
                     <div style={{ color: "#555", fontSize: 13, padding: "12px 0" }}>Sin datos de cancelación. Haz clic en Refresh para cargar.</div>
+                  )}
+                </div>
+
+                {/* ══════════════════════════════════════════════
+                    BM6: SLA PROTECTION QUEUE
+                ══════════════════════════════════════════════ */}
+                <div id="sla-protection-queue" style={{ ...S.card, marginBottom: 16, marginTop: 16, borderColor: slaQueue.some(b => b.sla_current_state === 'sla_critical') ? '#f87171' : slaQueue.some(b => b.sla_current_state === 'sla_high_risk') ? '#f59e0b' : '#c9a84c' }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a84c" }}>🛡️ SLA Protection Queue — BM6</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Rides under active SLA monitoring · Smart Reassignment Engine</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ ...S.badge(slaQueue.length > 0 ? "#3b1a00" : "#1a1a1a"), color: slaQueue.length > 0 ? "#f59e0b" : "#555" }}>{slaQueue.length} active</span>
+                      <button
+                        onClick={async () => {
+                          setRunningSlaEval(true); setSlaEvalMsg("")
+                          try {
+                            const r = await fetch("/api/admin/sla-evaluate", { headers: { "x-admin-key": "sln-admin-2024" } })
+                            const d = await r.json()
+                            setSlaEvalMsg(`✅ Evaluated ${d.evaluated ?? 0} · Escalated ${d.escalated ?? 0}`)
+                            loadSlaQueue()
+                          } catch (e: any) { setSlaEvalMsg(`❌ ${e.message}`) }
+                          finally { setRunningSlaEval(false) }
+                        }}
+                        disabled={runningSlaEval}
+                        style={{ ...S.btn(), fontSize: 11, padding: "4px 12px", background: "#1a1500", color: "#c9a84c", border: "1px solid #c9a84c40" }}
+                      >{runningSlaEval ? "Evaluating..." : "⚡ Run SLA Eval"}</button>
+                      <button onClick={() => loadSlaQueue()} disabled={loadingSlaQueue} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px" }}>{loadingSlaQueue ? "..." : "🔄 Refresh"}</button>
+                    </div>
+                  </div>
+                  {slaEvalMsg && <div style={{ fontSize: 12, color: slaEvalMsg.startsWith("✅") ? "#4ade80" : "#f87171", marginBottom: 10 }}>{slaEvalMsg}</div>}
+                  {slaQueue.length === 0 ? (
+                    <div style={{ color: "#555", fontSize: 13, padding: "8px 0" }}>✅ No rides under SLA monitoring. All services on track.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {slaQueue.map((b: any) => {
+                        const isCritical = b.sla_current_state === "sla_critical"
+                        const isHighRisk = b.sla_current_state === "sla_high_risk"
+                        const isMonitoring = b.sla_current_state === "sla_monitoring"
+                        const stateColor = isCritical ? "#f87171" : isHighRisk ? "#f59e0b" : "#c9a84c"
+                        const stateBg = isCritical ? "#3b0000" : isHighRisk ? "#3b2200" : "#1a1500"
+                        const minsLeft = Math.round(parseFloat(b.minutes_to_pickup ?? "999"))
+                        const isRunning = runningSmartReassign[b.id]
+                        const reassignMsg = smartReassignMsg[b.id]
+                        const isMarking = markingSafe[b.id]
+                        return (
+                          <div key={b.id} style={{ background: stateBg, border: `1px solid ${stateColor}40`, borderRadius: 10, padding: "12px 14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                                  <span style={{ ...S.badge(stateBg), color: stateColor, fontSize: 10, fontWeight: 700, border: `1px solid ${stateColor}` }}>
+                                    {isCritical ? "🚨 CRITICAL" : isHighRisk ? "⚠️ HIGH RISK" : "👁️ MONITORING"}
+                                  </span>
+                                  <span style={{ ...S.badge("#1a1a1a"), color: "#c9a84c", fontSize: 10 }}>{b.sla_protection_level ?? "STANDARD"}</span>
+                                  {b.dispatcher_override_required && <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10 }}>⚡ OVERRIDE REQUIRED</span>}
+                                  {b.reassignment_count > 0 && <span style={{ ...S.badge("#1a0a2a"), color: "#a78bfa", fontSize: 10 }}>↩️ Reassigned ×{b.reassignment_count}</span>}
+                                </div>
+                                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
+                                  <span style={{ color: "#888", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                                  {" · "}
+                                  <span style={{ color: stateColor, fontWeight: 700 }}>{minsLeft > 0 ? `${minsLeft} min to pickup` : "OVERDUE"}</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>📍 {b.pickup_address?.slice(0, 60)}{b.pickup_address?.length > 60 ? "..." : ""}</div>
+                                <div style={{ fontSize: 11, color: "#555" }}>
+                                  {b.driver_code ? `👤 ${b.driver_name} (${b.driver_code})` : "⚠️ No driver assigned"}
+                                  {" · "}
+                                  <span style={{ color: "#888" }}>{b.last_system_action ?? "—"}</span>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
+                                {/* Smart Reassign button */}
+                                <button
+                                  onClick={async () => {
+                                    setRunningSmartReassign(prev => ({ ...prev, [b.id]: true }))
+                                    setSmartReassignMsg(prev => ({ ...prev, [b.id]: "" }))
+                                    try {
+                                      const r = await fetch("/api/admin/smart-reassign", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                        body: JSON.stringify({ booking_id: b.id, admin_override: true })
+                                      })
+                                      const d = await r.json()
+                                      if (d.success) {
+                                        setSmartReassignMsg(prev => ({ ...prev, [b.id]: `✅ ${d.action === 'rescue_assigned' ? `Rescue → ${d.rescue_driver?.driver_code}` : 'Candidates ready'}` }))
+                                        loadSlaQueue(); loadDispatch()
+                                      } else {
+                                        setSmartReassignMsg(prev => ({ ...prev, [b.id]: `❌ ${d.error ?? d.action}` }))
+                                      }
+                                    } catch (e: any) { setSmartReassignMsg(prev => ({ ...prev, [b.id]: `❌ ${e.message}` })) }
+                                    finally { setRunningSmartReassign(prev => ({ ...prev, [b.id]: false })) }
+                                  }}
+                                  disabled={isRunning}
+                                  style={{ ...S.btn(), fontSize: 10, padding: "5px 10px", background: isCritical ? "#3b0000" : "#1a1500", color: stateColor, border: `1px solid ${stateColor}40` }}
+                                >{isRunning ? "Reassigning..." : "⚡ Smart Reassign"}</button>
+                                {/* Mark Safe button */}
+                                <button
+                                  onClick={async () => {
+                                    setMarkingSafe(prev => ({ ...prev, [b.id]: true }))
+                                    try {
+                                      await fetch("/api/admin/sla-mark-safe", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                        body: JSON.stringify({ booking_id: b.id, marked_by: "admin" })
+                                      })
+                                      loadSlaQueue()
+                                    } catch { }
+                                    finally { setMarkingSafe(prev => ({ ...prev, [b.id]: false })) }
+                                  }}
+                                  disabled={isMarking}
+                                  style={{ ...S.btn(), fontSize: 10, padding: "5px 10px" }}
+                                >{isMarking ? "..." : "✅ Mark Safe"}</button>
+                              </div>
+                            </div>
+                            {reassignMsg && <div style={{ fontSize: 11, color: reassignMsg.startsWith("✅") ? "#4ade80" : "#f87171", marginTop: 6 }}>{reassignMsg}</div>}
+                          </div>
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
 

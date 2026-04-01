@@ -434,6 +434,19 @@ interface ActiveRide {
   auto_escalation_case?: string | null
   accepted_at?: string | null
   is_at_risk?: boolean
+  // BM6: SLA Protection fields
+  sla_protection_level?: string | null
+  sla_current_state?: string | null
+  sla_window_start?: string | null
+  sla_window_end?: string | null
+  sla_critical_threshold?: number | null
+  sla_high_risk_threshold?: number | null
+  sla_monitoring_threshold?: number | null
+  driver_im_on_my_way?: boolean | null
+  driver_im_on_my_way_at?: string | null
+  dispatcher_override_required?: boolean | null
+  reassignment_count?: number | null
+  last_system_action?: string | null
 }
 
 interface UpcomingRide {
@@ -713,6 +726,9 @@ export default function DriverDashboardByCode() {
   const [driverExitComment, setDriverExitComment] = useState<string>("")
   const [driverExitSubmitting, setDriverExitSubmitting] = useState(false)
   const [driverExitResult, setDriverExitResult] = useState<{ success: boolean; case: string; new_status: string } | null>(null)
+  // ── BM6: SLA Protection state ─────────────────────────────
+  const [sendingImOnMyWay, setSendingImOnMyWay] = useState(false)
+  const [imOnMyWaySent, setImOnMyWaySent] = useState(false)
   // ── Fallback Offer Modal (Bloque Maestro 3) ──────────────────────
   // Shown when a fallback pool offer arrives (another driver failed)
   const [showFallbackOfferModal, setShowFallbackOfferModal] = useState(false)
@@ -4556,6 +4572,80 @@ function RideFlowScreen({
                 </div>
               </div>
             )}
+
+            {/* ── BM6: SLA PROTECTION BANNER ──────────────────────────────────── */}
+            {ride.sla_current_state && ride.sla_current_state !== 'none' && !ride.driver_im_on_my_way && (() => {
+              const isCritical = ride.sla_current_state === 'sla_critical'
+              const isHighRisk = ride.sla_current_state === 'sla_high_risk'
+              const minsLeft = ride.minutes_until_pickup ?? null
+              const bannerBg = isCritical ? '#3b000030' : isHighRisk ? '#3b220030' : '#1a150030'
+              const bannerBorder = isCritical ? '#f87171' : isHighRisk ? '#f59e0b' : '#c9a84c'
+              const bannerTextColor = isCritical ? '#f87171' : isHighRisk ? '#f59e0b' : '#c9a84c'
+              const bannerIcon = isCritical ? '🚨' : isHighRisk ? '⚠️' : '🛡️'
+              const bannerTitle = isCritical
+                ? (lang === 'es' ? 'ALERTA CRÍTICA DE SLA' : 'CRITICAL SLA ALERT')
+                : isHighRisk
+                ? (lang === 'es' ? 'RIESGO ALTO DE SLA' : 'HIGH RISK SLA WARNING')
+                : (lang === 'es' ? 'MONITOREO SLA ACTIVO' : 'SLA MONITORING ACTIVE')
+              const bannerMsg = isCritical
+                ? (lang === 'es'
+                  ? `¡Servicio en riesgo crítico! ${minsLeft !== null ? `Solo ${Math.round(minsLeft)} minutos para el pickup.` : ''} Confirma tu posición inmediatamente.`
+                  : `Ride at critical risk! ${minsLeft !== null ? `Only ${Math.round(minsLeft)} min to pickup.` : ''} Confirm your position immediately.`)
+                : isHighRisk
+                ? (lang === 'es'
+                  ? `Servicio bajo monitoreo urgente. ${minsLeft !== null ? `${Math.round(minsLeft)} minutos para el pickup.` : ''} El despacho está al tanto.`
+                  : `Ride under urgent monitoring. ${minsLeft !== null ? `${Math.round(minsLeft)} min to pickup.` : ''} Dispatch is aware.`)
+                : (lang === 'es'
+                  ? `Este servicio está bajo protección SLA activa. Mantén tu estado actualizado.`
+                  : `This ride is under active SLA protection. Keep your status updated.`)
+              return (
+                <div className="flex flex-col gap-3 px-4 py-3 rounded-xl"
+                  style={{ backgroundColor: bannerBg, border: `1px solid ${bannerBorder}60`, animation: isCritical ? 'bannerPulse 1s ease-in-out infinite' : undefined }}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl flex-shrink-0">{bannerIcon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold" style={{ color: bannerTextColor }}>{bannerTitle}</div>
+                      <div className="text-xs text-zinc-300 mt-0.5 leading-relaxed">{bannerMsg}</div>
+                      {ride.sla_protection_level && (
+                        <div className="text-xs mt-1 font-mono" style={{ color: `${bannerTextColor}99` }}>
+                          SLA Level: {ride.sla_protection_level}
+                          {ride.reassignment_count && ride.reassignment_count > 0 ? ` · Reassigned ×${ride.reassignment_count}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* I'm On My Way button */}
+                  {!imOnMyWaySent && (
+                    <button
+                      onClick={async () => {
+                        setSendingImOnMyWay(true)
+                        try {
+                          const r = await fetch('/api/admin/driver-im-on-my-way', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ booking_id: ride.booking_id, driver_code: summary?.driver_code })
+                          })
+                          if (r.ok) setImOnMyWaySent(true)
+                        } catch { }
+                        finally { setSendingImOnMyWay(false) }
+                      }}
+                      disabled={sendingImOnMyWay}
+                      className="w-full py-2.5 rounded-xl text-sm font-bold"
+                      style={{ background: bannerBorder, color: isCritical ? '#fff' : '#000', opacity: sendingImOnMyWay ? 0.7 : 1 }}
+                    >
+                      {sendingImOnMyWay
+                        ? (lang === 'es' ? 'Enviando...' : 'Sending...')
+                        : (lang === 'es' ? "🚗 Estoy en Camino" : "🚗 I'm On My Way")}
+                    </button>
+                  )}
+                  {imOnMyWaySent && (
+                    <div className="text-center text-xs py-1" style={{ color: '#4ade80' }}>
+                      ✅ {lang === 'es' ? 'Despacho notificado. ¡Gracias!' : 'Dispatch notified. Thank you!'}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* ── Recovery actions: only visible when data is incomplete ── */}
             {isEnRouteAction && !dataReady && (
