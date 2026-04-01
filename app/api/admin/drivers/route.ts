@@ -57,7 +57,17 @@ export async function GET() {
         COALESCE(on_time_rides, 0)                            AS on_time_rides,
         COALESCE(late_cancel_count, 0)                        AS late_cancel_count,
         COALESCE(complaint_count, 0)                          AS complaint_count,
-        COALESCE(contribution_bonus_granted, FALSE)           AS contribution_bonus_granted
+        COALESCE(contribution_bonus_granted, FALSE)           AS contribution_bonus_granted,
+        -- BM5 Fields
+        COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER') AS legal_affiliation_type,
+        COALESCE(reliability_score, 65)::numeric                   AS reliability_score,
+        COALESCE(driver_tier, 'STANDARD')                          AS driver_tier,
+        COALESCE(acceptance_rate, 0)::numeric                      AS acceptance_rate,
+        COALESCE(completion_rate, 0)::numeric                      AS completion_rate,
+        COALESCE(driver_cancel_rate, 0)::numeric                   AS driver_cancel_rate,
+        COALESCE(on_time_score, 85)::numeric                       AS on_time_score,
+        COALESCE(dispatch_response_score, 65)::numeric             AS dispatch_response_score,
+        COALESCE(fallback_response_rate, 80)::numeric              AS fallback_response_rate
       FROM drivers
       ORDER BY created_at DESC
     `;
