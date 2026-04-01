@@ -345,7 +345,36 @@ export async function GET(req: NextRequest) {
           risk_source,
           auto_escalated_at,
           auto_escalation_case,
-          accepted_at
+          accepted_at,
+          -- BM6: SLA fields
+          sla_protection_level,
+          sla_current_state,
+          sla_window_start,
+          sla_window_end,
+          sla_critical_threshold,
+          sla_high_risk_threshold,
+          sla_monitoring_threshold,
+          driver_im_on_my_way,
+          driver_im_on_my_way_at,
+          dispatcher_override_required,
+          reassignment_count,
+          last_system_action,
+          -- BM8: Airport Intelligence fields
+          airport_code,
+          airline_code,
+          terminal_code,
+          gate_info,
+          baggage_claim_zone,
+          airport_intelligence_status,
+          airport_phase,
+          airport_monitoring_enabled,
+          airport_irregularity_flag,
+          scheduled_arrival_at,
+          estimated_arrival_at,
+          actual_arrival_at,
+          flight_delay_minutes,
+          operational_pickup_target_at,
+          operational_driver_release_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}::uuid
           -- Primary guard: exclude all finalized states by status
@@ -553,6 +582,35 @@ export async function GET(req: NextRequest) {
           original_driver_id: r.original_driver_id ?? null,
           fallback_pool_started_at: r.fallback_pool_started_at ?? null,
           reassigned_at: r.reassigned_at ?? null,
+          // BM6: SLA Protection fields
+          sla_protection_level: r.sla_protection_level ?? null,
+          sla_current_state: r.sla_current_state ?? null,
+          sla_window_start: r.sla_window_start ?? null,
+          sla_window_end: r.sla_window_end ?? null,
+          sla_critical_threshold: r.sla_critical_threshold ?? null,
+          sla_high_risk_threshold: r.sla_high_risk_threshold ?? null,
+          sla_monitoring_threshold: r.sla_monitoring_threshold ?? null,
+          driver_im_on_my_way: r.driver_im_on_my_way ?? null,
+          driver_im_on_my_way_at: r.driver_im_on_my_way_at ?? null,
+          dispatcher_override_required: r.dispatcher_override_required ?? null,
+          reassignment_count: r.reassignment_count ?? null,
+          last_system_action: r.last_system_action ?? null,
+          // BM8: Airport Intelligence fields
+          airport_code: r.airport_code ?? null,
+          airline_code: r.airline_code ?? null,
+          terminal_code: r.terminal_code ?? null,
+          gate_info: r.gate_info ?? null,
+          baggage_claim_zone: r.baggage_claim_zone ?? null,
+          airport_intelligence_status: r.airport_intelligence_status ?? null,
+          airport_phase: r.airport_phase ?? null,
+          airport_monitoring_enabled: r.airport_monitoring_enabled ?? null,
+          airport_irregularity_flag: r.airport_irregularity_flag ?? null,
+          scheduled_arrival_at: r.scheduled_arrival_at ?? null,
+          estimated_arrival_at: r.estimated_arrival_at ?? null,
+          actual_arrival_at: r.actual_arrival_at ?? null,
+          flight_delay_minutes: r.flight_delay_minutes ?? null,
+          operational_pickup_target_at: r.operational_pickup_target_at ?? null,
+          operational_driver_release_at: r.operational_driver_release_at ?? null,
         };
       }
     } catch (assignErr: any) {

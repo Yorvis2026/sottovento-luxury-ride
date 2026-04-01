@@ -50,7 +50,9 @@ function computeSlaState(
 
 // ============================================================
 // GET /api/admin/sla-evaluate
-// Evaluates all active bookings and updates SLA states
+// Evaluates all active bookings and updates SLA states.
+// BM8: For airport rides, uses operational_pickup_target_at
+// instead of pickup_at when available (flight-adjusted timing).
 // ============================================================
 export async function GET(req: NextRequest) {
   const adminKey = req.headers.get("x-admin-key");
@@ -85,6 +87,12 @@ export async function GET(req: NextRequest) {
         b.pickup_zone,
         b.total_price,
         b.dispatcher_override_required,
+        b.airport_monitoring_enabled,
+        b.airport_intelligence_status,
+        b.airport_phase,
+        b.airport_irregularity_flag,
+        b.operational_pickup_target_at,
+        b.flight_delay_minutes,
         d.driver_code,
         d.full_name AS driver_name,
         d.phone AS driver_phone
@@ -102,16 +110,43 @@ export async function GET(req: NextRequest) {
     const escalated: any[] = [];
 
     for (const booking of candidates) {
-      const pickupMs = new Date(booking.pickup_at).getTime();
-      const minutesToPickup = (pickupMs - nowMs) / 60000;
-
-      // Determine if airport
+      // ── BM8: Use operational_pickup_target_at for airport rides ──
+      // This prevents false SLA alerts when flight is delayed.
       const isAirport =
+        booking.airport_monitoring_enabled === true ||
         booking.service_location_type === "airport" ||
         booking.trip_type === "airport" ||
         (booking.pickup_zone && booking.pickup_zone.toLowerCase().includes("airport")) ||
         (booking.pickup_zone && booking.pickup_zone.toLowerCase().includes("mco")) ||
-        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("airport"));
+        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("airport")) ||
+        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("jeff fuqua")) ||
+        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("mco"));
+
+      // BM8: For airport rides with active monitoring, use operational target
+      // to avoid false SLA alerts when flight is delayed
+      let slaReferenceTime = new Date(booking.pickup_at);
+      let bm8SlaShifted = false;
+
+      if (isAirport && booking.operational_pickup_target_at) {
+        const operationalTarget = new Date(booking.operational_pickup_target_at);
+        // Only use operational target if it's meaningfully different (>10 min)
+        const shiftMinutes = Math.abs(
+          (operationalTarget.getTime() - slaReferenceTime.getTime()) / 60000
+        );
+        if (shiftMinutes >= 10) {
+          slaReferenceTime = operationalTarget;
+          bm8SlaShifted = true;
+        }
+      }
+
+      // BM8: If flight has an irregularity, skip SLA auto-escalation
+      // (admin must review manually)
+      if (booking.airport_irregularity_flag === true) {
+        continue;
+      }
+
+      const pickupMs = slaReferenceTime.getTime();
+      const minutesToPickup = (pickupMs - nowMs) / 60000;
 
       // Determine SLA protection level
       let slaLevel = booking.sla_protection_level ?? "STANDARD";
@@ -146,6 +181,7 @@ export async function GET(req: NextRequest) {
       // Determine trigger reason
       let triggerReason = `minutes_to_pickup=${minutesToPickup.toFixed(1)}`;
       if (isAirport) triggerReason += ";airport_pickup";
+      if (bm8SlaShifted) triggerReason += ";bm8_sla_shifted_by_flight";
       if ((booking.reassignment_count ?? 0) > 0) triggerReason += `;reassignment_count=${booking.reassignment_count}`;
       if (booking.at_risk_flagged_at) triggerReason += ";previously_at_risk";
 
@@ -187,6 +223,9 @@ export async function GET(req: NextRequest) {
                   prev_state: prevState,
                   new_state: newSlaState,
                   is_airport: isAirport,
+                  bm8_sla_shifted: bm8SlaShifted,
+                  flight_delay_minutes: booking.flight_delay_minutes ?? 0,
+                  airport_phase: booking.airport_phase,
                   reassignment_count: booking.reassignment_count ?? 0,
                   driver_code: booking.driver_code,
                   pickup_address: booking.pickup_address,
@@ -209,6 +248,7 @@ export async function GET(req: NextRequest) {
                   minutes_to_pickup: minutesToPickup.toFixed(1),
                   sla_level: slaLevel,
                   is_airport: isAirport,
+                  bm8_sla_shifted: bm8SlaShifted,
                   driver_code: booking.driver_code,
                 },
                 db: sql,
@@ -224,6 +264,7 @@ export async function GET(req: NextRequest) {
             minutes_to_pickup: minutesToPickup.toFixed(1),
             driver_code: booking.driver_code,
             is_airport: isAirport,
+            bm8_sla_shifted: bm8SlaShifted,
           });
         }
 
@@ -234,6 +275,7 @@ export async function GET(req: NextRequest) {
           minutes_to_pickup: minutesToPickup.toFixed(1),
           state_changed: stateChanged,
           is_airport: isAirport,
+          bm8_sla_shifted: bm8SlaShifted,
         });
       } catch (e: any) {
         // Non-blocking per booking

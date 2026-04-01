@@ -447,6 +447,27 @@ interface ActiveRide {
   dispatcher_override_required?: boolean | null
   reassignment_count?: number | null
   last_system_action?: string | null
+  // BM8: Airport Intelligence fields
+  airport_code?: string | null
+  airline_code?: string | null
+  terminal_code?: string | null
+  gate_info?: string | null
+  baggage_claim_zone?: string | null
+  airport_intelligence_status?: string | null
+  airport_phase?: string | null
+  airport_monitoring_enabled?: boolean | null
+  airport_irregularity_flag?: boolean | null
+  scheduled_arrival_at?: string | null
+  estimated_arrival_at?: string | null
+  actual_arrival_at?: string | null
+  flight_delay_minutes?: number | null
+  operational_pickup_target_at?: string | null
+  operational_driver_release_at?: string | null
+  // BM8 LIVE-FIRST validation fields
+  flight_validation_status?: string | null
+  flight_validation_message?: string | null
+  manual_flight_review_required?: boolean | null
+  flight_provider_used?: string | null
 }
 
 interface UpcomingRide {
@@ -4572,6 +4593,137 @@ function RideFlowScreen({
                 </div>
               </div>
             )}
+
+            {/* ── BM8: AIRPORT INTELLIGENCE BANNER ───────────────────────────── */}
+            {ride.airport_monitoring_enabled && (() => {
+              const phase = ride.airport_phase
+              const status = ride.airport_intelligence_status
+              const isIrregular = ride.airport_irregularity_flag
+              const isDelayed = status === 'delayed' || (ride.flight_delay_minutes && ride.flight_delay_minutes > 0)
+              const isLanded = status === 'landed' || phase === 'baggage_claim' || phase === 'at_gate'
+              const isPassengerReady = phase === 'passenger_ready' || phase === 'pickup_window_active'
+              const delayMin = ride.flight_delay_minutes ?? 0
+              const terminal = ride.terminal_code
+              const gate = ride.gate_info
+              const baggage = ride.baggage_claim_zone
+              const effectiveArrival = ride.actual_arrival_at ?? ride.estimated_arrival_at ?? ride.scheduled_arrival_at
+              const arrivalTime = effectiveArrival ? new Date(effectiveArrival).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+              const operationalPickup = ride.operational_pickup_target_at
+                ? new Date(ride.operational_pickup_target_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : null
+              const releaseAt = ride.operational_driver_release_at
+                ? new Date(ride.operational_driver_release_at)
+                : null
+              const now = new Date()
+              const releaseWindowOpen = releaseAt ? now >= releaseAt : true
+              // Banner colors
+              const validationStatus = ride.flight_validation_status
+              const isValidationPending = validationStatus === 'not_found' || validationStatus === 'invalid_format' || validationStatus === 'provider_unavailable' || validationStatus === 'pending_customer_update'
+              const manualReviewRequired = ride.manual_flight_review_required
+              const airportBg = isIrregular ? '#3b000030' : isPassengerReady ? '#00200a30' : isLanded ? '#00150a30' : isDelayed ? '#3b220030' : isValidationPending ? '#2a1a0030' : '#0a0a2030'
+              const airportBorder = isIrregular ? '#f87171' : isPassengerReady ? '#4ade80' : isLanded ? '#34d399' : isDelayed ? '#f59e0b' : isValidationPending ? '#fb923c' : '#6366f1'
+              const airportTextColor = isIrregular ? '#f87171' : isPassengerReady ? '#4ade80' : isLanded ? '#34d399' : isDelayed ? '#f59e0b' : isValidationPending ? '#fb923c' : '#818cf8'
+              const airportIcon = isIrregular ? '🚨' : isPassengerReady ? '✅' : isLanded ? '🛬' : isDelayed ? '⏱️' : isValidationPending ? '⚠️' : '✈️'
+              const airportTitle = isIrregular
+                ? (lang === 'es' ? 'IRREGULARIDAD DE VUELO' : 'FLIGHT IRREGULARITY')
+                : isPassengerReady
+                ? (lang === 'es' ? 'PASAJERO LISTO PARA PICKUP' : 'PASSENGER READY FOR PICKUP')
+                : isLanded
+                ? (lang === 'es' ? 'VUELO ATERRIZÓ — BAGGAGE CLAIM' : 'FLIGHT LANDED — BAGGAGE CLAIM')
+                : isDelayed
+                ? (lang === 'es' ? 'VUELO DEMORADO' : 'FLIGHT DELAYED')
+                : isValidationPending
+                ? (lang === 'es' ? 'INFORMACIÓN DE VUELO PENDIENTE' : 'FLIGHT INFORMATION PENDING VALIDATION')
+                : (lang === 'es' ? 'MONITOREO AEROPORTUARIO ACTIVO' : 'AIRPORT MONITORING ACTIVE')
+              const airportMsg = isIrregular
+                ? (lang === 'es'
+                  ? 'El vuelo tiene una irregularidad. Espera instrucciones del despacho antes de proceder.'
+                  : 'Flight has an irregularity. Await dispatch instructions before proceeding.')
+                : isPassengerReady
+                ? (lang === 'es'
+                  ? `El pasajero está listo para el pickup.${terminal ? ` Terminal ${terminal}.` : ''}${baggage ? ` Baggage Claim: ${baggage}.` : ''} Puedes proceder.`
+                  : `Passenger is ready for pickup.${terminal ? ` Terminal ${terminal}.` : ''}${baggage ? ` Baggage Claim: ${baggage}.` : ''} You may proceed.`)
+                : isLanded
+                ? (lang === 'es'
+                  ? `El vuelo aterrizó${arrivalTime ? ` a las ${arrivalTime}` : ''}.${terminal ? ` Terminal ${terminal}.` : ''}${baggage ? ` Baggage Claim: ${baggage}.` : ''} Espera confirmación de pasajero listo.`
+                  : `Flight landed${arrivalTime ? ` at ${arrivalTime}` : ''}.${terminal ? ` Terminal ${terminal}.` : ''}${baggage ? ` Baggage Claim: ${baggage}.` : ''} Awaiting passenger ready confirmation.`)
+                : isDelayed
+                ? (lang === 'es'
+                  ? `Vuelo demorado ${delayMin} min.${operationalPickup ? ` Nuevo pickup estimado: ${operationalPickup}.` : ''} El despacho ajustó tu ventana de servicio.`
+                  : `Flight delayed ${delayMin} min.${operationalPickup ? ` New estimated pickup: ${operationalPickup}.` : ''} Dispatch has adjusted your service window.`)
+                : isValidationPending
+                ? (lang === 'es'
+                  ? 'Los detalles del vuelo requieren revisión. Por favor verifica con el pasajero si es necesario. La reserva sigue activa.'
+                  : 'Flight details require review. Please verify with passenger if needed. Reservation remains active.')
+                : (lang === 'es'
+                  ? `Monitoreo de vuelo activo.${arrivalTime ? ` Llegada estimada: ${arrivalTime}.` : ''}${terminal ? ` Terminal ${terminal}.` : ''}`
+                  : `Flight monitoring active.${arrivalTime ? ` Estimated arrival: ${arrivalTime}.` : ''}${terminal ? ` Terminal ${terminal}.` : ''}`)
+              return (
+                <div className="flex flex-col gap-3 px-4 py-3 rounded-xl"
+                  style={{ backgroundColor: airportBg, border: `1px solid ${airportBorder}60` }}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl flex-shrink-0">{airportIcon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold" style={{ color: airportTextColor }}>{airportTitle}</div>
+                      <div className="text-xs text-zinc-300 mt-0.5 leading-relaxed">{airportMsg}</div>
+                      {ride.flight_number && (
+                        <div className="text-xs mt-1 font-mono" style={{ color: `${airportTextColor}99` }}>
+                          {ride.flight_number}{ride.airline_code ? ` · ${ride.airline_code}` : ''}{ride.airport_code ? ` · ${ride.airport_code}` : ''}
+                        </div>
+                      )}
+                      {isValidationPending && (
+                        <div className="text-xs mt-1 px-2 py-1 rounded" style={{ backgroundColor: '#fb923c20', color: '#fb923c', border: '1px solid #fb923c40' }}>
+                          {lang === 'es'
+                            ? '⚠️ Información de vuelo pendiente de validación'
+                            : '⚠️ Flight information pending validation'}
+                        </div>
+                      )}
+                      {manualReviewRequired && (
+                        <div className="text-xs mt-1" style={{ color: '#fb923c99' }}>
+                          {lang === 'es'
+                            ? 'Revisión manual requerida por despacho'
+                            : 'Manual review required by dispatch'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* BM8: I'm On My Way — controlled by driver release window */}
+                  {!imOnMyWaySent && isPassengerReady && releaseWindowOpen && (
+                    <button
+                      onClick={async () => {
+                        setSendingImOnMyWay(true)
+                        try {
+                          const r = await fetch('/api/admin/driver-im-on-my-way', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ booking_id: ride.booking_id, driver_code: summary?.driver_code })
+                          })
+                          if (r.ok) setImOnMyWaySent(true)
+                        } catch { }
+                        finally { setSendingImOnMyWay(false) }
+                      }}
+                      disabled={sendingImOnMyWay}
+                      className="w-full py-2.5 rounded-xl text-sm font-bold"
+                      style={{ background: airportBorder, color: '#000', opacity: sendingImOnMyWay ? 0.7 : 1 }}
+                    >
+                      {sendingImOnMyWay
+                        ? (lang === 'es' ? 'Enviando...' : 'Sending...')
+                        : (lang === 'es' ? '🚗 Estoy en Camino al Aeropuerto' : '🚗 On My Way to Airport')}
+                    </button>
+                  )}
+                  {!imOnMyWaySent && !isPassengerReady && !isIrregular && (
+                    <div className="text-center text-xs py-1.5 rounded-lg" style={{ backgroundColor: '#ffffff10', color: '#9ca3af' }}>
+                      {lang === 'es' ? '⏳ Esperando confirmación de pasajero listo' : '⏳ Awaiting passenger ready confirmation'}
+                    </div>
+                  )}
+                  {imOnMyWaySent && (
+                    <div className="text-center text-xs py-1" style={{ color: '#4ade80' }}>
+                      ✅ {lang === 'es' ? 'Despacho notificado. ¡Gracias!' : 'Dispatch notified. Thank you!'}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* ── BM6: SLA PROTECTION BANNER ──────────────────────────────────── */}
             {ride.sla_current_state && ride.sla_current_state !== 'none' && !ride.driver_im_on_my_way && (() => {

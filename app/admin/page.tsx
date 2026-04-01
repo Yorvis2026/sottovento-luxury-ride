@@ -506,6 +506,15 @@ export default function AdminPanel() {
   const [commLogData, setCommLogData] = useState<{[bookingId: string]: any[]}>({})
   const [runningBm7Mig, setRunningBm7Mig] = useState(false)
   const [bm7MigMsg, setBm7MigMsg] = useState("")
+  // BM8: Airport Intelligence Queue
+  const [airportQueue, setAirportQueue] = useState<{airport_bookings: any[], stats: any}>({ airport_bookings: [], stats: {} })
+  const [loadingAirportQueue, setLoadingAirportQueue] = useState(false)
+  const [airportQueueMsg, setAirportQueueMsg] = useState("")
+  const [runningBm8Mig, setRunningBm8Mig] = useState(false)
+  const [bm8MigMsg, setBm8MigMsg] = useState("")
+  const [runningFlightRefresh, setRunningFlightRefresh] = useState<{[key: string]: boolean}>({})
+  const [flightRefreshMsg, setFlightRefreshMsg] = useState<{[key: string]: string}>({})
+  const [expandedAirportId, setExpandedAirportId] = useState<string | null>(null)
   // Invite form
   const [inviteForm, setInviteForm] = useState({ type: "individual", email: "", phone: "", commission_rate: "0.10", name: "", send_email: true })
   const [inviteMsg, setInviteMsg] = useState("")
@@ -2310,9 +2319,251 @@ export default function AdminPanel() {
                     )}
                   </div>
                 </div>
-                {/* ══════════════════════════════════════════════
+                 {/* ════════════════════════════════════════════
+                    BM8: AIRPORT INTELLIGENCE QUEUE
+                ════════════════════════════════════════════ */}
+                <div id="bucket-airport-intelligence" style={{ ...S.card, marginBottom: 16, marginTop: 16, border: "1px solid #1e3a5f" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#38bdf8" }}>✈️ Airport Intelligence Queue — BM8</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Reservas aeroportuarias activas con monitoreo de vuelo en tiempo real</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      {airportQueue.stats?.monitoring_active > 0 && <span style={{ ...S.badge("#0c2340"), color: "#38bdf8", fontSize: 11 }}>✈️ {airportQueue.stats.monitoring_active} monitored</span>}
+                      {airportQueue.stats?.delayed_count > 0 && <span style={{ ...S.badge("#3b2200"), color: "#f59e0b", fontSize: 11 }}>⏱️ {airportQueue.stats.delayed_count} delayed</span>}
+                      {airportQueue.stats?.irregular_count > 0 && <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 11 }}>🚨 {airportQueue.stats.irregular_count} irregular</span>}
+                      {airportQueue.stats?.manual_review_count > 0 && <span style={{ ...S.badge("#2a1a00"), color: "#fb923c", fontSize: 11 }}>⚠️ {airportQueue.stats.manual_review_count} review needed</span>}
+                      {airportQueue.stats?.not_found_count > 0 && <span style={{ ...S.badge("#1a1a00"), color: "#fde68a", fontSize: 11 }}>❓ {airportQueue.stats.not_found_count} not found</span>}
+                      <button onClick={() => { setRunningBm8Mig(true); setBm8MigMsg(""); fetch("/api/admin/migrate-bm8", { headers: { "x-admin-key": "sln-admin-2024" } }).then(r => r.json()).then(d => setBm8MigMsg(d.success ? "✓ BM8 migration OK" : `❌ ${d.error ?? "Error"}`)).catch(() => setBm8MigMsg("❌ Network error")).finally(() => setRunningBm8Mig(false)) }} disabled={runningBm8Mig} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#0c2340", color: "#38bdf8", border: "1px solid #1e3a5f" }}>{runningBm8Mig ? "..." : "🔧 Run BM8 Migration"}</button>
+                      <button onClick={async () => { setLoadingAirportQueue(true); setAirportQueueMsg(""); try { const r = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } }); const d = await r.json(); if (r.ok) { setAirportQueue({ airport_bookings: d.airport_bookings ?? [], stats: d.stats ?? {} }); setAirportQueueMsg(`✅ ${d.airport_bookings?.length ?? 0} airport bookings loaded`) } else { setAirportQueueMsg(`❌ ${d.error ?? "Error"}`) } } catch { setAirportQueueMsg("❌ Network error") } finally { setLoadingAirportQueue(false) } }} disabled={loadingAirportQueue} style={{ ...S.btn(), fontSize: 11, padding: "4px 10px", background: "#0c2340", color: "#38bdf8", border: "1px solid #1e3a5f" }}>{loadingAirportQueue ? "Loading..." : "🔄 Refresh Queue"}</button>
+                    </div>
+                  </div>
+                  {bm8MigMsg && <div style={{ fontSize: 12, marginBottom: 10, color: bm8MigMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{bm8MigMsg}</div>}
+                  {airportQueueMsg && <div style={{ fontSize: 12, marginBottom: 10, color: airportQueueMsg.startsWith("✅") ? "#4ade80" : "#f87171" }}>{airportQueueMsg}</div>}
+                  {/* Stats row */}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+                    {[{label: "Monitored", value: airportQueue.stats?.monitoring_active ?? 0, color: "#38bdf8"}, {label: "Delayed", value: airportQueue.stats?.delayed_count ?? 0, color: "#f59e0b"}, {label: "Landed", value: airportQueue.stats?.landed_count ?? 0, color: "#34d399"}, {label: "Irregular", value: airportQueue.stats?.irregular_count ?? 0, color: "#f87171"}, {label: "Manual Review", value: airportQueue.stats?.manual_review_count ?? 0, color: "#fb923c"}, {label: "Verified", value: airportQueue.stats?.verified_count ?? 0, color: "#4ade80"}, {label: "Not Found", value: airportQueue.stats?.not_found_count ?? 0, color: "#fde68a"}].map(s => (
+                      <div key={s.label} style={{ background: "#0a0a0a", border: `1px solid ${s.color}30`, borderRadius: 8, padding: "8px 14px", minWidth: 80, textAlign: "center" }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Airport bookings list */}
+                  {!airportQueue.airport_bookings?.length ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>No airport bookings under monitoring. Click Refresh Queue to load.</div>
+                  ) : airportQueue.airport_bookings.map((b: any) => {
+                    const isExpanded = expandedAirportId === b.id
+                    const isIrregular = b.airport_irregularity_flag
+                    const isDelayed = b.airport_intelligence_status === "delayed"
+                    const isLanded = b.airport_intelligence_status === "landed" || b.airport_phase === "baggage_claim"
+                    const isPassengerReady = b.airport_phase === "passenger_ready" || b.airport_phase === "pickup_window_active"
+                    const phaseColor = isIrregular ? "#f87171" : isPassengerReady ? "#4ade80" : isLanded ? "#34d399" : isDelayed ? "#f59e0b" : "#38bdf8"
+                    const phaseIcon = isIrregular ? "🚨" : isPassengerReady ? "✅" : isLanded ? "🛬" : isDelayed ? "⏱️" : "✈️"
+                    const effectiveArrival = b.actual_arrival_at ?? b.estimated_arrival_at ?? b.scheduled_arrival_at
+                    const arrivalLabel = effectiveArrival ? new Date(effectiveArrival).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : null
+                    const operationalPickupLabel = b.operational_pickup_target_at ? new Date(b.operational_pickup_target_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : null
+                    return (
+                      <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid #1e3a5f30" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", fontFamily: "monospace" }}>{b.booking_ref || b.id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ ...S.badge("#0c2340"), color: phaseColor, fontSize: 10, fontWeight: 700 }}>{phaseIcon} {(b.airport_phase ?? "unknown").replace(/_/g, " ").toUpperCase()}</span>
+                              {b.flight_number && <span style={{ ...S.badge("#1a1a1a"), color: "#aaa", fontSize: 10 }}>✈️ {b.flight_number}</span>}
+                              {b.airport_code && <span style={{ ...S.badge("#1a1a1a"), color: "#888", fontSize: 10 }}>{b.airport_code}</span>}
+                              {b.terminal_code && <span style={{ ...S.badge("#1a1a1a"), color: "#888", fontSize: 10 }}>T{b.terminal_code}</span>}
+                              {isIrregular && <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10, fontWeight: 700 }}>🚨 IRREGULAR</span>}
+                              {b.manual_flight_review_required && <span style={{ ...S.badge("#2a1a00"), color: "#fb923c", fontSize: 10, fontWeight: 700 }}>⚠️ REVIEW NEEDED</span>}
+                              {b.flight_validation_status === "not_found" && <span style={{ ...S.badge("#1a1a00"), color: "#fde68a", fontSize: 10 }}>❓ FLIGHT NOT FOUND</span>}
+                              {b.flight_validation_status === "invalid_format" && <span style={{ ...S.badge("#1a1a00"), color: "#fde68a", fontSize: 10 }}>⚠️ INVALID FORMAT</span>}
+                              {b.flight_validation_status === "provider_unavailable" && <span style={{ ...S.badge("#1a1a2a"), color: "#818cf8", fontSize: 10 }}>📡 PROVIDER UNAVAIL.</span>}
+                              {b.flight_validation_status === "verified" && <span style={{ ...S.badge("#003320"), color: "#4ade80", fontSize: 10 }}>✓ VERIFIED</span>}
+                              {b.flight_validation_status === "manually_reviewed" && <span style={{ ...S.badge("#003320"), color: "#34d399", fontSize: 10 }}>✓ MANUAL REVIEW</span>}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{b.pickup_address || b.pickup_zone || "?"} → {b.dropoff_address || b.dropoff_zone || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                              {b.client_name && <span>👤 {b.client_name} · </span>}
+                              {b.driver_name && <span>🚗 {b.driver_name} ({b.driver_code}) · </span>}
+                              {arrivalLabel && <span>✈️ Arr: {arrivalLabel}</span>}
+                              {b.flight_delay_minutes > 0 && <span style={{ color: "#f59e0b" }}> · +{b.flight_delay_minutes}min delay</span>}
+                              {operationalPickupLabel && <span style={{ color: "#38bdf8" }}> · Pickup target: {operationalPickupLabel}</span>}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              {/* Live Refresh button */}
+                              <button onClick={async () => {
+                                setRunningFlightRefresh(p => ({...p, [b.id]: true}))
+                                setFlightRefreshMsg(p => ({...p, [b.id]: ""}))
+                                try {
+                                  const r = await fetch("/api/admin/airport-refresh-flight", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                    body: JSON.stringify({ booking_id: b.id })
+                                  })
+                                  const d = await r.json()
+                                  if (r.ok) {
+                                    setFlightRefreshMsg(p => ({...p, [b.id]: `✅ Live: ${d.flight_validation_status} · ${d.final_phase} · ${d.flight_provider_used}`}))
+                                    const qr = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } })
+                                    const qd = await qr.json()
+                                    if (qr.ok) setAirportQueue({ airport_bookings: qd.airport_bookings ?? [], stats: qd.stats ?? {} })
+                                  } else { setFlightRefreshMsg(p => ({...p, [b.id]: `❌ ${d.error ?? "Error"}`})) }
+                                } catch { setFlightRefreshMsg(p => ({...p, [b.id]: "❌ Network error"})) }
+                                finally { setRunningFlightRefresh(p => ({...p, [b.id]: false})) }
+                              }} disabled={runningFlightRefresh[b.id]} style={{ ...S.btn(), fontSize: 9, padding: "2px 8px", background: "#0c2340", color: "#38bdf8", border: "1px solid #1e3a5f" }}>🔄 Live Refresh</button>
+                              {/* Manual Validate */}
+                              <button onClick={async () => {
+                                setRunningFlightRefresh(p => ({...p, [b.id]: true}))
+                                setFlightRefreshMsg(p => ({...p, [b.id]: ""}))
+                                try {
+                                  const r = await fetch("/api/admin/airport-refresh-flight", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                    body: JSON.stringify({ booking_id: b.id, manual_validate: true })
+                                  })
+                                  const d = await r.json()
+                                  if (r.ok) {
+                                    setFlightRefreshMsg(p => ({...p, [b.id]: `✅ Manually reviewed`}))
+                                    const qr = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } })
+                                    const qd = await qr.json()
+                                    if (qr.ok) setAirportQueue({ airport_bookings: qd.airport_bookings ?? [], stats: qd.stats ?? {} })
+                                  } else { setFlightRefreshMsg(p => ({...p, [b.id]: `❌ ${d.error ?? "Error"}`})) }
+                                } catch { setFlightRefreshMsg(p => ({...p, [b.id]: "❌ Network error"})) }
+                                finally { setRunningFlightRefresh(p => ({...p, [b.id]: false})) }
+                              }} disabled={runningFlightRefresh[b.id]} style={{ ...S.btn(), fontSize: 9, padding: "2px 8px", background: "#003320", color: "#4ade80", border: "none" }}>✓ Manual Validate</button>
+                              {/* Mark Passenger Ready */}
+                              <button onClick={async () => {
+                                setRunningFlightRefresh(p => ({...p, [b.id]: true}))
+                                setFlightRefreshMsg(p => ({...p, [b.id]: ""}))
+                                try {
+                                  const r = await fetch("/api/admin/airport-refresh-flight", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                    body: JSON.stringify({ booking_id: b.id, mark_passenger_ready: true })
+                                  })
+                                  const d = await r.json()
+                                  if (r.ok) {
+                                    setFlightRefreshMsg(p => ({...p, [b.id]: `✅ Passenger ready`}))
+                                    const qr = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } })
+                                    const qd = await qr.json()
+                                    if (qr.ok) setAirportQueue({ airport_bookings: qd.airport_bookings ?? [], stats: qd.stats ?? {} })
+                                  } else { setFlightRefreshMsg(p => ({...p, [b.id]: `❌ ${d.error ?? "Error"}`})) }
+                                } catch { setFlightRefreshMsg(p => ({...p, [b.id]: "❌ Network error"})) }
+                                finally { setRunningFlightRefresh(p => ({...p, [b.id]: false})) }
+                              }} disabled={runningFlightRefresh[b.id]} style={{ ...S.btn(), fontSize: 9, padding: "2px 8px", background: "#003320", color: "#34d399", border: "none" }}>🛬 Mark Ready</button>
+                              {/* Force Pickup Window */}
+                              <button onClick={async () => {
+                                setRunningFlightRefresh(p => ({...p, [b.id]: true}))
+                                setFlightRefreshMsg(p => ({...p, [b.id]: ""}))
+                                try {
+                                  const r = await fetch("/api/admin/airport-refresh-flight", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                    body: JSON.stringify({ booking_id: b.id, force_pickup_window: true })
+                                  })
+                                  const d = await r.json()
+                                  if (r.ok) {
+                                    setFlightRefreshMsg(p => ({...p, [b.id]: `✅ Pickup window active`}))
+                                    const qr = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } })
+                                    const qd = await qr.json()
+                                    if (qr.ok) setAirportQueue({ airport_bookings: qd.airport_bookings ?? [], stats: qd.stats ?? {} })
+                                  } else { setFlightRefreshMsg(p => ({...p, [b.id]: `❌ ${d.error ?? "Error"}`})) }
+                                } catch { setFlightRefreshMsg(p => ({...p, [b.id]: "❌ Network error"})) }
+                                finally { setRunningFlightRefresh(p => ({...p, [b.id]: false})) }
+                              }} disabled={runningFlightRefresh[b.id]} style={{ ...S.btn(), fontSize: 9, padding: "2px 8px", background: "#1a0a2a", color: "#a78bfa", border: "none" }}>🚗 Force Pickup</button>
+                              {/* Escalate Dispatch */}
+                              <button onClick={async () => {
+                                setRunningFlightRefresh(p => ({...p, [b.id]: true}))
+                                setFlightRefreshMsg(p => ({...p, [b.id]: ""}))
+                                try {
+                                  const r = await fetch("/api/admin/airport-refresh-flight", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                    body: JSON.stringify({ booking_id: b.id, escalate_dispatch: true, contact_customer: true })
+                                  })
+                                  const d = await r.json()
+                                  if (r.ok) {
+                                    setFlightRefreshMsg(p => ({...p, [b.id]: `✅ Escalated to dispatch`}))
+                                    const qr = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } })
+                                    const qd = await qr.json()
+                                    if (qr.ok) setAirportQueue({ airport_bookings: qd.airport_bookings ?? [], stats: qd.stats ?? {} })
+                                  } else { setFlightRefreshMsg(p => ({...p, [b.id]: `❌ ${d.error ?? "Error"}`})) }
+                                } catch { setFlightRefreshMsg(p => ({...p, [b.id]: "❌ Network error"})) }
+                                finally { setRunningFlightRefresh(p => ({...p, [b.id]: false})) }
+                              }} disabled={runningFlightRefresh[b.id]} style={{ ...S.btn(), fontSize: 9, padding: "2px 8px", background: "#3b0000", color: "#f87171", border: "none" }}>🚨 Escalate</button>
+                              {/* Sandbox scenario buttons (contingency/testing) */}
+                              {["on_time", "delayed_30", "delayed_60", "landed", "cancelled", "not_found"].map(scenario => (
+                                <button key={scenario} onClick={async () => {
+                                  setRunningFlightRefresh(p => ({...p, [b.id]: true}))
+                                  setFlightRefreshMsg(p => ({...p, [b.id]: ""}))
+                                  try {
+                                    const r = await fetch("/api/admin/airport-refresh-flight", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+                                      body: JSON.stringify({ booking_id: b.id, sandbox_scenario: scenario, force_mode: "fallback_sandbox" })
+                                    })
+                                    const d = await r.json()
+                                    if (r.ok) {
+                                      setFlightRefreshMsg(p => ({...p, [b.id]: `✅ [sandbox] ${scenario}: ${d.final_phase}`}))
+                                      const qr = await fetch("/api/admin/airport-queue", { headers: { "x-admin-key": "sln-admin-2024" } })
+                                      const qd = await qr.json()
+                                      if (qr.ok) setAirportQueue({ airport_bookings: qd.airport_bookings ?? [], stats: qd.stats ?? {} })
+                                    } else {
+                                      setFlightRefreshMsg(p => ({...p, [b.id]: `❌ ${d.error ?? "Error"}`}))
+                                    }
+                                  } catch { setFlightRefreshMsg(p => ({...p, [b.id]: "❌ Network error"})) }
+                                  finally { setRunningFlightRefresh(p => ({...p, [b.id]: false})) }
+                                }} disabled={runningFlightRefresh[b.id]} style={{ ...S.btn(), fontSize: 9, padding: "2px 7px", background: scenario === "landed" ? "#003320" : scenario.startsWith("delayed") ? "#3b2200" : scenario === "cancelled" ? "#3b0000" : scenario === "not_found" ? "#1a1a00" : "#0c2340", color: scenario === "landed" ? "#34d399" : scenario.startsWith("delayed") ? "#f59e0b" : scenario === "cancelled" ? "#f87171" : scenario === "not_found" ? "#fde68a" : "#38bdf8", border: "none", opacity: 0.7 }}>[sb] {scenario.replace(/_/g, " ")}</button>
+                              ))}
+                            </div>
+                            <button onClick={() => setExpandedAirportId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Hide" : "▼ Details"}</button>
+                          </div>
+                        </div>
+                        {flightRefreshMsg[b.id] && <div style={{ fontSize: 11, marginTop: 4, color: flightRefreshMsg[b.id].startsWith("✅") ? "#4ade80" : "#f87171" }}>{flightRefreshMsg[b.id]}</div>}
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#050d14", borderRadius: 8, border: "1px solid #1e3a5f", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+                              <div><span style={{ color: "#555" }}>Flight:</span> <span style={{ color: "#fff", fontFamily: "monospace" }}>{b.flight_number || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Airline:</span> <span style={{ color: "#aaa" }}>{b.airline_code || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Airport:</span> <span style={{ color: "#aaa" }}>{b.airport_code || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Terminal:</span> <span style={{ color: "#aaa" }}>{b.terminal_code || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Gate:</span> <span style={{ color: "#aaa" }}>{b.gate_info || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Baggage:</span> <span style={{ color: "#aaa" }}>{b.baggage_claim_zone || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Sched. Arrival:</span> <span style={{ color: "#aaa" }}>{b.scheduled_arrival_at ? new Date(b.scheduled_arrival_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Est. Arrival:</span> <span style={{ color: "#aaa" }}>{b.estimated_arrival_at ? new Date(b.estimated_arrival_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Actual Arrival:</span> <span style={{ color: b.actual_arrival_at ? "#4ade80" : "#555" }}>{b.actual_arrival_at ? new Date(b.actual_arrival_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Delay:</span> <span style={{ color: b.flight_delay_minutes > 0 ? "#f59e0b" : "#4ade80" }}>{b.flight_delay_minutes > 0 ? `+${b.flight_delay_minutes} min` : "On time"}</span></div>
+                              <div><span style={{ color: "#555" }}>Op. Pickup:</span> <span style={{ color: "#38bdf8" }}>{b.operational_pickup_target_at ? new Date(b.operational_pickup_target_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Driver Release:</span> <span style={{ color: "#818cf8" }}>{b.operational_driver_release_at ? new Date(b.operational_driver_release_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Intel Status:</span> <span style={{ color: phaseColor }}>{b.airport_intelligence_status || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Phase:</span> <span style={{ color: phaseColor }}>{b.airport_phase?.replace(/_/g, " ") || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Last Lookup:</span> <span style={{ color: "#555" }}>{b.flight_lookup_last_at ? new Date(b.flight_lookup_last_at).toLocaleString() : "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Source:</span> <span style={{ color: "#555" }}>{b.flight_lookup_source || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Validation:</span> <span style={{ color: b.flight_validation_status === "verified" ? "#4ade80" : b.flight_validation_status === "not_found" ? "#fde68a" : b.flight_validation_status === "provider_unavailable" ? "#818cf8" : b.flight_validation_status === "manually_reviewed" ? "#34d399" : "#f59e0b" }}>{b.flight_validation_status?.replace(/_/g, " ").toUpperCase() || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Provider:</span> <span style={{ color: "#888" }}>{b.flight_provider_used || "—"}</span></div>
+                              <div><span style={{ color: "#555" }}>Manual Review:</span> <span style={{ color: b.manual_flight_review_required ? "#fb923c" : "#555" }}>{b.manual_flight_review_required ? "YES — Required" : "No"}</span></div>
+                              {b.flight_validation_message && <div style={{ gridColumn: "1/-1" }}><span style={{ color: "#555" }}>Validation Msg:</span> <span style={{ color: "#fde68a", fontStyle: "italic" }}>{b.flight_validation_message}</span></div>}
+                            </div>
+                            {b.recommended_actions?.length > 0 && (
+                              <div style={{ marginTop: 10 }}>
+                                <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>Recommended Actions:</div>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  {b.recommended_actions.map((a: string) => (
+                                    <span key={a} style={{ ...S.badge("#1e3a5f"), color: "#38bdf8", fontSize: 10 }}>{a.replace(/_/g, " ")}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* ════════════════════════════════════════════
                     BUCKET 7: RECENTLY CANCELLED (red — last 24h)
-                ══════════════════════════════════════════════ */}
+                ════════════════════════════════════════════ */}*/}
                 <div id="bucket-recently-cancelled" style={{ ...S.card, marginBottom: 16, marginTop: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
