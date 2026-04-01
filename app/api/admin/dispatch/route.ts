@@ -54,19 +54,14 @@ export async function GET() {
         pc.name                                              AS company_name,
         pc.brand_name                                        AS company_brand_display_name,
         -- ── Cancellation fields (Fases 1-10) ──────────────────────────────────
-        COALESCE(b.cancel_reason, '') AS cancel_reason,
-        COALESCE(b.cancel_responsibility, '') AS cancel_responsibility,
-        COALESCE(b.passenger_no_show, FALSE) AS passenger_no_show,
-        COALESCE(b.early_cancel, FALSE) AS early_cancel,
-        COALESCE(b.late_cancel, FALSE) AS late_cancel,
-        COALESCE(b.payout_status, '') AS payout_status,
+        COALESCE(b.cancellation_reason, '') AS cancel_reason,
+        COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
         b.cancelled_at,
+        COALESCE(b.cancel_stage, 'before_assignment') AS cancel_stage,
+        COALESCE(b.affects_driver_metrics, FALSE) AS affects_driver_metrics,
+        COALESCE(b.affects_payout, FALSE) AS affects_payout,
         -- ── Auto Fee Logic V2 — SLN Network fee distribution ─────────────────
         COALESCE(b.cancellation_fee, 0)::numeric            AS cancellation_fee,
-        COALESCE(b.executor_share_amount, 0)::numeric       AS executor_share_amount,
-        COALESCE(b.source_driver_share_amount, 0)::numeric  AS source_driver_share_amount,
-        COALESCE(b.platform_share_amount, 0)::numeric       AS platform_share_amount,
-        COALESCE(b.fee_split_strategy, '')                  AS fee_split_strategy,
         COALESCE(b.source_driver_id::text, '')              AS source_driver_id,
         COALESCE(b.source_type, '')                         AS source_type,
         (
@@ -468,46 +463,42 @@ export async function GET() {
           COUNT(*) FILTER (
             WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
               AND COALESCE(cancelled_by_type,
-                CASE cancel_responsibility
-                  WHEN 'passenger' THEN 'client'
-                  WHEN 'driver'    THEN 'driver'
-                  WHEN 'dispatch'  THEN 'admin'
+                CASE
+                  WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
+                  WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
+                  WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
                   ELSE 'system'
-                END
-              ) = 'client'
+                END, 'system') = 'client'
           ) AS by_client,
           COUNT(*) FILTER (
             WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
               AND COALESCE(cancelled_by_type,
-                CASE cancel_responsibility
-                  WHEN 'passenger' THEN 'client'
-                  WHEN 'driver'    THEN 'driver'
-                  WHEN 'dispatch'  THEN 'admin'
+                CASE
+                  WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
+                  WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
+                  WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
                   ELSE 'system'
-                END
-              ) = 'driver'
+                END, 'system') = 'driver'
           ) AS by_driver,
           COUNT(*) FILTER (
             WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
               AND COALESCE(cancelled_by_type,
-                CASE cancel_responsibility
-                  WHEN 'passenger' THEN 'client'
-                  WHEN 'driver'    THEN 'driver'
-                  WHEN 'dispatch'  THEN 'admin'
+                CASE
+                  WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
+                  WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
+                  WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
                   ELSE 'system'
-                END
-              ) = 'admin'
+                END, 'system') = 'admin'
           ) AS by_admin,
           COUNT(*) FILTER (
             WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
               AND COALESCE(cancelled_by_type,
-                CASE cancel_responsibility
-                  WHEN 'passenger' THEN 'client'
-                  WHEN 'driver'    THEN 'driver'
-                  WHEN 'dispatch'  THEN 'admin'
+                CASE
+                  WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
+                  WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
+                  WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
                   ELSE 'system'
-                END
-              ) = 'system'
+                END, 'system') = 'system'
           ) AS by_system
         FROM bookings
       `;

@@ -681,20 +681,13 @@ export async function GET(req: NextRequest) {
           b.cancelled_at,
           b.vehicle_type,
           b.total_price,
-          COALESCE(b.cancel_reason, b.cancellation_reason, '') AS cancel_reason,
-          COALESCE(b.cancel_responsibility, '') AS cancel_responsibility,
-          COALESCE(b.cancelled_by_type,
-            CASE b.cancel_responsibility
-              WHEN 'passenger' THEN 'client'
-              WHEN 'driver'    THEN 'driver'
-              WHEN 'dispatch'  THEN 'admin'
-              ELSE 'system'
-            END
-          ) AS cancelled_by_type,
-          COALESCE(b.early_cancel, FALSE) AS early_cancel,
-          COALESCE(b.late_cancel, FALSE) AS late_cancel,
-          COALESCE(b.passenger_no_show, FALSE) AS passenger_no_show,
-          COALESCE(cl.full_name, b.client_name_override) AS client_name
+          COALESCE(b.cancellation_reason, '') AS cancel_reason,
+          COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
+          COALESCE(b.cancel_stage, 'before_assignment') AS cancel_stage,
+          COALESCE(b.affects_driver_metrics, FALSE) AS affects_driver_metrics,
+          COALESCE(b.affects_payout, FALSE) AS affects_payout,
+          COALESCE(b.cancellation_fee, 0)::numeric AS cancellation_fee,
+          cl.full_name AS client_name
         FROM bookings b
         LEFT JOIN clients cl ON cl.id = b.client_id
         WHERE b.assigned_driver_id = ${driver.id}
@@ -712,11 +705,11 @@ export async function GET(req: NextRequest) {
         vehicle_type: r.vehicle_type ?? 'Sedan',
         total_price: Number(r.total_price ?? 0),
         cancel_reason: r.cancel_reason ?? null,
-        cancel_responsibility: r.cancel_responsibility ?? null,
         cancelled_by_type: r.cancelled_by_type ?? 'system',
-        early_cancel: Boolean(r.early_cancel),
-        late_cancel: Boolean(r.late_cancel),
-        passenger_no_show: Boolean(r.passenger_no_show),
+        cancel_stage: r.cancel_stage ?? 'before_assignment',
+        affects_driver_metrics: Boolean(r.affects_driver_metrics),
+        affects_payout: Boolean(r.affects_payout),
+        cancellation_fee: Number(r.cancellation_fee ?? 0),
         client_name: r.client_name ?? null,
       }));
       cancelled_rides_count = cancelled_rides.length;

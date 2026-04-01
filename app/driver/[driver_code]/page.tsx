@@ -495,11 +495,11 @@ interface CancelledRide {
   vehicle_type: string
   total_price: number
   cancel_reason?: string | null
-  cancel_responsibility?: string | null
   cancelled_by_type?: string | null
-  early_cancel?: boolean
-  late_cancel?: boolean
-  passenger_no_show?: boolean
+  cancel_stage?: string | null
+  affects_driver_metrics?: boolean
+  affects_payout?: boolean
+  cancellation_fee?: number
   client_name?: string | null
 }
 
@@ -3437,7 +3437,72 @@ export default function DriverDashboardByCode() {
 
       {/* ── TAB: CANCELLED ── */}
       {dashTab === "cancelled" && (
-        <div className="px-4 mt-4">
+        <div className="px-4 mt-4 pb-8">
+          {/* ── Cancel Stats Summary ── */}
+          {summary.cancelled_rides && summary.cancelled_rides.length > 0 && (() => {
+            const rides = summary.cancelled_rides
+            const byClient = rides.filter(r => r.cancelled_by_type === "client").length
+            const byDriver = rides.filter(r => r.cancelled_by_type === "driver").length
+            const byAdmin  = rides.filter(r => r.cancelled_by_type === "admin").length
+            const bySystem = rides.filter(r => !["client","driver","admin"].includes(r.cancelled_by_type ?? "")).length
+            const totalFee = rides.reduce((s, r) => s + (r.cancellation_fee ?? 0), 0)
+            const affectsPayout = rides.filter(r => r.affects_payout).length
+            return (
+              <div className="mb-5">
+                {/* Count + attribution grid */}
+                <div className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">
+                  {lang === "es" ? "Resumen de cancelaciones" : "Cancellation Summary"}
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-center">
+                    <div className="text-2xl font-bold text-red-400">{rides.length}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">{lang === "es" ? "Total cancelados" : "Total Cancelled"}</div>
+                  </div>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-center">
+                    <div className="text-2xl font-bold" style={{ color: totalFee > 0 ? "#4ade80" : "#6b7280" }}>
+                      ${totalFee.toFixed(0)}
+                    </div>
+                    <div className="text-xs text-zinc-500 mt-0.5">{lang === "es" ? "Fees recibidos" : "Cancellation Fees"}</div>
+                  </div>
+                </div>
+                {/* Attribution breakdown */}
+                <div className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">
+                  {lang === "es" ? "Atribución de cancelación" : "Cancel Attribution"}
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 mb-3">
+                  {[
+                    { label: lang === "es" ? "Cliente" : "Client", value: byClient, color: "#fbbf24" },
+                    { label: lang === "es" ? "Conductor" : "Driver", value: byDriver, color: "#f87171" },
+                    { label: "Admin", value: byAdmin, color: "#a78bfa" },
+                    { label: lang === "es" ? "Sistema" : "System", value: bySystem, color: "#6b7280" },
+                  ].map(item => (
+                    <div key={item.label} className="rounded-xl border border-zinc-800 bg-zinc-900 p-2 text-center">
+                      <div className="text-lg font-bold" style={{ color: item.value > 0 ? item.color : "#444" }}>{item.value}</div>
+                      <div className="text-xs text-zinc-600 mt-0.5">{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Payout impact */}
+                {affectsPayout > 0 && (
+                  <div className="rounded-xl border border-red-900/40 bg-red-950/20 px-4 py-3 mb-3">
+                    <div className="text-xs font-semibold text-red-400 mb-0.5">
+                      ⚠️ {lang === "es" ? "Impacto en pago" : "Payout Impact"}
+                    </div>
+                    <div className="text-xs text-zinc-400">
+                      {affectsPayout} {lang === "es"
+                        ? `cancelación${affectsPayout > 1 ? "es" : ""} afecta${affectsPayout > 1 ? "n" : ""} tu pago`
+                        : `cancellation${affectsPayout > 1 ? "s" : ""} affect${affectsPayout > 1 ? "" : "s"} your payout`}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* ── Ride History ── */}
+          <div className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">
+            {lang === "es" ? "Historial de cancelaciones" : "Cancellation History"}
+          </div>
           {!summary.cancelled_rides || summary.cancelled_rides.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-4xl mb-3">✅</div>
@@ -3446,7 +3511,7 @@ export default function DriverDashboardByCode() {
               </div>
             </div>
           ) : (
-            <div className="space-y-3 pb-6">
+            <div className="space-y-3">
               {summary.cancelled_rides.map((ride) => {
                 const cancelDate = ride.cancelled_at
                   ? new Date(ride.cancelled_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
@@ -3462,11 +3527,12 @@ export default function DriverDashboardByCode() {
                   admin: lang === "es" ? "Por Admin" : "By Admin",
                   system: lang === "es" ? "Sistema" : "System",
                 }
-                const timingBadge = ride.late_cancel
-                  ? { label: lang === "es" ? "⏰ Cancel. tardía" : "⏰ Late cancel", color: "#f87171" }
-                  : ride.early_cancel
-                  ? { label: lang === "es" ? "✅ Cancel. temprana" : "✅ Early cancel", color: "#4ade80" }
-                  : null
+                const stageLabel: Record<string, string> = {
+                  before_assignment: lang === "es" ? "Antes de asignar" : "Before Assignment",
+                  assigned: lang === "es" ? "Asignado" : "Assigned",
+                  in_progress: lang === "es" ? "En progreso" : "In Progress",
+                  post_driver_issue: lang === "es" ? "Post incidencia" : "Post Driver Issue",
+                }
                 return (
                   <div key={ride.booking_id}
                     className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
@@ -3475,22 +3541,31 @@ export default function DriverDashboardByCode() {
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
                           <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
+                          {ride.client_name && (
+                            <div className="text-xs text-zinc-600 mt-0.5">👤 {ride.client_name}</div>
+                          )}
                         </div>
                         <div className="text-right flex-shrink-0">
                           <div className="text-sm font-bold text-zinc-500">${ride.total_price.toFixed(0)}</div>
                           <div className="text-xs mt-0.5" style={{ color: byTypeColor[byType] ?? "#6b7280" }}>
                             {byTypeLabel[byType] ?? byType}
                           </div>
+                          {(ride.cancellation_fee ?? 0) > 0 && (
+                            <div className="text-xs mt-0.5 text-green-400">+${(ride.cancellation_fee ?? 0).toFixed(0)} fee</div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         {cancelDate && <span className="text-xs text-zinc-400">{cancelDate}</span>}
                         {cancelTime && <span className="text-xs text-zinc-500">{cancelTime}</span>}
                         <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type}</span>
-                        {timingBadge && (
-                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "#1a1a1a", color: timingBadge.color }}>
-                            {timingBadge.label}
+                        {ride.cancel_stage && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800/60 text-zinc-500">
+                            {stageLabel[ride.cancel_stage] ?? ride.cancel_stage}
                           </span>
+                        )}
+                        {ride.affects_payout && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-red-950/40 text-red-400">⚠️ payout</span>
                         )}
                         <span className="text-xs text-zinc-600 font-mono ml-auto">{ride.booking_id.slice(0, 8)}…</span>
                       </div>

@@ -454,6 +454,16 @@ export default function AdminPanel() {
   const [fallbackQueueMsg, setFallbackQueueMsg] = useState("")
   const [runningFallbackDispatch, setRunningFallbackDispatch] = useState<string | null>(null)
 
+  // ── Cancel Metrics (Bloque Maestro 4) ────────────────────────────────────
+  const [cancelMetricsData, setCancelMetricsData] = useState<{
+    counts: { last_24h: number; today: number; this_week: number; this_month: number; total: number };
+    breakdown: { by_client: number; by_driver: number; by_admin: number; by_system: number };
+    stage_breakdown: { before_assignment: number; assigned: number; in_progress: number; post_driver_issue: number };
+    recent_list: any[];
+    generated_at: string;
+  } | null>(null)
+  const [loadingCancelMetrics, setLoadingCancelMetrics] = useState(false)
+
   const [loadingDash, setLoadingDash] = useState(false)
   const [loadingDrivers, setLoadingDrivers] = useState(false)
   const [loadingBookings, setLoadingBookings] = useState(false)
@@ -539,14 +549,15 @@ export default function AdminPanel() {
   const loadCrown = useCallback(async () => { setLoadingCrown(true); try { const r = await fetch("/api/admin/crown-moment"); if (r.ok) setCrownData(await r.json()) } catch { } finally { setLoadingCrown(false) } }, [])
   const loadDispatch = useCallback(async () => { setLoadingDispatch(true); try { const r = await fetch("/api/admin/dispatch"); if (r.ok) setDispatchData(await r.json()) } catch { } finally { setLoadingDispatch(false) } }, [])
   const loadFallbackQueue = useCallback(async () => { setLoadingFallbackQueue(true); try { const r = await fetch("/api/admin/fallback-pool-dispatch"); if (r.ok) { const d = await r.json(); setFallbackQueue(d.queue ?? []) } } catch { } finally { setLoadingFallbackQueue(false) } }, [])
+  const loadCancelMetrics = useCallback(async () => { setLoadingCancelMetrics(true); try { const r = await fetch("/api/admin/cancel-metrics"); if (r.ok) setCancelMetricsData(await r.json()) } catch { } finally { setLoadingCancelMetrics(false) } }, [])
   const loadPartners = useCallback(async () => { setLoadingPartners(true); try { const r = await fetch("/api/admin/partners"); if (r.ok) { const d = await r.json(); setPartners(d.partners ?? []) } } catch { } finally { setLoadingPartners(false) } }, [])
   const loadPartnerCompanies = useCallback(async () => { try { const r = await fetch("/api/admin/partner-companies"); if (r.ok) { const d = await r.json(); setPartnerCompanies(d.companies ?? []) } } catch { } }, [])
   const loadPartnerInvites = useCallback(async () => { try { const r = await fetch("/api/admin/partner-invites"); if (r.ok) { const d = await r.json(); setPartnerInvites(d.invites ?? []) } } catch { } }, [])
   const loadPartnerEarnings = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings"); if (r.ok) { const d = await r.json(); setPartnerEarnings(d.earnings ?? []) } } catch { } }, [])
   const loadPartnerCompliance = useCallback(async () => { try { const r = await fetch("/api/admin/partner-earnings?compliance=true"); if (r.ok) { const d = await r.json(); setPartnerCompliance(d.compliance ?? []) } } catch { } }, [])
 
-  useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings() } }, [authed, loadDashboard, loadDrivers, loadBookings])
-  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
+  useEffect(() => { if (authed) { loadDashboard(); loadDrivers(); loadBookings(); loadCancelMetrics() } }, [authed, loadDashboard, loadDrivers, loadBookings, loadCancelMetrics])
+  useEffect(() => { if (!authed) return; if (tab === "leads") loadLeads(); if (tab === "finance") loadFinance(); if (tab === "crown") loadCrown(); if (tab === "dispatch") { loadDispatch(); loadFallbackQueue(); loadCancelMetrics() }; if (tab === "partners") { loadPartners(); loadPartnerCompanies(); loadPartnerInvites() }; if (tab === "drivers") loadVehicles() }, [tab, authed, loadLeads, loadFinance, loadCrown, loadDispatch, loadFallbackQueue, loadCancelMetrics, loadPartners, loadPartnerCompanies, loadPartnerInvites, loadVehicles])
   useEffect(() => { if (tab !== "partners") return; if (partnerTab === "earnings") loadPartnerEarnings(); if (partnerTab === "compliance") loadPartnerCompliance() }, [partnerTab, tab, loadPartnerEarnings, loadPartnerCompliance])
 
   // ---- ACTIONS ----
@@ -1990,47 +2001,80 @@ export default function AdminPanel() {
                   })}
                 </div>
                 {/* ══════════════════════════════════════════════
-                    CANCEL METRICS PANEL (Bloque Maestro — Cancellation Metrics Sync)
+                    CANCEL METRICS PANEL (Bloque Maestro 4 — Cancellation Metrics Sync)
                 ══════════════════════════════════════════════ */}
-                {(dispatchData as any)?.cancelMetrics && (
-                  <div id="cancel-metrics-panel" style={{ ...S.card, marginBottom: 16, marginTop: 16, borderColor: "#3b0000" }}>
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>📊 Cancellation Metrics</div>
-                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Fuente única de verdad — basada en <code style={{ color: "#f87171", fontSize: 11 }}>status = cancelled OR cancelled_at IS NOT NULL</code></div>
+                <div id="cancel-metrics-panel" style={{ ...S.card, marginBottom: 16, marginTop: 16, borderColor: "#3b0000" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>📊 Cancellation Metrics — Bloque Maestro 4</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Fuente única de verdad — endpoint dedicado <code style={{ color: "#f87171", fontSize: 11 }}>/api/admin/cancel-metrics</code></div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
-                      {[
-                        { label: "Last 24h",   value: (dispatchData as any).cancelMetrics.counts.last_24h,   color: "#f87171" },
-                        { label: "Today",      value: (dispatchData as any).cancelMetrics.counts.today,      color: "#f87171" },
-                        { label: "This Week",  value: (dispatchData as any).cancelMetrics.counts.this_week,  color: "#fb923c" },
-                        { label: "This Month", value: (dispatchData as any).cancelMetrics.counts.this_month, color: "#fbbf24" },
-                        { label: "All Time",   value: (dispatchData as any).cancelMetrics.counts.total,      color: "#888" },
-                      ].map(m => (
-                        <div key={m.label} style={{ background: "#0d0000", border: "1px solid #3b0000", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
-                          <div style={{ fontSize: 22, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
-                          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{m.label}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#888", marginBottom: 8, fontWeight: 600 }}>Breakdown por origen</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                      {[
-                        { label: "By Client",  value: (dispatchData as any).cancelMetrics.breakdown.by_client, color: "#fbbf24", icon: "👤" },
-                        { label: "By Driver",  value: (dispatchData as any).cancelMetrics.breakdown.by_driver, color: "#f87171", icon: "🚗" },
-                        { label: "By Admin",   value: (dispatchData as any).cancelMetrics.breakdown.by_admin,  color: "#a78bfa", icon: "🛠️" },
-                        { label: "By System",  value: (dispatchData as any).cancelMetrics.breakdown.by_system, color: "#6b7280", icon: "⚙️" },
-                      ].map(m => (
-                        <div key={m.label} style={{ background: "#0d0000", border: "1px solid #2a1a1a", borderRadius: 8, padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 16 }}>{m.icon}</span>
-                          <div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
-                            <div style={{ fontSize: 10, color: "#666" }}>{m.label}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <button onClick={loadCancelMetrics} disabled={loadingCancelMetrics} style={{ ...S.btn(), fontSize: 11, padding: "4px 12px" }}>
+                      {loadingCancelMetrics ? "..." : "↻ Refresh"}
+                    </button>
                   </div>
-                )}
+                  {loadingCancelMetrics && !cancelMetricsData ? (
+                    <div style={{ color: "#555", fontSize: 13, padding: "12px 0" }}>Cargando métricas de cancelación...</div>
+                  ) : cancelMetricsData ? (
+                    <>
+                      {/* ── Row 1: Time-based counts ── */}
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Conteos por período</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
+                        {[
+                          { label: "Last 24h",   value: cancelMetricsData.counts.last_24h,   color: "#f87171" },
+                          { label: "Today",      value: cancelMetricsData.counts.today,      color: "#f87171" },
+                          { label: "This Week",  value: cancelMetricsData.counts.this_week,  color: "#fb923c" },
+                          { label: "This Month", value: cancelMetricsData.counts.this_month, color: "#fbbf24" },
+                          { label: "All Time",   value: cancelMetricsData.counts.total,      color: "#888" },
+                        ].map(m => (
+                          <div key={m.label} style={{ background: "#0d0000", border: "1px solid #3b0000", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
+                            <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{m.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* ── Row 2: Breakdown by origin ── */}
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Breakdown por origen</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+                        {[
+                          { label: "By Client",  value: cancelMetricsData.breakdown.by_client, color: "#fbbf24", icon: "👤" },
+                          { label: "By Driver",  value: cancelMetricsData.breakdown.by_driver, color: "#f87171", icon: "🚗" },
+                          { label: "By Admin",   value: cancelMetricsData.breakdown.by_admin,  color: "#a78bfa", icon: "🛠️" },
+                          { label: "By System",  value: cancelMetricsData.breakdown.by_system, color: "#6b7280", icon: "⚙️" },
+                        ].map(m => (
+                          <div key={m.label} style={{ background: "#0d0000", border: "1px solid #2a1a1a", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontSize: 18 }}>{m.icon}</span>
+                            <div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
+                              <div style={{ fontSize: 10, color: "#666" }}>{m.label}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* ── Row 3: Stage breakdown ── */}
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Breakdown por etapa de cancelación</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+                        {[
+                          { label: "Before Assignment", value: cancelMetricsData.stage_breakdown.before_assignment, color: "#60a5fa" },
+                          { label: "Assigned",          value: cancelMetricsData.stage_breakdown.assigned,          color: "#fb923c" },
+                          { label: "In Progress",       value: cancelMetricsData.stage_breakdown.in_progress,       color: "#f87171" },
+                          { label: "Post Driver Issue", value: cancelMetricsData.stage_breakdown.post_driver_issue, color: "#a78bfa" },
+                        ].map(m => (
+                          <div key={m.label} style={{ background: "#0d0000", border: "1px solid #1a1a2a", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
+                            <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>{m.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* ── Footer: last updated ── */}
+                      <div style={{ fontSize: 10, color: "#444", textAlign: "right" }}>
+                        Actualizado: {new Date(cancelMetricsData.generated_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: "#555", fontSize: 13, padding: "12px 0" }}>Sin datos de cancelación. Haz clic en Refresh para cargar.</div>
+                  )}
+                </div>
 
                 {/* ══════════════════════════════════════════════
                     BUCKET 7: RECENTLY CANCELLED (red — last 24h)
