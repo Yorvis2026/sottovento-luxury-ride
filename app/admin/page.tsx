@@ -2563,7 +2563,7 @@ export default function AdminPanel() {
                 </div>
                 {/* ════════════════════════════════════════════
                     BUCKET 7: RECENTLY CANCELLED (red — last 24h)
-                ════════════════════════════════════════════ */}*/}
+                ════════════════════════════════════════════ */}
                 <div id="bucket-recently-cancelled" style={{ ...S.card, marginBottom: 16, marginTop: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
