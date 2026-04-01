@@ -103,7 +103,7 @@ export async function GET() {
             WHEN 'DRIVER_EMERGENCY'                 THEN 'Driver emergency'
             WHEN 'DISPATCH_REQUEST'                 THEN 'Dispatch cancelled'
             WHEN 'OTHER'                            THEN 'Other reason'
-            ELSE COALESCE(b.cancel_reason, 'Unknown')
+            ELSE COALESCE(b.cancellation_reason, 'Unknown')
           END
         ) AS cancel_reason_text,
         COALESCE(b.cancel_stage, 'before_assignment') AS cancel_stage,
