@@ -83,8 +83,8 @@ export async function GET() {
       SELECT
         b.id AS booking_id,
         b.status,
-        b.pickup_location,
-        b.dropoff_location,
+        b.pickup_address,
+        b.dropoff_address,
         b.pickup_at,
         b.cancelled_at,
         COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
