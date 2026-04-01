@@ -41,50 +41,22 @@ export async function GET() {
         COUNT(*) FILTER (
           WHERE status = 'cancelled' OR cancelled_at IS NOT NULL
         ) AS total,
-        -- By type breakdown
+        -- By type breakdown (using new cancelled_by_type column)
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type,
-              CASE cancel_responsibility
-                WHEN 'passenger' THEN 'client'
-                WHEN 'driver'    THEN 'driver'
-                WHEN 'dispatch'  THEN 'admin'
-                ELSE 'system'
-              END
-            ) = 'client'
+            AND COALESCE(cancelled_by_type, 'system') = 'client'
         ) AS by_client,
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type,
-              CASE cancel_responsibility
-                WHEN 'passenger' THEN 'client'
-                WHEN 'driver'    THEN 'driver'
-                WHEN 'dispatch'  THEN 'admin'
-                ELSE 'system'
-              END
-            ) = 'driver'
+            AND COALESCE(cancelled_by_type, 'system') = 'driver'
         ) AS by_driver,
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type,
-              CASE cancel_responsibility
-                WHEN 'passenger' THEN 'client'
-                WHEN 'driver'    THEN 'driver'
-                WHEN 'dispatch'  THEN 'admin'
-                ELSE 'system'
-              END
-            ) = 'admin'
+            AND COALESCE(cancelled_by_type, 'system') = 'admin'
         ) AS by_admin,
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
-            AND COALESCE(cancelled_by_type,
-              CASE cancel_responsibility
-                WHEN 'passenger' THEN 'client'
-                WHEN 'driver'    THEN 'driver'
-                WHEN 'dispatch'  THEN 'admin'
-                ELSE 'system'
-              END
-            ) = 'system'
+            AND COALESCE(cancelled_by_type, 'system') = 'system'
         ) AS by_system,
         -- Stage breakdown
         COUNT(*) FILTER (
@@ -115,14 +87,7 @@ export async function GET() {
         b.dropoff_address,
         b.pickup_at,
         b.cancelled_at,
-        COALESCE(b.cancelled_by_type,
-          CASE b.cancel_responsibility
-            WHEN 'passenger' THEN 'client'
-            WHEN 'driver'    THEN 'driver'
-            WHEN 'dispatch'  THEN 'admin'
-            ELSE 'system'
-          END
-        ) AS cancelled_by_type,
+        COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
         b.cancelled_by_id,
         COALESCE(b.cancel_reason_code, UPPER(REPLACE(COALESCE(b.cancel_reason, 'UNKNOWN'), ' ', '_'))) AS cancel_reason_code,
         COALESCE(b.cancel_reason_text,
