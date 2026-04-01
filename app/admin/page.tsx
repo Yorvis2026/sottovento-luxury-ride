@@ -482,6 +482,13 @@ export default function AdminPanel() {
   const [loadingPartners, setLoadingPartners] = useState(false)
   const [partnerMigMsg, setPartnerMigMsg] = useState("")
   const [runningPartnerMig, setRunningPartnerMig] = useState(false)
+  // BM5: Driver Reliability Score Engine
+  const [runningBm5Mig, setRunningBm5Mig] = useState(false)
+  const [bm5MigMsg, setBm5MigMsg] = useState("")
+  const [runningRecalc, setRunningRecalc] = useState(false)
+  const [recalcMsg, setRecalcMsg] = useState("")
+  const [bm5Drivers, setBm5Drivers] = useState<any[]>([])
+  const [updatingPartnerMode, setUpdatingPartnerMode] = useState<string | null>(null)
   // Invite form
   const [inviteForm, setInviteForm] = useState({ type: "individual", email: "", phone: "", commission_rate: "0.10", name: "", send_email: true })
   const [inviteMsg, setInviteMsg] = useState("")
@@ -2680,20 +2687,20 @@ export default function AdminPanel() {
                             <td style={{ padding: "8px 12px" }}>
                               <span style={{ ...S.badge(tc.bg), color: tc.text, fontSize: 10 }}>{tierBm5}</span>
                             </td>
-                            <td style={{ padding: "8px 12px", color: d.acceptance_rate != null ? (d.acceptance_rate >= 0.85 ? "#4ade80" : d.acceptance_rate >= 0.70 ? "#f59e0b" : "#f87171") : "#555" }}>
-                              {d.acceptance_rate != null ? `${Math.round(d.acceptance_rate * 100)}%` : "—"}
+                            <td style={{ padding: "8px 12px", color: d.acceptance_rate != null ? (d.acceptance_rate >= 85 ? "#4ade80" : d.acceptance_rate >= 70 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.acceptance_rate != null ? `${Math.round(Number(d.acceptance_rate))}%` : "—"}
                             </td>
-                            <td style={{ padding: "8px 12px", color: d.completion_rate != null ? (d.completion_rate >= 0.95 ? "#4ade80" : d.completion_rate >= 0.85 ? "#f59e0b" : "#f87171") : "#555" }}>
-                              {d.completion_rate != null ? `${Math.round(d.completion_rate * 100)}%` : "—"}
+                            <td style={{ padding: "8px 12px", color: d.completion_rate != null ? (d.completion_rate >= 95 ? "#4ade80" : d.completion_rate >= 85 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.completion_rate != null ? `${Math.round(Number(d.completion_rate))}%` : "—"}
                             </td>
-                            <td style={{ padding: "8px 12px", color: d.driver_cancel_rate != null ? (d.driver_cancel_rate <= 0.05 ? "#4ade80" : d.driver_cancel_rate <= 0.10 ? "#f59e0b" : "#f87171") : "#555" }}>
-                              {d.driver_cancel_rate != null ? `${Math.round(d.driver_cancel_rate * 100)}%` : "—"}
+                            <td style={{ padding: "8px 12px", color: d.driver_cancel_rate != null ? (d.driver_cancel_rate <= 5 ? "#4ade80" : d.driver_cancel_rate <= 10 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.driver_cancel_rate != null ? `${Math.round(Number(d.driver_cancel_rate))}%` : "—"}
                             </td>
-                            <td style={{ padding: "8px 12px", color: d.on_time_score != null ? (d.on_time_score >= 0.90 ? "#4ade80" : d.on_time_score >= 0.75 ? "#f59e0b" : "#f87171") : "#555" }}>
-                              {d.on_time_score != null ? `${Math.round(d.on_time_score * 100)}%` : "—"}
+                            <td style={{ padding: "8px 12px", color: d.on_time_score != null ? (d.on_time_score >= 90 ? "#4ade80" : d.on_time_score >= 75 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.on_time_score != null ? `${Math.round(Number(d.on_time_score))}%` : "—"}
                             </td>
-                            <td style={{ padding: "8px 12px", color: d.dispatch_response_score != null ? (d.dispatch_response_score >= 0.90 ? "#4ade80" : d.dispatch_response_score >= 0.75 ? "#f59e0b" : "#f87171") : "#555" }}>
-                              {d.dispatch_response_score != null ? `${Math.round(d.dispatch_response_score * 100)}%` : "—"}
+                            <td style={{ padding: "8px 12px", color: d.dispatch_response_score != null ? (d.dispatch_response_score >= 90 ? "#4ade80" : d.dispatch_response_score >= 75 ? "#f59e0b" : "#f87171") : "#555" }}>
+                              {d.dispatch_response_score != null ? `${Math.round(Number(d.dispatch_response_score))}%` : "—"}
                             </td>
                           </tr>
                         )
