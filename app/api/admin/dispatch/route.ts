@@ -551,6 +551,9 @@ export async function PATCH(req: NextRequest) {
       "not_required", "awaiting_source_owner", "awaiting_sln_member",
       "manual_dispatch_required", "needs_review", "needs_correction",
       "driver_rejected", "assigned", "expired", "cancelled",
+      // Bloque Maestro 2 & 3 — guardrail / fallback statuses
+      "reassignment_needed", "urgent_reassignment", "critical_driver_failure",
+      "offer_pending", "fallback_dispatched", "fallback_accepted",
     ];
 
     const VALID_STATUSES = [
