@@ -83,8 +83,8 @@ export async function GET() {
       SELECT
         b.id AS booking_id,
         b.status,
-        b.pickup_address,
-        b.dropoff_address,
+        b.pickup_location,
+        b.dropoff_location,
         b.pickup_at,
         b.cancelled_at,
         COALESCE(b.cancelled_by_type, 'system') AS cancelled_by_type,
@@ -111,18 +111,14 @@ export async function GET() {
         b.affects_payout,
         b.total_price,
         COALESCE(b.cancellation_fee, 0) AS cancellation_fee,
-        b.payout_status,
         -- Driver info
         d.driver_code AS assigned_driver_code,
         d.full_name AS assigned_driver_name,
         -- Client info
-        COALESCE(cl.full_name, b.client_name_override) AS client_name,
-        -- Source info
-        sd.driver_code AS source_driver_code
+        COALESCE(cl.full_name, b.client_name_override) AS client_name
       FROM bookings b
       LEFT JOIN drivers d ON d.id = b.assigned_driver_id
       LEFT JOIN clients cl ON cl.id = b.client_id
-      LEFT JOIN drivers sd ON sd.id = b.source_driver_id
       WHERE b.status = 'cancelled' OR b.cancelled_at IS NOT NULL
       ORDER BY COALESCE(b.cancelled_at, b.updated_at) DESC NULLS LAST
       LIMIT 50
