@@ -491,7 +491,9 @@ export async function GET(req: NextRequest) {
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
           AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show'))
           AND b.status IN ('offer_pending', 'accepted', 'assigned')
-          AND b.pickup_at > NOW()
+          -- UPCOMING: only rides with pickup_at BEYOND the 120-min operational window
+          -- Rides within 120min are handled by assigned_ride (operational controls)
+          AND b.pickup_at > NOW() + INTERVAL '120 minutes'
         ORDER BY b.pickup_at ASC
         LIMIT 10
       `;
