@@ -51,21 +51,36 @@ export async function GET(req: NextRequest) {
     errors.push(`❌ indexes: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Step 3: Add communication fields to bookings table
-  const bookingFields = [
-    { col: "client_communication_opt_in", type: "BOOLEAN DEFAULT TRUE" },
-    { col: "last_client_notification_at", type: "TIMESTAMPTZ" },
-    { col: "last_client_notification_type", type: "TEXT" },
-    { col: "pending_client_notification", type: "JSONB" },
-    { col: "communication_notes", type: "TEXT" },
-  ];
-  for (const f of bookingFields) {
-    try {
-      await sql.unsafe(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ${f.col} ${f.type}`);
-      steps.push(`✅ bookings.${f.col} added`);
-    } catch (e: unknown) {
-      errors.push(`❌ bookings.${f.col}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  // Step 3: Add communication fields to bookings table (explicit statements)
+  try {
+    await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS client_communication_opt_in BOOLEAN DEFAULT TRUE`;
+    steps.push("✅ bookings.client_communication_opt_in added");
+  } catch (e: unknown) {
+    errors.push(`❌ bookings.client_communication_opt_in: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  try {
+    await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS last_client_notification_at TIMESTAMPTZ`;
+    steps.push("✅ bookings.last_client_notification_at added");
+  } catch (e: unknown) {
+    errors.push(`❌ bookings.last_client_notification_at: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  try {
+    await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS last_client_notification_type TEXT`;
+    steps.push("✅ bookings.last_client_notification_type added");
+  } catch (e: unknown) {
+    errors.push(`❌ bookings.last_client_notification_type: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  try {
+    await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pending_client_notification JSONB`;
+    steps.push("✅ bookings.pending_client_notification added");
+  } catch (e: unknown) {
+    errors.push(`❌ bookings.pending_client_notification: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  try {
+    await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS communication_notes TEXT`;
+    steps.push("✅ bookings.communication_notes added");
+  } catch (e: unknown) {
+    errors.push(`❌ bookings.communication_notes: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // Step 4: Register BM7 events in dispatch_event_log (add new event types support)
