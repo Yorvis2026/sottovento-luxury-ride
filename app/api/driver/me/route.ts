@@ -284,19 +284,17 @@ export async function GET(req: NextRequest) {
             -- These statuses are always resumable regardless of pickup time
             status IN ('en_route', 'arrived', 'in_trip')
             OR
-            -- ACTIVE_WINDOW: accepted/assigned rides within a strict time window.
-            -- SLN PREMIUM RULE: minimum booking window is 2 hours.
-            -- 'accepted'/'assigned' rides enter assigned_ride only when within 2h of pickup.
-            -- Before that they stay in upcoming_rides (no operational controls).
+            -- ACTIVE_WINDOW: accepted/assigned rides within an extended time window.
             -- pickup_at IS NULL: rides without a scheduled time are always actionable.
-            -- pickup_at IS NOT NULL: rides within the 24h past to 120min future window.
+            -- pickup_at IS NOT NULL: rides within the 7-day past to 120min future window.
+            -- Extended to 7 days to handle rides accepted but not yet executed/completed.
             (
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at >= NOW() - INTERVAL '24 hours'
+                  pickup_at >= NOW() - INTERVAL '7 days'
                   AND pickup_at <= NOW() + INTERVAL '120 minutes'
                 )
               )
@@ -308,7 +306,7 @@ export async function GET(req: NextRequest) {
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at >= NOW() - INTERVAL '24 hours'
+                  pickup_at >= NOW() - INTERVAL '7 days'
                   AND pickup_at <= NOW() + INTERVAL '120 minutes'
                 )
               )
