@@ -288,21 +288,30 @@ export async function GET(req: NextRequest) {
             -- SLN PREMIUM RULE: minimum booking window is 2 hours.
             -- 'accepted'/'assigned' rides enter assigned_ride only when within 2h of pickup.
             -- Before that they stay in upcoming_rides (no operational controls).
-            -- pickup_at IS NULL is intentionally excluded here to avoid permanent ghost rides.
+            -- pickup_at IS NULL: rides without a scheduled time are always actionable.
+            -- pickup_at IS NOT NULL: rides within the 24h past to 120min future window.
             (
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
-              AND pickup_at IS NOT NULL
-              AND pickup_at >= NOW() - INTERVAL '24 hours'
-              AND pickup_at <= NOW() + INTERVAL '120 minutes'
+              AND (
+                pickup_at IS NULL
+                OR (
+                  pickup_at >= NOW() - INTERVAL '24 hours'
+                  AND pickup_at <= NOW() + INTERVAL '120 minutes'
+                )
+              )
             )
             OR
             (
               status = 'assigned'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
-              AND pickup_at IS NOT NULL
-              AND pickup_at >= NOW() - INTERVAL '24 hours'
-              AND pickup_at <= NOW() + INTERVAL '120 minutes'
+              AND (
+                pickup_at IS NULL
+                OR (
+                  pickup_at >= NOW() - INTERVAL '24 hours'
+                  AND pickup_at <= NOW() + INTERVAL '120 minutes'
+                )
+              )
             )
           )
         ORDER BY
