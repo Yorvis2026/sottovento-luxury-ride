@@ -19,7 +19,7 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
  *   - dispatch_response_score  (0.0–1.0)
  *   - reliability_updated_at   (timestamp of last DRS recalculation)
  *
- * Adds to partner_companies table:
+ * Adds to companies table:
  *   - partner_dispatch_mode    (CAPTURE_ONLY | SUBNETWORK_PRIORITY)
  *   - legal_affiliation_priority_enabled (BOOLEAN)
  *   - subnetwork_priority_enabled (BOOLEAN)
@@ -118,7 +118,7 @@ export async function GET() {
   // ── 2. Add BM5 columns to partner_companies ────────────────────────────────
   await run("Add partner_dispatch_mode to partner_companies", async () => {
     await sql`
-      ALTER TABLE partner_companies
+      ALTER TABLE companies
         ADD COLUMN IF NOT EXISTS partner_dispatch_mode TEXT
           DEFAULT 'CAPTURE_ONLY'
           CHECK (partner_dispatch_mode IN ('CAPTURE_ONLY','SUBNETWORK_PRIORITY'))
@@ -127,21 +127,21 @@ export async function GET() {
 
   await run("Add legal_affiliation_priority_enabled to partner_companies", async () => {
     await sql`
-      ALTER TABLE partner_companies
+      ALTER TABLE companies
         ADD COLUMN IF NOT EXISTS legal_affiliation_priority_enabled BOOLEAN DEFAULT FALSE
     `
   })
 
   await run("Add subnetwork_priority_enabled to partner_companies", async () => {
     await sql`
-      ALTER TABLE partner_companies
+      ALTER TABLE companies
         ADD COLUMN IF NOT EXISTS subnetwork_priority_enabled BOOLEAN DEFAULT FALSE
     `
   })
 
   await run("Add invited_by_admin to partner_companies", async () => {
     await sql`
-      ALTER TABLE partner_companies
+      ALTER TABLE companies
         ADD COLUMN IF NOT EXISTS invited_by_admin BOOLEAN DEFAULT TRUE
     `
   })
@@ -241,7 +241,7 @@ export async function GET() {
       COUNT(*) AS total_companies,
       COUNT(*) FILTER (WHERE partner_dispatch_mode = 'CAPTURE_ONLY') AS capture_only,
       COUNT(*) FILTER (WHERE partner_dispatch_mode = 'SUBNETWORK_PRIORITY') AS subnetwork_priority
-    FROM partner_companies
+    FROM companies
   `
 
   return NextResponse.json({

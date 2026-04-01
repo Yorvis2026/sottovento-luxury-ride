@@ -31,12 +31,12 @@ export async function PATCH(req: NextRequest) {
 
     // Check if partner_dispatch_mode column exists — if not, add it gracefully
     await sql`
-      ALTER TABLE partner_companies
+      ALTER TABLE companies
       ADD COLUMN IF NOT EXISTS partner_dispatch_mode TEXT DEFAULT 'CAPTURE_ONLY'
     `.catch(() => {});
 
     const [updated] = await sql`
-      UPDATE partner_companies
+      UPDATE companies
       SET
         partner_dispatch_mode = ${partner_dispatch_mode ?? "CAPTURE_ONLY"},
         updated_at = NOW()
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
         COALESCE(partner_dispatch_mode, 'CAPTURE_ONLY') AS partner_dispatch_mode,
         status,
         created_at
-      FROM partner_companies
+      FROM companies
       ORDER BY created_at DESC
     `;
 

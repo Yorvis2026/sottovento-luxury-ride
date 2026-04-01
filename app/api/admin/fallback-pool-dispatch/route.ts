@@ -47,7 +47,7 @@ async function getCandidateDrivers(booking: any, excludeIds: string[], limit: nu
       COALESCE(d.driver_tier, 'STANDARD')                          AS driver_tier,
       COALESCE(pc.partner_dispatch_mode, 'CAPTURE_ONLY')           AS company_partner_dispatch_mode
     FROM drivers d
-    LEFT JOIN partner_companies pc ON d.company_id = pc.id
+    LEFT JOIN companies pc ON d.company_id = pc.id
     WHERE d.driver_status = 'active'
       AND d.is_eligible = true
       AND (d.license_expires_at IS NULL OR d.license_expires_at > NOW())

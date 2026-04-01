@@ -89,7 +89,7 @@ export async function GET() {
       FROM bookings b
       LEFT JOIN clients c ON b.client_id = c.id
       LEFT JOIN drivers d ON b.assigned_driver_id = d.id
-      LEFT JOIN partner_companies pc ON d.company_id = pc.id
+      LEFT JOIN companies pc ON d.company_id = pc.id
       WHERE (
         b.status NOT IN ('cancelled', 'archived')
         OR (b.status = 'completed' AND b.updated_at > NOW() - INTERVAL '24 hours')
@@ -293,7 +293,7 @@ export async function GET() {
             pc.brand_name                                           AS company_brand_display_name,
             COALESCE(pc.partner_dispatch_mode, 'CAPTURE_ONLY')      AS company_partner_dispatch_mode
           FROM drivers d
-          LEFT JOIN partner_companies pc ON d.company_id = pc.id
+          LEFT JOIN companies pc ON d.company_id = pc.id
           WHERE d.driver_status IN ('active', 'provisional')
             AND d.is_eligible = true
         `;
