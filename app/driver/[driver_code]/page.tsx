@@ -1147,7 +1147,7 @@ export default function DriverDashboardByCode() {
         body: JSON.stringify({
           booking_id: summary.assigned_ride.booking_id,
           driver_code: summary.driver_code,
-          exit_reason: driverExitReason,
+          exit_reason: driverExitReason.toLowerCase(),
           exit_comment: driverExitComment || undefined,
         }),
       })
