@@ -257,13 +257,20 @@ export async function GET(req: NextRequest) {
           luggage,
           updated_at,
           captured_by_driver_code,
-          offer_expires_at
+          offer_expires_at,
+          driver_exit_reason,
+          driver_exit_comment,
+          driver_exit_at,
+          driver_exit_case,
+          at_risk_flagged_at
         FROM bookings
         WHERE assigned_driver_id = ${driver.id}::uuid
           -- Primary guard: exclude all finalized states by status
           AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
           AND (dispatch_status IS NULL OR dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show'))
+          -- Include driver_issue rides that are still assigned to this driver (for at_risk display)
+          -- These are NOT excluded by the status filter above
           AND (
             -- OFFER_PENDING: driver must accept/reject — ALWAYS shown regardless of time.
             -- CRITICAL FIX: dispatch_status='offer_pending' must be visible even for future rides.
@@ -428,6 +435,14 @@ export async function GET(req: NextRequest) {
           pickup_lng: r.pickup_lng ? Number(r.pickup_lng) : null,
           dropoff_lat: r.dropoff_lat ? Number(r.dropoff_lat) : null,
           dropoff_lng: r.dropoff_lng ? Number(r.dropoff_lng) : null,
+          // Driver exit fields
+          driver_exit_reason: r.driver_exit_reason ?? null,
+          driver_exit_comment: r.driver_exit_comment ?? null,
+          driver_exit_at: r.driver_exit_at ?? null,
+          driver_exit_case: r.driver_exit_case ?? null,
+          // At-risk guardrail
+          at_risk_flagged_at: r.at_risk_flagged_at ?? null,
+          is_at_risk: !!r.at_risk_flagged_at,
         };
       }
     } catch (assignErr: any) {

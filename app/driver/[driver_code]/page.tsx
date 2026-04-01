@@ -423,6 +423,11 @@ interface ActiveRide {
   pickup_lng?: number | null
   dropoff_lat?: number | null
   dropoff_lng?: number | null
+  // Bloque 1: Driver Exit / At-Risk fields
+  at_risk_flagged_at?: string | null
+  driver_exit_reason?: string | null
+  driver_exit_at?: string | null
+  driver_exit_case?: string | null
 }
 
 interface UpcomingRide {
@@ -660,9 +665,16 @@ export default function DriverDashboardByCode() {
   // ── New ride assignment alert modal ───────────────────────────
   const [showNewRideAlert, setShowNewRideAlert] = useState(false)
   const [newRideAlertData, setNewRideAlertData] = useState<{ pickup: string; dropoff: string; fare: number; pickup_time: string | null } | null>(null)
-  // ── Driver recovery actions ──────────────────────────────────
+  // ── Driver recovery actions ──────────────────────────────
   const [reporting, setReporting] = useState(false)
   const [reportResult, setReportResult] = useState<{ action: string; success: boolean } | null>(null)
+  // ── Driver Exit Modal (Bloque 1) ─────────────────────────
+  // Shown when driver taps "No puedo realizar este servicio"
+  const [showDriverExitModal, setShowDriverExitModal] = useState(false)
+  const [driverExitReason, setDriverExitReason] = useState<string>("")
+  const [driverExitComment, setDriverExitComment] = useState<string>("")
+  const [driverExitSubmitting, setDriverExitSubmitting] = useState(false)
+  const [driverExitResult, setDriverExitResult] = useState<{ success: boolean; case: string; new_status: string } | null>(null)
   // ── Upcoming ride detail expand ─────────────────────────────────
   const [expandedRideId, setExpandedRideId] = useState<string | null>(null)
   // ── Completed ride detail expand ─────────────────────────────────
@@ -1120,6 +1132,44 @@ export default function DriverDashboardByCode() {
       setTimeout(() => setAvailabilityError(null), 4000)
     }
     setAvailabilityToggling(false)
+  }
+
+  // ── Driver Exit: submit exit reason and call driver-exit endpoint ──────────
+  const submitDriverExit = async () => {
+    if (!summary?.assigned_ride || !driverExitReason || driverExitSubmitting) return
+    setDriverExitSubmitting(true)
+    setDriverExitResult(null)
+    try {
+      const res = await fetch('/api/driver/driver-exit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_id: summary.assigned_ride.booking_id,
+          driver_code: summary.driver_code,
+          reason: driverExitReason,
+          comment: driverExitComment || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setDriverExitResult({ success: false, case: 'error', new_status: data.error })
+      } else {
+        setDriverExitResult({ success: true, case: data.case ?? 'A', new_status: data.new_status ?? 'driver_issue' })
+        // Clear localStorage cache so driver doesn't re-enter this ride
+        try { localStorage.removeItem('sln_active_ride') } catch {}
+        // Reload after 2.5s to return to dashboard
+        setTimeout(() => {
+          setShowDriverExitModal(false)
+          setDriverExitReason('')
+          setDriverExitComment('')
+          setDriverExitResult(null)
+          loadData()
+        }, 2500)
+      }
+    } catch {
+      setDriverExitResult({ success: false, case: 'error', new_status: 'Network error. Try again.' })
+    }
+    setDriverExitSubmitting(false)
   }
 
   const respondOffer = async (response: "accepted" | "declined") => {
@@ -1974,8 +2024,117 @@ export default function DriverDashboardByCode() {
     )
   }
 
-  // ── CANCEL REASON MODAL ──────────────────────────────────────────────────────
-  if (showCancelModal) {
+   // ── DRIVER EXIT MODAL (Bloque 1) ──────────────────────────────────
+  if (showDriverExitModal && summary?.assigned_ride) {
+    const EXIT_REASONS = [
+      { key: "VEHICLE_BREAKDOWN",   label: lang === "es" ? "Falla mecánica del vehículo" : lang === "ht" ? "Machin kraze"              : "Vehicle Breakdown",        icon: "🔧" },
+      { key: "PERSONAL_EMERGENCY",  label: lang === "es" ? "Emergencia personal"         : lang === "ht" ? "Ijans pèsonèl"             : "Personal Emergency",       icon: "🚨" },
+      { key: "SAFETY_CONCERN",      label: lang === "es" ? "Preocupación de seguridad"   : lang === "ht" ? "Pwoblèm sekirite"           : "Safety Concern",           icon: "🛡️" },
+      { key: "WRONG_ASSIGNMENT",    label: lang === "es" ? "Asignación incorrecta"       : lang === "ht" ? "Asiyasyon mal"             : "Wrong Assignment",         icon: "📍" },
+      { key: "PASSENGER_ISSUE",     label: lang === "es" ? "Problema con el pasajero"    : lang === "ht" ? "Pwoblèm ak pasaje"          : "Passenger Issue",          icon: "👤" },
+      { key: "DISPATCH_INSTRUCTION",label: lang === "es" ? "Instrucción de despacho"     : lang === "ht" ? "Enstriksyon dispach"        : "Dispatch Instruction",     icon: "📻" },
+      { key: "OTHER",               label: lang === "es" ? "Otro motivo"                 : lang === "ht" ? "Lòt rezon"                  : "Other",                    icon: "💬" },
+    ]
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 px-6 z-[300]"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-orange-500/40 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+            <div className="text-2xl">⚠️</div>
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-orange-400">
+                {lang === "es" ? "No puedo realizar este servicio" : lang === "ht" ? "Mwen pa ka fè sèvis sa" : "Cannot Complete This Ride"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {lang === "es" ? "Selecciona el motivo para notificar al despacho" : lang === "ht" ? "Chwazi rezon pou notifye dispach" : "Select reason to notify dispatch"}
+              </div>
+            </div>
+            <button onClick={() => setShowDriverExitModal(false)}
+              className="text-zinc-500 hover:text-zinc-300 text-lg p-1">✕</button>
+          </div>
+          {/* Result state */}
+          {driverExitResult ? (
+            <div className="px-5 py-8 text-center">
+              {driverExitResult.success ? (
+                <>
+                  <div className="text-4xl mb-3">✅</div>
+                  <div className="text-sm font-semibold text-green-400 mb-1">
+                    {lang === "es" ? "Despacho notificado" : "Dispatch notified"}
+                  </div>
+                  <div className="text-xs text-zinc-400">
+                    {lang === "es" ? "Volviendo al panel..." : "Returning to dashboard..."}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-4xl mb-3">❌</div>
+                  <div className="text-sm font-semibold text-red-400 mb-1">
+                    {driverExitResult.new_status}
+                  </div>
+                  <button onClick={() => setDriverExitResult(null)}
+                    className="mt-3 text-xs text-zinc-400 underline">
+                    {lang === "es" ? "Intentar de nuevo" : "Try again"}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Reason selection */}
+              <div className="px-5 py-3 space-y-2 max-h-64 overflow-y-auto">
+                {EXIT_REASONS.map(r => (
+                  <button key={r.key}
+                    onClick={() => setDriverExitReason(r.key)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                      driverExitReason === r.key
+                        ? 'border-orange-500/60 bg-orange-500/10 text-orange-300'
+                        : 'border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:border-zinc-600'
+                    }`}>
+                    <span className="text-lg">{r.icon}</span>
+                    <span className="text-sm font-medium">{r.label}</span>
+                    {driverExitReason === r.key && <span className="ml-auto text-orange-400">✓</span>}
+                  </button>
+                ))}
+              </div>
+              {/* Optional comment */}
+              <div className="px-5 pb-3">
+                <textarea
+                  value={driverExitComment}
+                  onChange={e => setDriverExitComment(e.target.value)}
+                  placeholder={lang === "es" ? "Comentario adicional (opcional)" : "Additional comment (optional)"}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 resize-none h-16 focus:outline-none focus:border-orange-500/60"
+                />
+              </div>
+              {/* Actions */}
+              <div className="px-5 pb-5 space-y-2">
+                <button
+                  onClick={submitDriverExit}
+                  disabled={!driverExitReason || driverExitSubmitting}
+                  className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                    driverExitReason && !driverExitSubmitting
+                      ? 'bg-orange-500 text-black hover:bg-orange-400'
+                      : 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                  }`}>
+                  {driverExitSubmitting
+                    ? (lang === "es" ? "Enviando..." : "Sending...")
+                    : (lang === "es" ? "Notificar al despacho" : lang === "ht" ? "Notifye dispach" : "Notify Dispatch")}
+                </button>
+                <button
+                  onClick={() => { setShowDriverExitModal(false); setDriverExitReason(''); setDriverExitComment('') }}
+                  className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm transition-all active:scale-95">
+                  {lang === "es" ? "Cancelar" : "Cancel"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── CANCEL REASON MODAL ────────────────────────────────────────────
+  if (showCancelModal) {lModal) {
     const CANCEL_REASONS = [
       { key: "PASSENGER_NO_SHOW",  label: lang === "es" ? "Pasajero no se presentó"   : lang === "ht" ? "Pasaje pa parèt"        : "Passenger No-Show",      icon: "🚶" },
       { key: "PASSENGER_REQUESTED",label: lang === "es" ? "Pasajero solicitó cancelar" : lang === "ht" ? "Pasaje mande kanselasyon" : "Passenger Requested",    icon: "📞" },
@@ -2310,6 +2469,12 @@ export default function DriverDashboardByCode() {
         rideUpdatedByDispatch={rideUpdatedByDispatch}
         overdueSeconds={overdueSeconds}
         t={t}
+        onDriverExit={() => {
+          setDriverExitReason('')
+          setDriverExitComment('')
+          setDriverExitResult(null)
+          setShowDriverExitModal(true)
+        }}
       />
       )
     }
@@ -3336,7 +3501,7 @@ function OfferScreen({
 // RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, overdueSeconds, t,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, overdueSeconds, t, onDriverExit,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
@@ -3351,6 +3516,7 @@ function RideFlowScreen({
   rideUpdatedByDispatch: boolean
   overdueSeconds: number
   t: Record<string, string>
+  onDriverExit: () => void
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
   const theme = STATE_THEME[ride.status] ?? STATE_THEME.assigned
@@ -3547,12 +3713,14 @@ function RideFlowScreen({
                 style={{ backgroundColor: "#dc262620", color: "#ef4444", border: "1px solid #dc262640" }}>
                 <span>🔴</span>
                 <span className="font-bold">
-                  {lang === "es" ? "Retraso" : "Overdue"}{" "}
-                  {overdueSeconds >= 3600
-                    ? `${Math.floor(overdueSeconds/3600)}h ${Math.floor((overdueSeconds%3600)/60)}m`
+                  {/* DELAY FIX: >4h overdue = show coherent label, not absurd number */}
+                  {overdueSeconds > 4 * 3600
+                    ? (lang === "es" ? "Hora de recogida vencida" : lang === "ht" ? "Lè ranmase a pase" : "Pickup window expired")
+                    : overdueSeconds >= 3600
+                    ? `${lang === "es" ? "Retraso" : "Overdue"} ${Math.floor(overdueSeconds/3600)}h ${Math.floor((overdueSeconds%3600)/60)}m`
                     : overdueSeconds >= 60
-                    ? `${Math.floor(overdueSeconds/60)}m ${overdueSeconds%60}s`
-                    : `${overdueSeconds}s`}
+                    ? `${lang === "es" ? "Retraso" : "Overdue"} ${Math.floor(overdueSeconds/60)}m ${overdueSeconds%60}s`
+                    : `${lang === "es" ? "Retraso" : "Overdue"} ${overdueSeconds}s`}
                 </span>
               </div>
             )}
@@ -3832,6 +4000,39 @@ function RideFlowScreen({
                 className="w-full py-3 rounded-2xl border border-zinc-800 text-zinc-500 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
                 {t.noShow}
               </button>
+            )}
+
+            {/* ── SECONDARY: Cannot Complete This Ride (Bloque 1) ────────────────────────────── */}
+            {/* Visible for assigned / en_route / arrived states only */}
+            {(ride.status === "assigned" || ride.status === "accepted" || ride.status === "en_route" || ride.status === "arrived") && (
+              <button
+                onClick={onDriverExit}
+                disabled={transitioning}
+                className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                style={{ border: "1px solid #f97316", color: "#f97316", backgroundColor: "transparent" }}>
+                {lang === "es" ? "⚠️ No puedo realizar este servicio" : lang === "ht" ? "⚠️ Mwen pa ka fè sèvis sa" : "⚠️ Cannot Complete This Ride"}
+              </button>
+            )}
+
+            {/* ── AT-RISK BANNER (Bloque 1) ────────────────────────────────────────── */}
+            {/* Shown when dispatch has flagged this ride as at-risk */}
+            {ride.at_risk_flagged_at && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl animate-pulse"
+                style={{ backgroundColor: "#7c2d1220", border: "1px solid #f9731640" }}>
+                <span className="text-xl flex-shrink-0">🚨</span>
+                <div>
+                  <div className="text-sm font-semibold text-orange-400">
+                    {lang === "es" ? "Despacho en alerta" : lang === "ht" ? "Dispach an alèt" : "Dispatch Alert"}
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-0.5">
+                    {lang === "es"
+                      ? "El despacho está monitoreando este servicio. Confirma tu estado."
+                      : lang === "ht"
+                      ? "Dispach ap surveye sèvis sa. Konfime éta ou."
+                      : "Dispatch is monitoring this ride. Please confirm your status."}
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* ── Recovery actions: only visible when data is incomplete ── */}
