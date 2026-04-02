@@ -5,10 +5,10 @@
  * Adds flight autocomplete tracking fields to the bookings table.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
-
 export const dynamic = "force-dynamic";
+import { NextRequest, NextResponse } from "next/server";
+import { neon } from "@neondatabase/serverless";
+const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 export async function POST(req: NextRequest) {
   const adminKey = req.headers.get("x-admin-key");
