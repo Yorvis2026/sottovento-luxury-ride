@@ -12,7 +12,7 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 export async function POST(req: NextRequest) {
   const adminKey = req.headers.get("x-admin-key");
-  if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+  if (adminKey !== "sln-admin-2024") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
