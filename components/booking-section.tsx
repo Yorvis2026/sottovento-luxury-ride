@@ -20,6 +20,7 @@ import {
   type ExtraStop,
 } from "@/lib/pricing"
 import { PlacesAutocomplete, type PlaceResult } from "@/components/places-autocomplete"
+import { FlightAutocomplete, type FlightSelectionData } from "@/components/flight-autocomplete"
 import { RouteInfoDisplay } from "@/components/route-info-display"
 import { useGoogleMapsLoader } from "@/hooks/useGoogleMapsLoader"
 import { useZoneValidation } from "@/hooks/useZoneValidation"
@@ -156,6 +157,16 @@ function BookingInner() {
     luggage: "1-2 bags",
     flightNumber: "",
     notes: "",
+    // BM9 flight autocomplete tracking
+    flightSelectionMode: "manual" as "manual" | "suggested",
+    flightSuggestionProvider: "",
+    flightSuggestionSelectedAt: "",
+    flightCarrierName: "",
+    flightOriginAirport: "",
+    flightDestinationAirport: "",
+    flightScheduledArrivalAt: "",
+    flightEstimatedArrivalAt: "",
+    flightSuggestionTerminal: "",
     hoursRequested: "",
     eventDestination: "",
     returnLocation: "",
@@ -400,6 +411,16 @@ function BookingInner() {
         time: formData.time,
         flight_number: formData.flightNumber || "",
         notes: formData.notes || "",
+        // BM9 flight autocomplete tracking
+        flight_selection_mode: formData.flightSelectionMode || "manual",
+        flight_suggestion_provider: formData.flightSuggestionProvider || "",
+        flight_suggestion_selected_at: formData.flightSuggestionSelectedAt || "",
+        flight_carrier_name: formData.flightCarrierName || "",
+        flight_origin_airport: formData.flightOriginAirport || "",
+        flight_destination_airport: formData.flightDestinationAirport || "",
+        flight_scheduled_arrival_at: formData.flightScheduledArrivalAt || "",
+        flight_estimated_arrival_at: formData.flightEstimatedArrivalAt || "",
+        flight_suggestion_terminal: formData.flightSuggestionTerminal || "",
         trip_type: formData.tripType,
         // SLN Attribution (Step 10 — full rollout)
         ...attrMeta,
@@ -964,16 +985,36 @@ function BookingInner() {
                 </div>
               )}
 
-              {/* Flight number */}
+              {/* Flight number — BM9 Flight Suggestion Engine */}
               <div>
                 <label style={labelStyle}>✈ Flight Number (Optional)</label>
-                <input
-                  type="text"
+                <FlightAutocomplete
                   value={formData.flightNumber}
-                  onChange={(e) => setFormData({ ...formData, flightNumber: e.target.value })}
+                  onChange={(val) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      flightNumber: val,
+                      flightSelectionMode: "manual",
+                    }))
+                  }
+                  onSelect={(data: FlightSelectionData) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      flightNumber: data.flight_display,
+                      flightSelectionMode: "suggested",
+                      flightSuggestionProvider: data.provider,
+                      flightSuggestionSelectedAt: data.selected_at,
+                      flightCarrierName: data.carrier_name,
+                      flightOriginAirport: data.origin_airport,
+                      flightDestinationAirport: data.destination_airport,
+                      flightScheduledArrivalAt: data.scheduled_arrival_at ?? "",
+                      flightEstimatedArrivalAt: data.estimated_arrival_at ?? "",
+                      flightSuggestionTerminal: data.terminal_code ?? "",
+                    }))
+                  }}
+                  airportBias="MCO"
+                  date={formData.date || undefined}
                   placeholder="AA1234"
-                  className={inputClass}
-                  style={inputStyle}
                 />
               </div>
 

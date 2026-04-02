@@ -154,6 +154,9 @@ export async function POST(req: NextRequest) {
           source_tablet_id, source_campaign_id, source_metadata,
           pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
           route_distance_miles, route_duration_text,
+          flight_selection_mode, flight_suggestion_provider,
+          flight_carrier_name, flight_origin_airport,
+          flight_destination_airport, flight_suggestion_terminal,
           created_at, updated_at
         ) VALUES (
           'pending_payment', 'pending_payment', 'ready',
@@ -188,6 +191,12 @@ export async function POST(req: NextRequest) {
           ${metadata.dropoff_lng ? Number(metadata.dropoff_lng) : null},
           ${metadata.route_distance_miles ? Number(metadata.route_distance_miles) : null},
           ${metadata.route_duration_text ?? null},
+          ${metadata.flight_selection_mode ?? "manual"},
+          ${metadata.flight_suggestion_provider || null},
+          ${metadata.flight_carrier_name || null},
+          ${metadata.flight_origin_airport || null},
+          ${metadata.flight_destination_airport || null},
+          ${metadata.flight_suggestion_terminal || null},
           NOW(), NOW()
         )
         RETURNING id
