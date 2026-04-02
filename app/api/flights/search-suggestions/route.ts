@@ -239,8 +239,8 @@ async function searchAviationstack(
 // ── Main Handler ─────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const query = (searchParams.get("query") ?? "").trim();
-  const airportBias = (searchParams.get("airport_bias") ?? "MCO").toUpperCase();
+  const query = (searchParams.get("query") ?? searchParams.get("q") ?? "").trim();
+  const airportBias = (searchParams.get("airport_bias") ?? searchParams.get("airport") ?? "MCO").toUpperCase();
   const date = searchParams.get("date") ?? new Date().toISOString().split("T")[0];
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "10"), 20);
 
