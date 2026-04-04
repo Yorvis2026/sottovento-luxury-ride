@@ -166,6 +166,18 @@ export async function GET(req: NextRequest) {
 
       if (offerRows.length > 0) {
         const o = offerRows[0];
+        // [BM13_ACTIVE_OFFER_GUARD] Temporary audit log — pending offer found, OFFER SCREEN forced
+        console.log('[BM13_ACTIVE_OFFER_GUARD]', JSON.stringify({
+          booking_id: o.booking_id,
+          driver_id: driver.id,
+          offer_id: o.offer_id,
+          offer_found: true,
+          offer_response: 'pending',
+          offer_expired: false,
+          route: 'active_offer',
+          action: 'OFFER_SCREEN_FORCED',
+          ts: new Date().toISOString(),
+        }));
         // Fetch bookings_count for repeat client detection
         let bookings_count = 1;
         if (o.client_id) {
@@ -200,6 +212,14 @@ export async function GET(req: NextRequest) {
     }
 
     if (!active_offer) {
+      // [BM13_ACTIVE_OFFER_GUARD] No pending offer found — driver will see assigned_ride if available
+      console.log('[BM13_ACTIVE_OFFER_GUARD]', JSON.stringify({
+        driver_id: driver.id,
+        offer_found: false,
+        route: 'assigned_ride',
+        action: 'NO_PENDING_OFFER_ASSIGNED_RIDE_ALLOWED',
+        ts: new Date().toISOString(),
+      }));
       try {
         const fallbackRows = await sql`
           SELECT

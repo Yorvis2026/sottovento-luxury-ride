@@ -1340,7 +1340,12 @@ export default function AdminPanel() {
                            In both cases, show a locked indicator instead of the button. */}
                       {(() => {
                         const hasActivePendingOffer = b.dispatch_status === 'offer_pending'
-                        const isFullyAccepted = b.dispatch_state === 'ASSIGNED' && b.status === 'accepted'
+                        // BM13 Guard 4b: Broader closed-cycle detection (OR logic, matches server-side guard)
+                        // BM10 FU4 used AND logic (all 3 required). BM13 uses OR: any one is sufficient.
+                        const isFullyAccepted =
+                          b.dispatch_state === 'ASSIGNED' ||
+                          (b.status === 'accepted' && !!b.assigned_driver_id) ||
+                          (b.dispatch_status === 'assigned' && !!b.assigned_driver_id && b.dispatch_state !== 'ROUND_3_POOL_OPEN')
                         const canReassign = ["new", "needs_review", "ready_for_dispatch", "assigned", "driver_confirmed", "driver_issue"].includes(b.status)
                         if (!canReassign) return null
                         if (hasActivePendingOffer) {

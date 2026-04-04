@@ -136,13 +136,12 @@ export async function POST(req: NextRequest) {
       }, { status: 422 });
     }
 
-    // ── Guard 4: Block double reassignment (BM10 Follow-Up 4) ────
+    // ── BM13 Guard 4: Block double reassignment + mandatory acceptance enforcement ────
     // RULE: Cannot create a new offer if:
-    //   (a) There is already an active pending offer for this booking, OR
-    //   (b) The booking is in a fully accepted/locked state (dispatch_state=ASSIGNED)
-    //       and override_state is not explicitly set.
-    // This prevents the admin from accidentally creating two parallel active offers
-    // and prevents reassigning a ride that a driver has already accepted.
+    //   (a) There is already an active pending offer for this booking (Guard 4a), OR
+    //   (b) The booking is in a closed dispatch cycle (Guard 4b)
+    // This enforces the SLN principle: no ride can become operational without explicit
+    // driver acceptance via dispatch_offer.response = 'accepted'.
     const existingPendingOffers = await sql`
       SELECT id::text, driver_id::text, expires_at
       FROM dispatch_offers
@@ -152,31 +151,79 @@ export async function POST(req: NextRequest) {
       LIMIT 1
     `;
 
-    if (existingPendingOffers.length > 0 && !override_state) {
+    const pendingOfferExists = existingPendingOffers.length > 0;
+
+    // BM13 Guard 4a: Active pending offer exists — block new offer creation
+    if (pendingOfferExists && !override_state) {
       const existing = existingPendingOffers[0];
+      // [BM13_REASSIGN_GUARD] Temporary audit log
+      console.log('[BM13_REASSIGN_GUARD]', JSON.stringify({
+        booking_id,
+        pending_offer_exists: true,
+        existing_offer_id: existing.id,
+        cycle_closed: false,
+        blocked_reason: 'PENDING_OFFER_ACTIVE',
+        booking_status: booking.status,
+        dispatch_state: booking.dispatch_state,
+        dispatch_status: booking.dispatch_status,
+        ts: new Date().toISOString(),
+      }));
       return NextResponse.json({
         error: `Cannot reassign: booking already has an active pending offer (offer_id=${existing.id}). The driver has not yet responded. Wait for the offer to expire or use override_state=true to supersede it.`,
         existing_offer_id: existing.id,
         existing_offer_expires_at: existing.expires_at,
         booking_status: booking.status,
         dispatch_state: booking.dispatch_state,
+        blocked_reason: 'PENDING_OFFER_ACTIVE',
       }, { status: 409 });
     }
 
-    const isFullyAccepted =
-      booking.dispatch_state === 'ASSIGNED' &&
-      (booking.status === 'accepted' || booking.status === 'assigned') &&
-      booking.dispatch_status === 'assigned';
+    // BM13 Guard 4b: Closed dispatch cycle — broader detection than BM10 FU4
+    // BM10 FU4 required all 3 conditions simultaneously. BM13 uses OR logic:
+    //   - dispatch_state = 'ASSIGNED' (canonical post-acceptance state), OR
+    //   - status = 'accepted' AND assigned_driver_id is set (driver confirmed via any path), OR
+    //   - dispatch_status = 'assigned' AND assigned_driver_id is set (legacy path)
+    // Any of these alone is sufficient to indicate a closed cycle.
+    const isClosedCycle =
+      booking.dispatch_state === 'ASSIGNED' ||
+      (booking.status === 'accepted' && !!booking.assigned_driver_id) ||
+      (booking.dispatch_status === 'assigned' && !!booking.assigned_driver_id && booking.dispatch_state !== 'ROUND_3_POOL_OPEN');
 
-    if (isFullyAccepted && !override_state) {
-      return NextResponse.json({
-        error: `Cannot reassign: booking is fully accepted by a driver (dispatch_state=ASSIGNED, status=${booking.status}). The driver has already confirmed this ride. Use override_state=true to force a reassignment.`,
+    if (isClosedCycle && !override_state) {
+      // [BM13_REASSIGN_GUARD] Temporary audit log
+      console.log('[BM13_REASSIGN_GUARD]', JSON.stringify({
+        booking_id,
+        pending_offer_exists: pendingOfferExists,
+        cycle_closed: true,
+        blocked_reason: 'CLOSED_DISPATCH_CYCLE',
         booking_status: booking.status,
         dispatch_state: booking.dispatch_state,
         dispatch_status: booking.dispatch_status,
         assigned_driver_id: booking.assigned_driver_id,
+        ts: new Date().toISOString(),
+      }));
+      return NextResponse.json({
+        error: `Cannot reassign: booking is in a closed dispatch cycle. A driver has already accepted this ride (status=${booking.status}, dispatch_state=${booking.dispatch_state}). Use override_state=true to force a reassignment.`,
+        booking_status: booking.status,
+        dispatch_state: booking.dispatch_state,
+        dispatch_status: booking.dispatch_status,
+        assigned_driver_id: booking.assigned_driver_id,
+        blocked_reason: 'CLOSED_DISPATCH_CYCLE',
       }, { status: 409 });
     }
+
+    // [BM13_REASSIGN_GUARD] Guard passed — reassignment allowed
+    console.log('[BM13_REASSIGN_GUARD]', JSON.stringify({
+      booking_id,
+      pending_offer_exists: pendingOfferExists,
+      cycle_closed: isClosedCycle,
+      blocked_reason: null,
+      override_state,
+      booking_status: booking.status,
+      dispatch_state: booking.dispatch_state,
+      action: override_state ? 'OVERRIDE_ALLOWED' : 'REASSIGNMENT_ALLOWED',
+      ts: new Date().toISOString(),
+    }));
 
     // ── Resolve target driver ─────────────────────────────────
     let targetDriverId: string | null = driver_id ?? null;
