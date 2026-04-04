@@ -1789,6 +1789,7 @@ export default function AdminPanel() {
 
                 {/* ════════════════════════════════════════════════
                     BUCKET 4: ASSIGNED (purple)
+                    BM14: Split into OPERATIONAL vs MONITORING sub-sections
                 ════════════════════════════════════════════════ */}
                 <div id="bucket-assigned" style={{ ...S.card, marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -1796,11 +1797,26 @@ export default function AdminPanel() {
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>👤 Assigned</div>
                       <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Conductor asignado — esperando ejecución</div>
                     </div>
-                    <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.assigned?.length ?? 0}</span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {/* BM14: Show operational vs monitoring sub-counts */}
+                      {(dispatchData?.assigned_operational?.length ?? 0) > 0 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#f97316", background: "#ea580c20", border: "1px solid #ea580c40", padding: "2px 7px", borderRadius: 4 }}>
+                          ⚡ {dispatchData.assigned_operational.length} operativo{dispatchData.assigned_operational.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {(dispatchData?.assigned_monitoring?.length ?? 0) > 0 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", background: "#1f293720", border: "1px solid #37415140", padding: "2px 7px", borderRadius: 4 }}>
+                          👁 {dispatchData.assigned_monitoring.length} monitoreo
+                        </span>
+                      )}
+                      <span style={{ ...S.badge("#3b1f5e"), color: "#a78bfa" }}>{dispatchData?.assigned?.length ?? 0}</span>
+                    </div>
                   </div>
                   {!dispatchData?.assigned?.length ? (
                     <div style={{ color: "#555", fontSize: 13 }}>Sin bookings asignados actualmente</div>
                   ) : (dispatchData.assigned ?? []).map(b => {
+                    // BM14: dispatch_operational flag — false = monitoring only, true = still operational
+                    const isMonitoringOnly: boolean = (b as any).dispatch_operational === false;
                     const missingOptionalFields: string[] = (b as any).missing_optional ?? []
                     const hasMissingOptional: boolean = (b as any).missing_optional_info ?? missingOptionalFields.length > 0
                     const agingMs = b.updated_at ? Date.now() - new Date(b.updated_at).getTime() : Date.now() - new Date(b.created_at).getTime()
@@ -1902,8 +1918,16 @@ export default function AdminPanel() {
                             {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
                           </div>
                         )}
-                        {/* BM10 Follow-Up 5: locked_dispatch badge — dispatch cycle is CLOSED */}
-                        {(b as any).locked_dispatch && (
+                        {/* BM14: MONITORING-ONLY banner — dispatch cycle is CLOSED */}
+                        {isMonitoringOnly && (
+                          <div style={{ marginTop: 8, padding: "6px 12px", background: "#0a0a1a", border: "1px solid #37415150", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 12 }}>👁</span>
+                            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>SOLO MONITOREO — Ciclo de dispatch cerrado. No requiere acción operativa.</span>
+                            <span style={{ fontSize: 10, color: "#4b5563", fontFamily: "monospace" }}>{(b as any).dispatch_mode} · {(b as any).locked_reason}</span>
+                          </div>
+                        )}
+                        {/* BM10 Follow-Up 5: locked_dispatch badge — dispatch cycle is CLOSED (legacy, kept for non-monitoring rides) */}
+                        {(b as any).locked_dispatch && !isMonitoringOnly && (
                           <div style={{ marginTop: 8, padding: "6px 12px", background: "#0d2a0d", border: "1px solid #14532d50", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{ fontSize: 12 }}>🔒</span>
                             <span style={{ fontSize: 11, color: "#4ade8090", fontWeight: 600 }}>Ciclo de dispatch cerrado — conductor confirmó. Solo monitoreo.</span>

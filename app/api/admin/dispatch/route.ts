@@ -299,6 +299,9 @@ export async function GET(req: NextRequest) {
         ;(r as any).locked_reason = 'bm12_visibility_guard';
         ;(r as any).visibility_guard_applied = 'EXCLUDED_CLOSED_CYCLE';
         ;(r as any).admin_override_required = true;
+        // BM14: dispatch_operational=false — ride is in monitoring-only mode
+        ;(r as any).dispatch_operational = false;
+        ;(r as any).dispatch_mode = 'monitoring';
         assigned.push(r);
         continue;
       }
@@ -308,6 +311,9 @@ export async function GET(req: NextRequest) {
         ;(r as any).locked_dispatch = false;
         ;(r as any).admin_override_active = true;
         ;(r as any).visibility_guard_applied = 'OVERRIDE_ACTIVE';
+        // BM14: admin_override makes it temporarily operational again
+        ;(r as any).dispatch_operational = true;
+        ;(r as any).dispatch_mode = 'override_active';
       }
 
       if (hasDriverIssue) {
@@ -350,6 +356,9 @@ export async function GET(req: NextRequest) {
           r.dispatch_state === 'ASSIGNED' ? 'dispatch_state_assigned' :
           'dispatch_status_assigned'
         );
+        // BM14: dispatch_operational=false — ride is in monitoring-only mode
+        ;(r as any).dispatch_operational = false;
+        ;(r as any).dispatch_mode = 'monitoring';
         assigned.push(r);
       } else if (
         // offer_pending (any status or dispatch_state) → still in dispatch flow
@@ -766,11 +775,37 @@ export async function GET(req: NextRequest) {
       ...readyForDispatch,
     ];
 
+    // BM14: Tag all open-cycle rides with dispatch_operational=true
+    // Rides in driverIssue, needsReview, readyForDispatch are always operational (open cycle)
+    for (const r of [...driverIssue, ...needsReview, ...readyForDispatch]) {
+      if ((r as any).dispatch_operational === undefined) {
+        ;(r as any).dispatch_operational = true;
+        ;(r as any).dispatch_mode = 'operational';
+      }
+    }
+    // inProgress rides are live execution — not operational dispatch, not monitoring
+    for (const r of inProgress) {
+      if ((r as any).dispatch_operational === undefined) {
+        ;(r as any).dispatch_operational = false;
+        ;(r as any).dispatch_mode = 'live_execution';
+      }
+    }
+
+    // BM14: Split assigned bucket into two explicit sub-buckets
+    // assigned_operational: rides still in open dispatch cycle (offer_pending, reassignment_required)
+    // assigned_monitoring:  rides with closed dispatch cycle (driver accepted, locked)
+    const assignedOperational = assigned.filter((r: any) => (r as any).dispatch_operational !== false);
+    const assignedMonitoring  = assigned.filter((r: any) => (r as any).dispatch_operational === false);
+
     return NextResponse.json({
       driverIssue,
       needsReview,
       readyForDispatch,
+      // BM14: Keep 'assigned' for backward compatibility (full array)
       assigned,
+      // BM14: New explicit sub-buckets for frontend separation
+      assigned_operational: assignedOperational,
+      assigned_monitoring:  assignedMonitoring,
       inProgress,
       completed,
       recentlyCancelled,
@@ -781,18 +816,23 @@ export async function GET(req: NextRequest) {
         needsReview: needsReview.length,
         readyForDispatch: readyForDispatch.length,
         assigned: assigned.length,
+        // BM14: explicit sub-counts
+        assigned_operational: assignedOperational.length,
+        assigned_monitoring:  assignedMonitoring.length,
         inProgress: inProgress.length,
         completed: completed.length,
         recentlyCancelled: recentlyCancelled.length,
       },
-      // BM12: Dispatch Queue Visibility State Guard audit fields
+      // BM12 + BM14: Dispatch Queue Visibility State Guard audit fields
       dispatch_visibility_guard: {
         applied: true,
         admin_override_active: adminOverride,
         excluded_closed_cycle: guardExcludedCount,
         override_active_count: guardOverrideCount,
         dispatch_queue_open_count: dispatchQueueRides.length,
-        guard_version: 'BM12_v1',
+        assigned_operational_count: assignedOperational.length,
+        assigned_monitoring_count:  assignedMonitoring.length,
+        guard_version: 'BM14_v1',
         excluded_statuses: ['assigned', 'accepted', 'driver_confirmed', 'en_route', 'arrived', 'in_trip', 'completed', 'cancelled'],
         visible_dispatch_statuses: ['pending_dispatch', 'pool_offer', 'reassignment_required', 'offer_pending'],
       },
