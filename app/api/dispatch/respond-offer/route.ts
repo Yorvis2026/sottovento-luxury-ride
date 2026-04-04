@@ -237,8 +237,9 @@ export async function POST(req: NextRequest) {
       await sql`
         UPDATE bookings
         SET
+          status             = 'ready_for_dispatch',
           assigned_driver_id = NULL,
-          dispatch_status    = 'network_pool_pending',
+          dispatch_status    = 'reassignment_needed',
           updated_at         = NOW()
         WHERE id = ${booking.id}
       `;
@@ -303,15 +304,14 @@ export async function PUT(req: NextRequest) {
     `;
 
     // SLN: 15-min window expired — release booking to network pool.
-    // Clear assigned_driver_id and set dispatch_status='offer_pending' so:
-    // 1. The booking surfaces in the admin dispatch panel for reassignment.
-    // 2. Network drivers can see it in their panel.
-    // 3. The source driver's panel no longer shows this booking as an active offer.
+    // FIX: Reset status to 'ready_for_dispatch' and set dispatch_status to 'reassignment_needed'
+    // to ensure the booking returns to the pool and triggers the fallback engine.
     await sql`
       UPDATE bookings
       SET
+        status = 'ready_for_dispatch',
+        dispatch_status = 'reassignment_needed',
         assigned_driver_id = NULL,
-        dispatch_status = 'offer_pending',
         updated_at = NOW()
       WHERE id = ${offer.booking_id}::uuid
         AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
@@ -338,18 +338,20 @@ async function dispatchToNetwork(
   round: number,
   excludeDriverId?: string
 ): Promise<void> {
-  // ── Targeted fallback dispatch ─────────────────────────────
-  // 1. Find next eligible driver (excluding the one who just declined)
-  // 2. Create a new dispatch_offer for that driver
-  // 3. Update booking.dispatch_status = 'offer_pending'
-  // If no eligible driver found, release to pool for manual reassignment.
+  // ── BM10: Targeted next-driver dispatch ───────────────────
+  // 1. Collect all declined/timeout driver IDs for this booking
+  // 2. Select next eligible driver using BM5 priority ordering
+  // 3. Create a new dispatch_offer row
+  // 4. Update booking.dispatch_status = 'offer_pending'
+  //    SAFETY: Does NOT change booking.status
+  // If no eligible driver found → release to manual pool
   try {
-    // Load booking to get vehicle_type / service_type for eligibility filter
+    // Guard: skip terminal bookings
     const bookingRows = await sql`
       SELECT id, vehicle_type, service_type, service_location_type
       FROM bookings
       WHERE id = ${bookingId}::uuid
-        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
+        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       LIMIT 1
     `;
     const booking = bookingRows[0];
@@ -358,22 +360,25 @@ async function dispatchToNetwork(
       return;
     }
 
-    // Find all drivers who have already declined this booking in any round
+    // Collect all drivers who already declined or timed out for this booking
     const declinedRows = await sql`
-      SELECT DISTINCT driver_id FROM dispatch_offers
+      SELECT DISTINCT driver_id::text FROM dispatch_offers
       WHERE booking_id = ${bookingId}::uuid
         AND response IN ('declined', 'timeout')
     `;
     const declinedIds = declinedRows.map((r: any) => r.driver_id as string);
-    if (excludeDriverId) declinedIds.push(excludeDriverId);
+    if (excludeDriverId && !declinedIds.includes(excludeDriverId)) {
+      declinedIds.push(excludeDriverId);
+    }
 
-    // Find next eligible active driver not in declined list
-    // NOTE: service_types may be NULL for some drivers — treat NULL as universally eligible
-    // AVAILABILITY ENGINE: Only dispatch to drivers with availability_status = 'available'
-    // Drivers who are 'offline' or 'busy' (executing another ride) are excluded.
-    // COALESCE fallback: if column doesn't exist yet, treat all active drivers as available.
+    const excludeList = declinedIds.length > 0
+      ? declinedIds
+      : ['00000000-0000-0000-0000-000000000000'];
+
+    // BM5 priority ordering: SOTTOVENTO_LEGAL_FLEET > PARTNER_LEGAL_FLEET > GENERAL
+    // Within tier: reliability_score DESC
     const candidateRows = await sql`
-      SELECT id, driver_code, full_name
+      SELECT id::text, driver_code, full_name
       FROM drivers
       WHERE driver_status = 'active'
         AND is_eligible = true
@@ -381,21 +386,29 @@ async function dispatchToNetwork(
         AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
         AND COALESCE(availability_status, 'available') = 'available'
         AND id NOT IN (
-          SELECT unnest(${declinedIds.length > 0 ? declinedIds : ['00000000-0000-0000-0000-000000000000']}::uuid[])
+          SELECT unnest(${excludeList}::uuid[])
         )
-      ORDER BY created_at ASC
-      LIMIT 5
+      ORDER BY
+        CASE COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
+          WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
+          WHEN 'PARTNER_LEGAL_FLEET'    THEN 2
+          ELSE 3
+        END ASC,
+        COALESCE(reliability_score, 65) DESC,
+        created_at ASC
+      LIMIT 1
     `;
 
     if (candidateRows.length === 0) {
-      // No eligible drivers available — release to pool for manual reassignment
+      // No eligible drivers — release to manual pool
       await sql`
         UPDATE bookings
         SET
           assigned_driver_id = NULL,
-          dispatch_status = 'pending_dispatch',
-          updated_at = NOW()
+          dispatch_status    = 'pending_dispatch',
+          updated_at         = NOW()
         WHERE id = ${bookingId}::uuid
+          AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       `;
       console.log(`[dispatch] no_eligible_drivers — Booking ${bookingId} — released to manual pool`);
       return;
@@ -408,30 +421,33 @@ async function dispatchToNetwork(
     await sql`
       INSERT INTO dispatch_offers (
         booking_id, driver_id, response, offer_round,
-        is_source_offer, sent_at, expires_at, created_at
+        is_source_offer, is_fallback_offer, sent_at, expires_at, created_at
       ) VALUES (
         ${bookingId}::uuid,
         ${nextDriver.id}::uuid,
         'pending',
         ${round},
         false,
+        true,
         NOW(),
         ${expiresAt}::timestamptz,
         NOW()
       )
     `;
 
-    // Update booking: offer_pending for next driver
+    // Update booking: offer_pending — SAFETY: does NOT change booking.status
     await sql`
       UPDATE bookings
       SET
         assigned_driver_id = NULL,
-        dispatch_status = 'offer_pending',
-        updated_at = NOW()
+        dispatch_status    = 'offer_pending',
+        offer_expires_at   = ${expiresAt}::timestamptz,
+        updated_at         = NOW()
       WHERE id = ${bookingId}::uuid
+        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
     `;
 
-    console.log(`[dispatch] targeted_fallback — Booking ${bookingId} — Round ${round} — Driver ${nextDriver.driver_code}`);
+    console.log(`[dispatch] bm10_next_offer — Booking ${bookingId} — Round ${round} — Driver ${nextDriver.driver_code}`);
   } catch (err: any) {
     console.error(`[dispatch] dispatchToNetwork error — Booking ${bookingId}:`, err?.message);
     // Last resort: release to pool

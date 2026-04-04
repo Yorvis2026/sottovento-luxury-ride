@@ -173,8 +173,8 @@ export async function POST(req: NextRequest) {
         const updated = await sql`
           UPDATE bookings
           SET
-            status = 'new',
-            dispatch_status = 'ready_for_dispatch',
+            status = 'ready_for_dispatch',
+            dispatch_status = 'reassignment_needed',
             offer_status = 'pending',
             offer_stage = 'sln_member',
             offer_expires_at = ${offerExpiresAt}::timestamptz,

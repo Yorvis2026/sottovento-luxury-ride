@@ -170,10 +170,13 @@ export async function POST(req: NextRequest) {
 
     if (autoOffer || admin_override) {
       // Auto-assign the top candidate
+      // SLN Spec Fix: In rescue mode, we still set assigned_driver_id to block the ride
+      // but we ensure dispatch_status is set to 'offer_pending' so the driver panel
+      // shows the Accept/Decline screen instead of skipping it.
       await sql`
         UPDATE bookings SET
           assigned_driver_id              = ${topCandidate.id}::uuid,
-          dispatch_status                 = 'rescue_assignment_in_progress',
+          dispatch_status                 = 'offer_pending',
           sla_current_state               = 'rescue_assignment_in_progress',
           rescue_reassignment_completed_at = ${now}::timestamptz,
           updated_at                      = NOW()

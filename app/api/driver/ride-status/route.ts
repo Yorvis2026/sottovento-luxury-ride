@@ -127,10 +127,11 @@ export async function POST(req: NextRequest) {
     // Dynamic update using raw SQL with the correct column
     if (new_status === "accepted") {
       // Driver accepted the offer: transition from offer_pending → accepted
+      // SLN Spec Fix: dispatch_status should be 'assigned' when accepted
       await sql`
         UPDATE bookings
         SET status = 'accepted',
-            dispatch_status = 'accepted',
+            dispatch_status = 'assigned',
             updated_at = NOW()
         WHERE id = ${booking_id}::uuid
       `;

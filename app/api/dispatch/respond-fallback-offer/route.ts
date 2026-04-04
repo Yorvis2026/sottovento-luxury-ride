@@ -68,14 +68,31 @@ export async function POST(req: Request) {
     if (new Date(offer.expires_at) < new Date()) {
       await sql`
         UPDATE dispatch_offers
-        SET response = 'timeout', timeout_at = NOW()
+        SET response = 'timeout', responded_at = NOW()
         WHERE id = ${offer_id}::uuid
       `;
+
       await logEvent(bookingId, driverId, 'fallback_offer_timeout', {
         offer_id,
         driver_code,
         case: offer.fallback_case_level,
       });
+
+      // BM10: If this was the last pending fallback offer, immediately dispatch next driver
+      const pendingOffers = await sql`
+        SELECT COUNT(*) AS cnt FROM dispatch_offers
+        WHERE booking_id = ${bookingId}::uuid
+          AND response = 'pending'
+          AND is_fallback_offer = true
+          AND id != ${offer_id}::uuid
+      `;
+      const stillPending = parseInt(pendingOffers[0]?.cnt || '0');
+
+      if (stillPending === 0) {
+        // No more pending offers — immediately select and dispatch next driver
+        await dispatchNextDriver(bookingId, driverId, (offer.offer_round ?? 1) + 1);
+      }
+
       return NextResponse.json({ error: 'Offer has expired' }, { status: 410 });
     }
 
@@ -234,23 +251,8 @@ export async function POST(req: Request) {
       const stillPending = parseInt(pendingOffers[0]?.cnt || '0');
 
       if (stillPending === 0) {
-        // No more pending offers — trigger next round
-        // Re-check booking status
-        const bookingCheck = await sql`
-          SELECT dispatch_status FROM bookings
-          WHERE id = ${bookingId}::uuid
-            AND dispatch_status = 'offer_pending'
-          LIMIT 1
-        `;
-        if (bookingCheck.length > 0) {
-          // Restore to reassignment_needed for next guardrail cycle
-          await sql`
-            UPDATE bookings
-            SET dispatch_status = 'reassignment_needed', updated_at = NOW()
-            WHERE id = ${bookingId}::uuid
-              AND dispatch_status = 'offer_pending'
-          `;
-        }
+        // BM10: No more pending offers — immediately dispatch next driver
+        await dispatchNextDriver(bookingId, driverId, (offer.offer_round ?? 1) + 1);
       }
 
       return NextResponse.json({
@@ -265,5 +267,151 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error('[respond-fallback-offer] error:', err?.message);
     return NextResponse.json({ error: err?.message }, { status: 500 });
+  }
+}
+
+// ============================================================
+// BM10: dispatchNextDriver
+// Immediately selects the next eligible driver and creates a
+// new dispatch_offer after a fallback offer expires or is declined.
+//
+// SAFETY RULES:
+//   - Does NOT change booking.status
+//   - Does NOT override source_driver_id or captured_by_driver_id
+//   - Does NOT modify scoring engine
+//   - Excludes all drivers who already declined/timed out
+// ============================================================
+async function dispatchNextDriver(
+  bookingId: string,
+  previousDriverId: string | null,
+  nextRound: number
+): Promise<void> {
+  const OFFER_WINDOW_MINUTES = 30;
+
+  try {
+    // Guard: skip terminal bookings
+    const bookingRows = await sql`
+      SELECT id FROM bookings
+      WHERE id = ${bookingId}::uuid
+        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+      LIMIT 1
+    `;
+    if (bookingRows.length === 0) {
+      console.log(`[bm10-fallback] skipped terminal booking ${bookingId}`);
+      return;
+    }
+
+    // Collect all drivers who already declined or timed out
+    const declinedRows = await sql`
+      SELECT DISTINCT driver_id::text FROM dispatch_offers
+      WHERE booking_id = ${bookingId}::uuid
+        AND response IN ('declined', 'timeout')
+    `;
+    const declinedIds: string[] = declinedRows.map((r: any) => r.driver_id as string);
+    if (previousDriverId && !declinedIds.includes(previousDriverId)) {
+      declinedIds.push(previousDriverId);
+    }
+    const excludeList = declinedIds.length > 0
+      ? declinedIds
+      : ['00000000-0000-0000-0000-000000000000'];
+
+    // BM5 priority ordering
+    const candidates = await sql`
+      SELECT id::text, driver_code, full_name
+      FROM drivers
+      WHERE driver_status = 'active'
+        AND is_eligible = true
+        AND (license_expires_at IS NULL OR license_expires_at > NOW())
+        AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
+        AND COALESCE(availability_status, 'available') = 'available'
+        AND id NOT IN (
+          SELECT unnest(${excludeList}::uuid[])
+        )
+      ORDER BY
+        CASE COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
+          WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
+          WHEN 'PARTNER_LEGAL_FLEET'    THEN 2
+          ELSE 3
+        END ASC,
+        COALESCE(reliability_score, 65) DESC,
+        created_at ASC
+      LIMIT 1
+    `;
+
+    if (candidates.length === 0) {
+      // No drivers available — release to manual pool
+      await sql`
+        UPDATE bookings
+        SET
+          dispatch_status    = 'pending_dispatch',
+          assigned_driver_id = NULL,
+          updated_at         = NOW()
+        WHERE id = ${bookingId}::uuid
+          AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+      `;
+      await logEvent(bookingId, null, 'fallback_pool_exhausted', {
+        trigger: 'fallback_offer_timeout_or_decline',
+        round: nextRound,
+        result: 'no_eligible_drivers',
+      });
+      console.log(`[bm10-fallback] no_drivers — booking ${bookingId} released to manual pool`);
+      return;
+    }
+
+    const nextDriver = candidates[0];
+    const expiresAt = new Date(Date.now() + OFFER_WINDOW_MINUTES * 60 * 1000).toISOString();
+
+    // Create new dispatch_offer for next driver
+    await sql`
+      INSERT INTO dispatch_offers (
+        booking_id, driver_id, response, offer_round,
+        is_source_offer, is_fallback_offer,
+        sent_at, expires_at, created_at
+      ) VALUES (
+        ${bookingId}::uuid,
+        ${nextDriver.id}::uuid,
+        'pending',
+        ${nextRound},
+        false,
+        true,
+        NOW(),
+        ${expiresAt}::timestamptz,
+        NOW()
+      )
+    `;
+
+    // Update booking — SAFETY: does NOT change booking.status
+    await sql`
+      UPDATE bookings
+      SET
+        dispatch_status    = 'offer_pending',
+        assigned_driver_id = NULL,
+        offer_expires_at   = ${expiresAt}::timestamptz,
+        updated_at         = NOW()
+      WHERE id = ${bookingId}::uuid
+        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+    `;
+
+    await logEvent(bookingId, nextDriver.id, 'fallback_offer_sent', {
+      trigger:          'bm10_auto_next_driver',
+      next_driver_code: nextDriver.driver_code,
+      round:            nextRound,
+      expires_in_minutes: OFFER_WINDOW_MINUTES,
+    });
+
+    console.log(
+      `[bm10-fallback] ✓ next_offer_created — booking ${bookingId}` +
+      ` — Driver ${nextDriver.driver_code} — Round ${nextRound}`
+    );
+  } catch (err: any) {
+    console.error(`[bm10-fallback] dispatchNextDriver error — booking ${bookingId}:`, err?.message);
+    // Last resort: release to manual pool
+    try {
+      await sql`
+        UPDATE bookings
+        SET dispatch_status = 'pending_dispatch', assigned_driver_id = NULL, updated_at = NOW()
+        WHERE id = ${bookingId}::uuid
+      `;
+    } catch { /* ignore */ }
   }
 }

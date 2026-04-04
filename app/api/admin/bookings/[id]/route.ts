@@ -16,6 +16,8 @@ function inferDispatchStatus(bookingStatus: string): string {
     case "awaiting_payment":
     case "confirmed":
       return "awaiting_source_owner"
+    case "ready_for_dispatch":
+      return "reassignment_needed"
     case "accepted":
     case "assigned":
     case "in_service":
