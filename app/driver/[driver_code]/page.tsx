@@ -26,7 +26,15 @@ import { QRCodeSVG } from "qrcode.react"
 // ============================================================
 
 const GOLD = "#C8A96A"
-const POLL_INTERVAL = 5000
+// BUG A FIX: Reduced from 5000ms to 3000ms to improve real-time offer detection.
+// The previous 5s interval caused up to 5s delay before a new offer appeared.
+// 3s is a good balance between responsiveness and server load.
+const POLL_INTERVAL = 3000
+// BUG E FIX: Secondary poll interval for offer expiration detection.
+// The cron expire-driver-offers runs every ~30s. We poll at 20s to catch
+// expirations before the driver's countdown timer fires, ensuring the UI
+// reflects the server state without requiring a manual refresh.
+const EXPIRY_POLL_INTERVAL = 20000
 
 // ─── STATE THEME SYSTEM ───────────────────────────────────────
 const STATE_THEME: Record<string, { primary: string; bg: string; dot: string }> = {
@@ -1286,18 +1294,47 @@ export default function DriverDashboardByCode() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [loadData, driverCode])
-  // ── Heartbeat: trigger server-side cron every 60s while panel is visible ─
-  // Simulates Vercel Pro cron frequency on Hobby plan.
-  // Covers: offer expiry for drivers who closed the app / lost signal.
+  // ── Heartbeat: trigger server-side cron every 30s while panel is visible ─
+  // BUG E FIX: Reduced from 60s to 30s to match the cron expire-driver-offers cadence.
+  // This ensures that when an offer expires server-side, the UI reflects it within 30s
+  // without requiring a manual refresh. The EXPIRY_POLL_INTERVAL (20s) loadData call
+  // below will pick up the server state change.
   // Fire-and-forget — does NOT block render, does NOT affect UX.
   useEffect(() => {
     const heartbeat = setInterval(() => {
       if (document.visibilityState === 'visible') {
         fetch('/api/cron/expire-driver-offers', { method: 'GET' }).catch(() => {})
       }
-    }, 60000)
+    }, 30000)
     return () => clearInterval(heartbeat)
   }, [])
+  // ── BUG E FIX: Expiry sync poll — loadData every 20s to catch server-side expirations ──
+  // The main POLL_INTERVAL (3s) handles active offer detection.
+  // This secondary interval ensures that when the cron expires an offer server-side,
+  // the UI syncs within 20s even if the driver's countdown timer hasn't fired yet.
+  // This is the 'polling liviano' option specified in BM11 BUG E.
+  const expiryPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    // Only activate when driver has an active offer (no need to poll otherwise)
+    if (summary?.active_offer) {
+      expiryPollRef.current = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadData()
+        }
+      }, EXPIRY_POLL_INTERVAL)
+    } else {
+      if (expiryPollRef.current) {
+        clearInterval(expiryPollRef.current)
+        expiryPollRef.current = null
+      }
+    }
+    return () => {
+      if (expiryPollRef.current) {
+        clearInterval(expiryPollRef.current)
+        expiryPollRef.current = null
+      }
+    }
+  }, [summary?.active_offer, loadData])
   // ── Overdue live timer (Fase 3) ──────────────────────────────────────────
   // Starts a 1s interval when the assigned ride has pickup_at in the past.
   // Updates overdueSeconds every second so the RideFlowScreen shows live elapsed time.
@@ -1431,24 +1468,73 @@ export default function DriverDashboardByCode() {
   const respondOffer = async (response: "accepted" | "declined") => {
     if (!summary?.active_offer || responding) return
     setResponding(true)
+    // BUG C + D FIX: Optimistic local state update.
+    // Instead of waiting for the next poll cycle (up to 3s), we update the local
+    // summary state immediately after the API call succeeds.
+    // - Accept: clear active_offer, move offer data to assigned_ride optimistically.
+    // - Decline: clear active_offer, increment expired_offers_count.
+    // The subsequent loadData() call will reconcile with the server state.
+    const capturedOffer = summary.active_offer
     try {
       const res = await fetch("/api/dispatch/respond-offer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          offer_id: summary.active_offer.offer_id,
+          offer_id: capturedOffer.offer_id,
           driver_id: summary.driver_id,
           response,
         }),
       })
-       const data = await res.json()
+      const data = await res.json()
       if (response === "accepted" && !data.error) {
         // DEDUP GUARD: record accepted booking_id to block re-render of OfferScreen
-        if (summary.active_offer?.booking_id) {
-          lastAcceptedBookingIdRef.current = summary.active_offer.booking_id
+        if (capturedOffer.booking_id) {
+          lastAcceptedBookingIdRef.current = capturedOffer.booking_id
         }
+        // BUG C FIX: Optimistic accept — clear active_offer and move ride to assigned_ride.
+        // This makes the UI transition instant without waiting for the next poll.
+        setSummary((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            active_offer: null,
+            // Build a minimal assigned_ride from the offer data so the dashboard
+            // immediately shows the ride in the Upcoming tab.
+            assigned_ride: prev.assigned_ride ?? {
+              booking_id: capturedOffer.booking_id,
+              status: 'accepted',
+              dispatch_status: 'assigned',
+              pickup_location: capturedOffer.pickup_location,
+              dropoff_location: capturedOffer.dropoff_location,
+              pickup_datetime: capturedOffer.pickup_datetime,
+              vehicle_type: capturedOffer.vehicle_type,
+              total_price: capturedOffer.total_price,
+              ride_mode: 'upcoming',
+              client_name: capturedOffer.client_name ?? null,
+              updated_at: new Date().toISOString(),
+            } as any,
+          }
+        })
+        setShowOfferBanner(false)
+        setOfferAlertCount(0)
+        setShowOfferAlertModal(false)
         setRespondResult("accepted")
         setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 1500)
+      } else if (response === "declined") {
+        // BUG D FIX: Optimistic decline — clear active_offer and increment expired_offers_count.
+        setSummary((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            active_offer: null,
+            expired_offers_count: (prev.expired_offers_count ?? 0) + 1,
+          }
+        })
+        setShowOfferBanner(false)
+        setOfferAlertCount(0)
+        setShowOfferAlertModal(false)
+        setRespondResult(response)
+        setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
       } else {
         setRespondResult(response)
         setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
@@ -1479,12 +1565,41 @@ export default function DriverDashboardByCode() {
         if (isSuccess) {
           // DEDUP GUARD: record accepted booking_id to block re-render of OfferScreen
           lastAcceptedBookingIdRef.current = bookingId
+          // BUG C FIX: Optimistic accept for respondOfferDirect path.
+          // The assigned_ride is already in summary (it's the source of the offer_pending).
+          // We just need to update its status to 'accepted' and clear the offer_pending mode.
+          setSummary((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              assigned_ride: prev.assigned_ride ? {
+                ...prev.assigned_ride,
+                status: 'accepted',
+                dispatch_status: 'assigned',
+                ride_mode: 'upcoming',
+              } : prev.assigned_ride,
+            }
+          })
+          setShowOfferBanner(false)
+          setOfferAlertCount(0)
+          setShowOfferAlertModal(false)
           setRespondResult("accepted")
           // 2500ms delay: gives DB time to propagate dispatch_status='accepted'
           // before re-fetch. Prevents offer screen from re-appearing during transition.
           setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2500)
         } else if (res.status === 410) {
           // Offer expired and dispatched to network
+          // BUG D FIX: Optimistic expire — clear assigned_ride offer_pending mode.
+          setSummary((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              assigned_ride: null,
+              expired_offers_count: (prev.expired_offers_count ?? 0) + 1,
+            }
+          })
+          setShowOfferBanner(false)
+          setOfferAlertCount(0)
           setRespondResult("expired")
           setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2500)
         } else {
@@ -1495,6 +1610,19 @@ export default function DriverDashboardByCode() {
           loadData()
         }
       } else {
+        // BUG D FIX: Optimistic decline for respondOfferDirect path.
+        // Clear the offer_pending assigned_ride and increment expired_offers_count.
+        setSummary((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            assigned_ride: null,
+            expired_offers_count: (prev.expired_offers_count ?? 0) + 1,
+          }
+        })
+        setShowOfferBanner(false)
+        setOfferAlertCount(0)
+        setShowOfferAlertModal(false)
         setRespondResult(response)
         setTimeout(() => { setRespondResult(null); setResponding(false); loadData() }, 2000)
       }
@@ -1504,6 +1632,21 @@ export default function DriverDashboardByCode() {
   const handleOfferExpired = useCallback(async () => {
     if (respondResult) return
     setRespondResult("expired")
+    // BUG E FIX: Optimistic expiry — clear active_offer and increment expired_offers_count.
+    // When the driver's countdown timer fires (reaches 0), we immediately update the local
+    // state so the UI reflects the expiration without waiting for the next poll cycle.
+    // The server call below confirms the expiry server-side.
+    setSummary((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        active_offer: null,
+        expired_offers_count: (prev.expired_offers_count ?? 0) + 1,
+      }
+    })
+    setShowOfferBanner(false)
+    setOfferAlertCount(0)
+    setShowOfferAlertModal(false)
     // SLN: 15-min window expired — call the timeout endpoint to:
     // 1. Mark dispatch_offer.response = 'timeout'
     // 2. Release booking to network pool (clears assigned_driver_id, dispatch_status='offer_pending')
@@ -2911,9 +3054,20 @@ export default function DriverDashboardByCode() {
 
   // ════════════════════════════════════════════════════════════
   // PRIORITY 3: DASHBOARD (with tabs)
-  // ══════════════════════════════════════════════════════════════
-  const upcomingCount = summary.upcoming_rides?.length ?? 0
+  // ════════════════════════════════════════════════════════════
+  // BUG B FIX: upcomingCount must include the assigned_ride if it's in 'upcoming' mode.
+  // Previously, upcomingCount only counted summary.upcoming_rides[] (future rides >120min).
+  // If the assigned_ride was accepted/assigned and in 'upcoming' ride_mode, it was NOT
+  // counted in the badge, causing the Upcoming tab to show 0 even though a ride existed.
+  const assignedRideIsUpcoming = summary.assigned_ride?.ride_mode === 'upcoming' ||
+    (summary.assigned_ride?.status === 'accepted' && !['en_route','arrived','in_trip'].includes(summary.assigned_ride?.status ?? ''))
+  const upcomingCount = (summary.upcoming_rides?.length ?? 0) + (assignedRideIsUpcoming ? 1 : 0)
   const completedCount = summary.completed_rides?.length ?? 0
+  // BUG B FIX: activeOfferCount is the reactive badge for the Overview tab.
+  // It recalculates on every render from summary.active_offer (set by loadData).
+  // This ensures the badge updates immediately after accept/reject/expire without
+  // waiting for the next poll cycle.
+  const activeOfferCount = summary.active_offer ? 1 : 0
 
   return (
     <div className="min-h-screen bg-black text-white pb-8"
@@ -3168,7 +3322,12 @@ export default function DriverDashboardByCode() {
         }}
       >
         {([
-          { key: "overview",  label: "Overview",  badge: null },
+          // BUG B FIX: Show activeOfferCount badge on Overview tab.
+          // When a new offer arrives, the Overview tab now shows a badge (1) so the driver
+          // knows there's a pending offer even if they're on a different tab.
+          // The badge clears immediately when the offer is accepted/declined/expired
+          // because activeOfferCount is derived from summary.active_offer (reactive).
+          { key: "overview",  label: "Overview",  badge: activeOfferCount > 0 ? activeOfferCount : null },
           { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
           { key: "completed", label: lang === "es" ? "Completados" : "Completed", badge: null },
           // BUG C FIX: Show expired_offers_count in the Cancelled tab badge.
