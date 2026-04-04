@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless"
 import { Resend } from "resend"
 
 const sql = neon(process.env.DATABASE_URL!)
-const resend = new Resend(process.env.RESEND_API_KEY)
+function getResend() { return new Resend(process.env.RESEND_API_KEY || 're_placeholder_build_only') }
 
 const ADMIN_EMAIL = "contact@sottoventoluxuryride.com"
 const FROM_EMAIL  = "SLN System <bookings@sottoventoluxuryride.com>"
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
       // Notify admin
       try {
-        await resend.emails.send({
+        await getResend().emails.send({
           from: FROM_EMAIL,
           to: ADMIN_EMAIL,
           subject: `⚠️ Ride Returned to Dispatch — Booking #${bookingRef}`,
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
 
       // Notify admin
       try {
-        await resend.emails.send({
+        await getResend().emails.send({
           from: FROM_EMAIL,
           to: ADMIN_EMAIL,
           subject: `🚨 Incomplete Booking Data Reported — #${bookingRef}`,
@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
 
       // Notify admin
       try {
-        await resend.emails.send({
+        await getResend().emails.send({
           from: FROM_EMAIL,
           to: ADMIN_EMAIL,
           subject: `✏️ Booking Correction Requested — #${bookingRef}`,
@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
 
       // Notify admin
       try {
-        await resend.emails.send({
+        await getResend().emails.send({
           from: FROM_EMAIL,
           to: ADMIN_EMAIL,
           subject: `🚫 Ride Rejected by Driver — Incomplete Data — #${bookingRef}`,

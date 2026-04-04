@@ -2,7 +2,10 @@ export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server"
 import { Resend } from "resend"
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy initialization — avoids build-time failure when RESEND_API_KEY is not set
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY || 're_placeholder_build_only')
+}
 
 /**
  * POST /api/admin/test-email
@@ -29,6 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Test 1: Send to the exact "to" address
+  const resend = getResend()
   try {
     const result = await resend.emails.send({
       from: "SLN Test <bookings@sottoventoluxuryride.com>",
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
 
   // Test 2: Try with onboarding@resend.dev as fallback (always works)
   try {
-    const fallbackResult = await resend.emails.send({
+    const fallbackResult = await getResend().emails.send({
       from: "onboarding@resend.dev",
       to,
       subject: `[SLN FALLBACK TEST] ${new Date().toISOString()}`,

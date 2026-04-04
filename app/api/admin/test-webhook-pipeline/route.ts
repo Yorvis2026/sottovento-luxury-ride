@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless"
 import { Resend } from "resend"
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
-const resend = new Resend(process.env.RESEND_API_KEY)
+function getResend() { return new Resend(process.env.RESEND_API_KEY || 're_placeholder_build_only') }
 
 /**
  * POST /api/admin/test-webhook-pipeline
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     // Send admin email
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "SLN System <bookings@sottoventoluxuryride.com>",
         to: "contact@sottoventoluxuryride.com",
         subject: `TEST PIPELINE — Booking #${booking_id.slice(0, 8).toUpperCase()} | ${dispatchStatus}`,
