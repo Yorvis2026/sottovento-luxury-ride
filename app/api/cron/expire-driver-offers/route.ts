@@ -302,6 +302,12 @@ export async function GET(request: Request) {
       WHERE dof.response = 'pending'
         AND dof.expires_at IS NOT NULL
         AND dof.expires_at < NOW()
+        -- FIX D (BM10 follow-up): Guard against historical contamination.
+        -- Only process offers created in the last 7 days to prevent old/orphaned
+        -- dispatch_offers from triggering reassignment chains on archived bookings.
+        AND dof.created_at > NOW() - INTERVAL '7 days'
+        -- Guard at booking level: skip terminal-state bookings upfront
+        AND b.status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'in_trip', 'en_route', 'arrived', 'accepted')
       ORDER BY dof.expires_at ASC
     `;
 

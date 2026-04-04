@@ -217,21 +217,24 @@ export async function GET() {
       } else if (s === "in_progress" || ["en_route", "arrived", "in_trip"].includes(s)) {
         inProgress.push(r);
       } else if (
-        // BM10 MASTER BLOCK — ASSIGNED is valid ONLY if there is a real accepted dispatch_offer.
-        // dispatch_state = ASSIGNED means a driver actually accepted.
-        // dispatch_state = ROUND_* or offer_pending without real acceptance → readyForDispatch.
+        // BM10 FIX B: ASSIGNED bucket requires driver actually accepted the offer.
+        // Guard: if dispatch_status='offer_pending', the offer is still awaiting response —
+        // the booking must appear in readyForDispatch so the admin can see it is in-flight.
+        // Only push to assigned when dispatch_status is NOT offer_pending.
         (s === "assigned" || s === "driver_confirmed" || s === "accepted") &&
+        r.dispatch_status !== "offer_pending" &&
         (r.dispatch_state === "ASSIGNED" || r.dispatch_state === "IN_PROGRESS" || !r.dispatch_state || r.dispatch_state === "NEW")
       ) {
         assigned.push(r);
       } else if (
-        // offer_pending with a real dispatch_state of ROUND_* → still in dispatch flow
+        // offer_pending (any status or dispatch_state) → still in dispatch flow
         s === "offer_pending" ||
+        r.dispatch_status === "offer_pending" ||
         r.dispatch_state === "ROUND_1_CAPTOR_PRIORITY" ||
         r.dispatch_state === "ROUND_2_PREMIUM_PRIORITY" ||
         r.dispatch_state === "ROUND_3_POOL_OPEN"
       ) {
-        // These are actively being dispatched — show in readyForDispatch with dispatch_state context
+        // Actively being dispatched — show in readyForDispatch with dispatch_state context
         readyForDispatch.push(r);
       } else if (
         // ADMIN_ATTENTION_REQUIRED → driver issue bucket for immediate visibility

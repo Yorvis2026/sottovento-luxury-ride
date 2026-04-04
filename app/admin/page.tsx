@@ -690,15 +690,20 @@ export default function AdminPanel() {
   const handleAssignDriver = async (bookingId: string, driverId: string) => {
     setAssigningDriver(true); setAssignMsg("")
     try {
-      const res = await fetch(`/api/admin/bookings/${bookingId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "assigned", dispatch_status: "assigned", assigned_driver_id: driverId })
+      // FIX A (BM10 follow-up): Use /api/admin/manual-reassign instead of PATCH /api/admin/bookings/{id}.
+      // Root cause: PATCH bookings only updates DB columns — it does NOT create a dispatch_offer row
+      // and does NOT make the offer visible on the driver panel. The driver never receives an alert.
+      // manual-reassign creates the dispatch_offer, sets dispatch_status='offer_pending', and
+      // logs the event so the driver panel polling (every 5s) picks it up immediately.
+      const res = await fetch("/api/admin/manual-reassign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+        body: JSON.stringify({ booking_id: bookingId, driver_id: driverId, override_state: true })
       })
       const data = await res.json()
-      if (res.ok) {
-        setAssignMsg("✅ Driver assigned successfully")
-        setTimeout(() => { setAssignModal(null); setAssignMsg("") }, 1200)
+      if (res.ok && data.success) {
+        setAssignMsg(`✅ Offer sent to ${data.target_driver?.driver_code ?? "driver"} — awaiting acceptance`)
+        setTimeout(() => { setAssignModal(null); setAssignMsg("") }, 1800)
         loadBookings(); loadDispatch(); loadDashboard()
       } else {
         setAssignMsg(`❌ Error: ${data.error ?? "Unknown error"}`)

@@ -785,6 +785,51 @@ export async function GET(req: NextRequest) {
       cancelled_rides_count = cancelled_rides.length;
     } catch { /* non-blocking */ }
 
+    // ── FIX C (BM10 follow-up): Load expired/declined offers from driver_offer_history ──
+    // Exposed in driver panel analytics so drivers can see missed opportunities.
+    let expired_offers: any[] = [];
+    let expired_offers_count = 0;
+    try {
+      const expiredRows = await sql`
+        SELECT
+          doh.booking_id::text,
+          doh.round_number,
+          doh.offer_status,
+          doh.sent_at,
+          doh.responded_at,
+          doh.notes,
+          doh.created_at,
+          b.pickup_address,
+          b.dropoff_address,
+          b.pickup_zone,
+          b.dropoff_zone,
+          b.pickup_at,
+          b.vehicle_type,
+          b.total_price
+        FROM driver_offer_history doh
+        LEFT JOIN bookings b ON b.id = doh.booking_id
+        WHERE doh.driver_id = ${driver.id}::uuid
+          AND doh.offer_status IN ('offer_expired', 'offer_declined')
+        ORDER BY doh.created_at DESC
+        LIMIT 20
+      `;
+      expired_offers = expiredRows.map((r: any) => ({
+        booking_id: r.booking_id,
+        round_number: r.round_number ?? 1,
+        offer_status: r.offer_status,
+        sent_at: r.sent_at ?? null,
+        responded_at: r.responded_at ?? null,
+        notes: r.notes ?? null,
+        created_at: r.created_at,
+        pickup_location: r.pickup_address ?? (r.pickup_zone ? `Zone: ${r.pickup_zone}` : 'TBD'),
+        dropoff_location: r.dropoff_address ?? (r.dropoff_zone ? `Zone: ${r.dropoff_zone}` : 'TBD'),
+        pickup_datetime: r.pickup_at ?? null,
+        vehicle_type: r.vehicle_type ?? 'Sedan',
+        total_price: Number(r.total_price ?? 0),
+      }));
+      expired_offers_count = expired_offers.length;
+    } catch { /* non-blocking — driver_offer_history may not exist on older deployments */ }
+
     return NextResponse.json({
       driver: {
         ...driver,
@@ -794,12 +839,14 @@ export async function GET(req: NextRequest) {
           lifetime_earnings,
           month_earnings,
           pending_offers: Number(pendingOffers?.count ?? 0),
+          expired_offers_count,
         },
         active_offer,
         assigned_ride,
         upcoming_rides,
         completed_rides,
         cancelled_rides,
+        expired_offers,
         fallback_offer,
       },
     });
