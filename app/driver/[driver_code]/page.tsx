@@ -772,6 +772,13 @@ export default function DriverDashboardByCode() {
   const [driverExitComment, setDriverExitComment] = useState<string>("")
   const [driverExitSubmitting, setDriverExitSubmitting] = useState(false)
   const [driverExitResult, setDriverExitResult] = useState<{ success: boolean; case: string; new_status: string } | null>(null)
+  // ── BM11: Release Ride Modal (Driver Post-Accept Release Flow) ───────────
+  // Shown when driver taps "No puedo realizar este viaje" (pre-execution only)
+  // Separate from driver-exit: this is a clean release, not an incident report.
+  const [showReleaseRideModal, setShowReleaseRideModal] = useState(false)
+  const [releaseRideReason, setReleaseRideReason] = useState<string>("")
+  const [releaseRideSubmitting, setReleaseRideSubmitting] = useState(false)
+  const [releaseRideResult, setReleaseRideResult] = useState<{ success: boolean; admin_alert: string | null; message: string } | null>(null)
     // ── BM6: SLA Protection state ─────────────────────
   const [sendingImOnMyWay, setSendingImOnMyWay] = useState(false)
   const [imOnMyWaySent, setImOnMyWaySent] = useState(false)
@@ -1463,6 +1470,60 @@ export default function DriverDashboardByCode() {
       setDriverExitResult({ success: false, case: 'error', new_status: 'Network error. Try again.' })
     }
     setDriverExitSubmitting(false)
+  }
+
+  // ── BM11: Submit Release Ride ────────────────────────────────────────
+  // Calls POST /api/driver/release-ride with booking_id, driver_id, reason.
+  // On success: optimistically clears assigned_ride from local state.
+  const submitReleaseRide = async () => {
+    if (!summary?.assigned_ride || !summary?.driver_id || !releaseRideReason || releaseRideSubmitting) return
+    setReleaseRideSubmitting(true)
+    setReleaseRideResult(null)
+    try {
+      const res = await fetch('/api/driver/release-ride', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_id: summary.assigned_ride.booking_id,
+          driver_id: summary.driver_id,
+          reason: releaseRideReason,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        // CASO C: live execution block — show incident report button
+        if (data.blocked_reason === 'live_execution') {
+          setReleaseRideResult({
+            success: false,
+            admin_alert: null,
+            message: lang === 'es'
+              ? 'El viaje ya está en ejecución. Usa “Reportar incidencia”.'
+              : 'Ride is in live execution. Use “Report Incident” instead.',
+          })
+        } else {
+          setReleaseRideResult({ success: false, admin_alert: null, message: data.error })
+        }
+      } else {
+        setReleaseRideResult({
+          success: true,
+          admin_alert: data.admin_alert ?? null,
+          message: data.message ?? 'Ride released.',
+        })
+        // BM11: Optimistic update — clear assigned_ride immediately
+        setSummary(prev => prev ? { ...prev, assigned_ride: null } : prev)
+        try { localStorage.removeItem('sln_active_ride') } catch {}
+        // Reload after 2.5s to return to clean dashboard
+        setTimeout(() => {
+          setShowReleaseRideModal(false)
+          setReleaseRideReason('')
+          setReleaseRideResult(null)
+          loadData()
+        }, 2500)
+      }
+    } catch {
+      setReleaseRideResult({ success: false, admin_alert: null, message: 'Network error. Try again.' })
+    }
+    setReleaseRideSubmitting(false)
   }
 
   const respondOffer = async (response: "accepted" | "declined") => {
@@ -2596,7 +2657,145 @@ export default function DriverDashboardByCode() {
     )
   }
 
-   // ── DRIVER EXIT MODAL (Bloque 1) ──────────────────────────────────
+     // ── BM11: RELEASE RIDE MODAL (Driver Post-Accept Release Flow) ──────────────
+  // Pre-execution only: driver releases ride before en_route/arrived/in_trip.
+  // Shows confirm modal with reason selection and HIGH_PRIORITY alert if pickup < 60min.
+  if (showReleaseRideModal && summary?.assigned_ride) {
+    const RELEASE_REASONS = [
+      { key: 'cannot_make_it',      label: lang === 'es' ? 'No puedo llegar a tiempo'     : 'Cannot arrive on time',       icon: '⏰' },
+      { key: 'accepted_by_mistake', label: lang === 'es' ? 'Acepté por error'              : 'Accepted by mistake',          icon: '📍' },
+      { key: 'vehicle_issue',       label: lang === 'es' ? 'Problema con el vehículo'     : 'Vehicle issue',                icon: '🔧' },
+      { key: 'personal_emergency',  label: lang === 'es' ? 'Emergencia personal'           : 'Personal emergency',           icon: '🚨' },
+      { key: 'other',               label: lang === 'es' ? 'Otro motivo'                   : 'Other reason',                 icon: '💬' },
+    ]
+    const rideStatus = summary.assigned_ride.status ?? ''
+    const isLiveExecution = ['en_route', 'arrived', 'in_trip'].includes(rideStatus)
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/95 px-6 z-[300]"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-red-500/40 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+            <div className="text-2xl">🚫</div>
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-red-400">
+                {lang === 'es' ? 'No puedo realizar este viaje' : 'Cannot Complete This Ride'}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {isLiveExecution
+                  ? (lang === 'es' ? 'El viaje ya está en ejecución' : 'Ride is already in execution')
+                  : (lang === 'es' ? 'El viaje será reasignado a otro conductor' : 'This ride will be reassigned to another driver')}
+              </div>
+            </div>
+            <button onClick={() => { setShowReleaseRideModal(false); setReleaseRideReason(''); setReleaseRideResult(null) }}
+              className="text-zinc-500 hover:text-zinc-300 text-lg p-1">✕</button>
+          </div>
+          {/* Result state */}
+          {releaseRideResult ? (
+            <div className="px-5 py-8 text-center">
+              {releaseRideResult.success ? (
+                <>
+                  <div className="text-4xl mb-3">✅</div>
+                  <div className="text-sm font-semibold text-green-400 mb-1">
+                    {lang === 'es' ? 'Viaje liberado' : 'Ride released'}
+                  </div>
+                  {releaseRideResult.admin_alert === 'HIGH_PRIORITY' && (
+                    <div className="text-xs text-red-400 mb-2">
+                      {lang === 'es' ? '⚠️ Alerta de alta prioridad enviada al despacho' : '⚠️ High priority alert sent to dispatch'}
+                    </div>
+                  )}
+                  <div className="text-xs text-zinc-400">
+                    {lang === 'es' ? 'Volviendo al panel...' : 'Returning to dashboard...'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-4xl mb-3">❌</div>
+                  <div className="text-sm font-semibold text-red-400 mb-2">{releaseRideResult.message}</div>
+                  {/* CASO C: live execution — show incident report button */}
+                  {releaseRideResult.message?.includes('ejecución') || releaseRideResult.message?.includes('execution') ? (
+                    <button
+                      onClick={() => { setShowReleaseRideModal(false); setReleaseRideReason(''); setReleaseRideResult(null); setShowDriverExitModal(true) }}
+                      className="mt-2 w-full py-3 rounded-xl text-sm font-bold bg-orange-500 text-black">
+                      {lang === 'es' ? '⚠️ Reportar incidencia' : '⚠️ Report Incident'}
+                    </button>
+                  ) : (
+                    <button onClick={() => setReleaseRideResult(null)}
+                      className="mt-3 text-xs text-zinc-400 underline">
+                      {lang === 'es' ? 'Intentar de nuevo' : 'Try again'}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          ) : isLiveExecution ? (
+            /* CASO C: ride is in live execution — block release, show incident report */
+            <div className="px-5 py-6 text-center">
+              <div className="text-4xl mb-3">🔒</div>
+              <div className="text-sm font-semibold text-orange-400 mb-2">
+                {lang === 'es' ? 'Liberación bloqueada' : 'Release blocked'}
+              </div>
+              <div className="text-xs text-zinc-400 mb-4">
+                {lang === 'es'
+                  ? 'El viaje ya está en ejecución. No puedes liberarlo en este estado. Usa “Reportar incidencia” para notificar al despacho.'
+                  : 'The ride is already in live execution. Use “Report Incident” to notify dispatch.'}
+              </div>
+              <button
+                onClick={() => { setShowReleaseRideModal(false); setReleaseRideReason(''); setShowDriverExitModal(true) }}
+                className="w-full py-3.5 rounded-xl text-sm font-bold bg-orange-500 text-black">
+                {lang === 'es' ? '⚠️ Reportar incidencia' : '⚠️ Report Incident'}
+              </button>
+              <button
+                onClick={() => { setShowReleaseRideModal(false); setReleaseRideReason('') }}
+                className="mt-2 w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm">
+                {lang === 'es' ? 'Cancelar' : 'Cancel'}
+              </button>
+            </div>
+          ) : (
+            /* Pre-execution: show reason selection + confirm */
+            <>
+              <div className="px-5 py-3 space-y-2">
+                {RELEASE_REASONS.map(r => (
+                  <button key={r.key}
+                    onClick={() => setReleaseRideReason(r.key)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                      releaseRideReason === r.key
+                        ? 'border-red-500/60 bg-red-500/10 text-red-300'
+                        : 'border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:border-zinc-600'
+                    }`}>
+                    <span className="text-lg">{r.icon}</span>
+                    <span className="text-sm font-medium">{r.label}</span>
+                    {releaseRideReason === r.key && <span className="ml-auto text-red-400">✓</span>}
+                  </button>
+                ))}
+              </div>
+              <div className="px-5 pb-5 space-y-2">
+                <button
+                  onClick={submitReleaseRide}
+                  disabled={!releaseRideReason || releaseRideSubmitting}
+                  className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                    releaseRideReason && !releaseRideSubmitting
+                      ? 'bg-red-600 text-white hover:bg-red-500'
+                      : 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                  }`}>
+                  {releaseRideSubmitting
+                    ? (lang === 'es' ? 'Liberando viaje...' : 'Releasing ride...')
+                    : (lang === 'es' ? 'Confirmar — liberar viaje' : 'Confirm — release ride')}
+                </button>
+                <button
+                  onClick={() => { setShowReleaseRideModal(false); setReleaseRideReason('') }}
+                  className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm transition-all active:scale-95">
+                  {lang === 'es' ? 'Cancelar' : 'Cancel'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+   // ── DRIVER EXIT MODAL (Bloque 1) ────────────────────────────
   if (showDriverExitModal && summary?.assigned_ride) {
     const EXIT_REASONS = [
       { key: "VEHICLE_BREAKDOWN",   label: lang === "es" ? "Falla mecánica del vehículo" : lang === "ht" ? "Machin kraze"              : "Vehicle Breakdown",        icon: "🔧" },
@@ -3046,6 +3245,11 @@ export default function DriverDashboardByCode() {
           setDriverExitComment('')
           setDriverExitResult(null)
           setShowDriverExitModal(true)
+        }}
+        onReleaseRide={() => {
+          setReleaseRideReason('')
+          setReleaseRideResult(null)
+          setShowReleaseRideModal(true)
         }}
       />
       )
@@ -4368,7 +4572,7 @@ function OfferScreen({
 // RIDE FLOW SCREEN — 5 states, state visual system, client strip
 // ══════════════════════════════════════════════════════════════
 function RideFlowScreen({
-  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, overdueSeconds, t, onDriverExit,
+  ride, driverName, driverId, lang, onLang, onTransition, transitioning, onSendSMS, smsSending, smsSent, gpsCoords, gpsError, onReport, reporting, reportResult, rideUpdatedByDispatch, overdueSeconds, t, onDriverExit, onReleaseRide,
 }: {
   ride: ActiveRide; driverName: string; driverId: string; lang: Lang
   onLang: (l: Lang) => void; onTransition: (s: RideStatus) => void
@@ -4384,6 +4588,7 @@ function RideFlowScreen({
   overdueSeconds: number
   t: Record<string, string>
   onDriverExit: () => void
+  onReleaseRide: () => void
 }) {
   const elapsed = useElapsed(ride.trip_started_at ?? null)
   const theme = STATE_THEME[ride.status] ?? STATE_THEME.assigned
@@ -4867,20 +5072,31 @@ function RideFlowScreen({
                 className="w-full py-3 rounded-2xl border border-zinc-800 text-zinc-500 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
                 {t.noShow}
               </button>
+            )
+
+            {/* ── BM11: Release Ride Button (pre-execution only) ─────────────────────── */}
+            {/* Visible ONLY for accepted/assigned (pre-execution) — clean release flow */}
+            {(ride.status === "accepted" || ride.status === "assigned") && (
+              <button
+                onClick={onReleaseRide}
+                disabled={transitioning}
+                className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
+                style={{ border: "1px solid #ef4444", color: "#ef4444", backgroundColor: "transparent" }}>
+                {lang === "es" ? "🚫 No puedo realizar este viaje" : lang === "ht" ? "🚫 Mwen pa ka fè vwayaj sa" : "🚫 Cannot Take This Ride"}
+              </button>
             )}
 
-            {/* ── SECONDARY: Cannot Complete This Ride (Bloque 1) ────────────────────────────── */}
-            {/* Visible for assigned / en_route / arrived states only */}
-            {(ride.status === "assigned" || ride.status === "accepted" || ride.status === "en_route" || ride.status === "arrived") && (
+            {/* ── SECONDARY: Report Incident / Cannot Complete (Bloque 1) ────────────── */}
+            {/* Visible for en_route / arrived states (live execution) — incident report flow */}
+            {(ride.status === "en_route" || ride.status === "arrived") && (
               <button
                 onClick={onDriverExit}
                 disabled={transitioning}
                 className="w-full py-3 rounded-2xl text-sm font-medium transition-all active:scale-95 disabled:opacity-40"
                 style={{ border: "1px solid #f97316", color: "#f97316", backgroundColor: "transparent" }}>
-                {lang === "es" ? "⚠️ No puedo realizar este servicio" : lang === "ht" ? "⚠️ Mwen pa ka fè sèvis sa" : "⚠️ Cannot Complete This Ride"}
+                {lang === "es" ? "⚠️ Reportar incidencia" : lang === "ht" ? "⚠️ Rapò ensidan" : "⚠️ Report Incident"}
               </button>
             )}
-
             {/* ── AT-RISK BANNER (Bloque 2: Post-Accept Guardrail) ──────────────────── */}
             {/* Shown when the guardrail has auto-escalated this ride */}
             {(ride.is_at_risk || ride.at_risk_flagged_at) && (
