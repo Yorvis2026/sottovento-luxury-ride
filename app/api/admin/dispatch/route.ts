@@ -31,6 +31,9 @@ export async function GET() {
         b.total_price,
         b.status,
         b.dispatch_status,
+        COALESCE(b.dispatch_state, 'NEW')   AS dispatch_state,
+        COALESCE(b.dispatch_round, 1)       AS dispatch_round,
+        COALESCE(b.manual_dispatch_required, FALSE) AS manual_dispatch_required,
         b.payment_status,
         b.assigned_driver_id,
         b.created_at,
@@ -213,9 +216,29 @@ export async function GET() {
         completed.push(r);
       } else if (s === "in_progress" || ["en_route", "arrived", "in_trip"].includes(s)) {
         inProgress.push(r);
-      } else if (s === "assigned" || s === "driver_confirmed" || s === "accepted" || s === "offer_pending") {
-        // offer_pending: driver has been assigned but hasn't confirmed yet
+      } else if (
+        // BM10 MASTER BLOCK — ASSIGNED is valid ONLY if there is a real accepted dispatch_offer.
+        // dispatch_state = ASSIGNED means a driver actually accepted.
+        // dispatch_state = ROUND_* or offer_pending without real acceptance → readyForDispatch.
+        (s === "assigned" || s === "driver_confirmed" || s === "accepted") &&
+        (r.dispatch_state === "ASSIGNED" || r.dispatch_state === "IN_PROGRESS" || !r.dispatch_state || r.dispatch_state === "NEW")
+      ) {
         assigned.push(r);
+      } else if (
+        // offer_pending with a real dispatch_state of ROUND_* → still in dispatch flow
+        s === "offer_pending" ||
+        r.dispatch_state === "ROUND_1_CAPTOR_PRIORITY" ||
+        r.dispatch_state === "ROUND_2_PREMIUM_PRIORITY" ||
+        r.dispatch_state === "ROUND_3_POOL_OPEN"
+      ) {
+        // These are actively being dispatched — show in readyForDispatch with dispatch_state context
+        readyForDispatch.push(r);
+      } else if (
+        // ADMIN_ATTENTION_REQUIRED → driver issue bucket for immediate visibility
+        r.dispatch_state === "ADMIN_ATTENTION_REQUIRED" ||
+        r.manual_dispatch_required === true
+      ) {
+        driverIssue.push(r);
       } else if (s === "ready_for_dispatch" || s === "offered" || s === "pending_dispatch") {
         readyForDispatch.push(r);
       } else if (s === "needs_review" || s === "new") {
@@ -719,6 +742,9 @@ export async function PATCH(req: NextRequest) {
       // Bloque Maestro 2 & 3 — guardrail / fallback statuses
       "reassignment_needed", "urgent_reassignment", "critical_driver_failure",
       "offer_pending", "fallback_dispatched", "fallback_accepted",
+      // BM10 MASTER BLOCK — dispatch_state values (used as dispatch_status overrides)
+      "ROUND_1_CAPTOR_PRIORITY", "ROUND_2_PREMIUM_PRIORITY", "ROUND_3_POOL_OPEN",
+      "ADMIN_ATTENTION_REQUIRED", "pending_dispatch",
     ];
 
     const VALID_STATUSES = [
