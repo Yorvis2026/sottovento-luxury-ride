@@ -383,7 +383,8 @@ export async function GET(req: NextRequest) {
           -- Primary guard: exclude all finalized states by status
           AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
-          AND (dispatch_status IS NULL OR dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show'))
+          -- PIPELINE SANITIZATION: also exclude system_cleanup_legacy rides explicitly.
+          AND (dispatch_status IS NULL OR dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'system_cleanup_legacy'))
           -- Include driver_issue rides that are still assigned to this driver (for at_risk display)
           -- These are NOT excluded by the status filter above
           AND (
@@ -402,17 +403,17 @@ export async function GET(req: NextRequest) {
             -- ACTIVE_WINDOW: accepted/assigned rides within an operational time window.
             -- pickup_at IS NULL: rides without a scheduled time are always actionable.
             -- pickup_at IS NOT NULL: rides within the 4-hour past to 120min future window.
-            -- BUG B FIX: Reduced from 7 days to 4 hours past to prevent stale/unclosed rides
-            -- from contaminating the active driver view. Rides older than 4h that were never
-            -- completed are considered stale and should not block the driver's current panel.
-            -- dispatch_state = 'ASSIGNED' guard: only show rides that have been fully confirmed.
+            -- PIPELINE SANITIZATION: Operational window is 6h past to 120min future.
+            -- Rides older than 6h that were never completed are considered legacy/stale.
+            -- They must not appear in the driver's active panel.
+            -- This aligns with the admin dispatch 6h policy (Block Master sanitization).
             (
               status = 'accepted'
-              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
+              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled', 'system_cleanup_legacy')
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at >= NOW() - INTERVAL '4 hours'
+                  pickup_at >= NOW() - INTERVAL '6 hours'
                   AND pickup_at <= NOW() + INTERVAL '120 minutes'
                 )
               )
@@ -420,11 +421,11 @@ export async function GET(req: NextRequest) {
             OR
             (
               status = 'assigned'
-              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
+              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled', 'system_cleanup_legacy')
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at >= NOW() - INTERVAL '4 hours'
+                  pickup_at >= NOW() - INTERVAL '6 hours'
                   AND pickup_at <= NOW() + INTERVAL '120 minutes'
                 )
               )
@@ -656,7 +657,8 @@ export async function GET(req: NextRequest) {
           -- Primary guard: exclude all finalized states by status
           AND b.status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
-          AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show'))
+          -- PIPELINE SANITIZATION: also exclude system_cleanup_legacy rides.
+          AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'system_cleanup_legacy'))
           AND b.status IN ('offer_pending', 'accepted', 'assigned')
           -- UPCOMING: only rides with pickup_at BEYOND the 120-min operational window
           -- Rides within 120min are handled by assigned_ride (operational controls)

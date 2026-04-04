@@ -94,19 +94,23 @@ export async function GET() {
       LEFT JOIN drivers d ON b.assigned_driver_id = d.id
       LEFT JOIN companies pc ON d.company_id = pc.id
       WHERE (
-        b.status NOT IN ('cancelled', 'archived')
+        -- PIPELINE SANITIZATION: archived is ALWAYS excluded from all active buckets.
+        -- This covers both manually archived rides and system_cleanup_legacy rides.
+        b.status NOT IN ('cancelled', 'archived', 'no_show')
         OR (b.status = 'completed' AND b.updated_at > NOW() - INTERVAL '24 hours')
         OR (b.status = 'cancelled' AND b.updated_at > NOW() - INTERVAL '24 hours')
       )
-      -- BUG B FIX: Exclude stale/unclosed rides from the active operational view.
-      -- Rides with status accepted/assigned whose pickup_at is more than 4 hours in the past
-      -- and were never completed/cancelled are considered stale test or zombie rides.
-      -- They should not contaminate the admin dispatch view.
-      -- Exception: en_route/arrived/in_trip are always shown (live flow).
+      -- PIPELINE SANITIZATION: Exclude stale/unclosed rides from the active operational view.
+      -- Policy: rides outside the 6-hour operational window (pickup_at < NOW() - 6h) are
+      -- considered legacy and must not appear in any active bucket.
+      -- Exception: en_route/arrived/in_trip are ALWAYS shown (live flow, regardless of time).
+      -- Exception: rides with dispatch_status = 'system_cleanup_legacy' are already archived.
       AND NOT (
-        b.status IN ('accepted', 'assigned')
+        b.status IN ('accepted', 'assigned', 'needs_review', 'ready_for_dispatch',
+                     'driver_issue', 'driver_issue_final', 'expired_unfulfilled',
+                     'offer_pending', 'driver_confirmed')
         AND b.pickup_at IS NOT NULL
-        AND b.pickup_at < NOW() - INTERVAL '4 hours'
+        AND b.pickup_at < NOW() - INTERVAL '6 hours'
         AND b.status NOT IN ('en_route', 'arrived', 'in_trip', 'completed', 'cancelled', 'archived', 'no_show')
       )
       ORDER BY
