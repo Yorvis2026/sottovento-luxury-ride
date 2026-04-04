@@ -415,13 +415,12 @@ export async function GET(req: NextRequest) {
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
           -- PIPELINE SANITIZATION: also exclude system_cleanup_legacy rides explicitly.
           AND (dispatch_status IS NULL OR dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'system_cleanup_legacy'))
-          -- BUG 1 FIX (BM10 Follow-Up 4): OFFER SCREEN PRIORITY GATE.
-          -- If this booking has an active pending dispatch_offer for this driver,
-          -- it MUST NOT appear as assigned_ride. It must go to active_offer instead.
-          -- This prevents the driver from receiving the ride as 'assigned' without
-          -- passing through the mandatory acceptance layer.
-          -- Exception: if the booking is in live execution (en_route/arrived/in_trip),
-          -- it always appears as assigned_ride regardless of pending offers.
+          -- BM15 / BM10 FU4: OFFER SCREEN PRIORITY GATE (Entry Gate).
+          -- INVARIANT: If a pending dispatch_offer exists for this driver on this booking,
+          -- the booking MUST NOT appear as assigned_ride. It goes to active_offer.
+          -- This is the canonical enforcement of the assignment entry gate.
+          -- Exception: live execution states (en_route/arrived/in_trip) bypass the gate
+          -- because the driver is already executing — no acceptance needed.
           AND NOT (
             status NOT IN ('en_route', 'arrived', 'in_trip')
             AND EXISTS (
@@ -431,6 +430,14 @@ export async function GET(req: NextRequest) {
                 AND dof_guard.response = 'pending'
                 AND (dof_guard.expires_at IS NULL OR dof_guard.expires_at > NOW())
             )
+          )
+          -- BM15 ENTRY GATE: Also exclude rides that are still in offer_pending state
+          -- even if no dispatch_offers row exists (covers force-dispatch path gap).
+          -- If dispatch_status='offer_pending' and the ride is not in live execution,
+          -- it must not appear as assigned_ride — it should appear via active_offer.
+          AND NOT (
+            dispatch_status = 'offer_pending'
+            AND status NOT IN ('en_route', 'arrived', 'in_trip')
           )
           -- Include driver_issue rides that are still assigned to this driver (for at_risk display)
           -- These are NOT excluded by the status filter above
@@ -457,11 +464,15 @@ export async function GET(req: NextRequest) {
             (
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled', 'system_cleanup_legacy')
+              -- BM15 FIX A: Extend ACTIVE_WINDOW for accepted rides to 48h future.
+              -- A ride accepted for tomorrow must appear in the driver panel.
+              -- Previously capped at 120min future, which caused accepted rides
+              -- to disappear from the panel until 2h before pickup.
               AND (
                 pickup_at IS NULL
                 OR (
                   pickup_at >= NOW() - INTERVAL '6 hours'
-                  AND pickup_at <= NOW() + INTERVAL '120 minutes'
+                  AND pickup_at <= NOW() + INTERVAL '48 hours'
                 )
               )
             )
@@ -469,11 +480,12 @@ export async function GET(req: NextRequest) {
             (
               status = 'assigned'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled', 'system_cleanup_legacy')
+              -- BM15 FIX A: Same 48h window for assigned rides.
               AND (
                 pickup_at IS NULL
                 OR (
                   pickup_at >= NOW() - INTERVAL '6 hours'
-                  AND pickup_at <= NOW() + INTERVAL '120 minutes'
+                  AND pickup_at <= NOW() + INTERVAL '48 hours'
                 )
               )
             )
