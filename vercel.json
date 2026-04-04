@@ -2,15 +2,15 @@
   "crons": [
     {
       "path": "/api/dispatch/engine",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/expire-driver-offers",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/admin/fallback-pool-dispatch",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
