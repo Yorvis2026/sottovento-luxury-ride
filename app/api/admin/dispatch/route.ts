@@ -16,7 +16,11 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
  *   5. inProgress       — ride actively being executed
  *   6. completed        — completed in last 24h
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // BM12: Dispatch Queue Visibility State Guard
+  // admin_override=true allows the admin to see locked (assigned/accepted) rides in the queue
+  const { searchParams } = new URL(req.url);
+  const adminOverride = searchParams.get('admin_override') === 'true';
   try {
     const rows = await sql`
       SELECT
@@ -223,6 +227,87 @@ export async function GET() {
       if (s === "cancelled") {
         recentlyCancelled.push(r);
         continue;
+      }
+
+      // ── BM12: DISPATCH QUEUE VISIBILITY STATE GUARD ──────────────────────────
+      // RULE: Rides with assigned_driver_id != NULL and dispatch_status NOT IN
+      //   ('pending_dispatch', 'pool_offer', 'reassignment_required', 'offer_pending')
+      //   are EXCLUDED from the Dispatch Queue.
+      // These rides have a closed or in-progress dispatch cycle and must not appear
+      // in any operational bucket (readyForDispatch, driverIssue, needsReview).
+      // They are only visible when admin_override=true is passed as a query param.
+      //
+      // DISPATCH_QUEUE_VISIBLE_STATUSES: the only dispatch_status values that indicate
+      //   an open dispatch cycle that requires admin action.
+      const DISPATCH_QUEUE_VISIBLE_STATUSES = [
+        'pending_dispatch',
+        'pool_offer',
+        'reassignment_required',
+        'offer_pending',           // active offer awaiting driver response
+        'manual_dispatch_required', // admin must manually assign
+        'awaiting_source_owner',    // waiting for source driver
+        'awaiting_sln_member',      // waiting for SLN member
+        'driver_rejected',          // driver rejected — needs reassignment
+        'needs_correction',         // driver reported issue — needs admin review
+        'ROUND_1_CAPTOR_PRIORITY',  // dispatch engine round 1
+        'ROUND_2_PREMIUM_PRIORITY', // dispatch engine round 2
+        'ROUND_3_POOL_OPEN',        // dispatch engine round 3 / pool open
+        'ADMIN_ATTENTION_REQUIRED', // escalated — admin must act
+        'reassignment_needed',      // legacy — driver exit
+        'urgent_reassignment',      // legacy — urgent
+        'critical_driver_failure',  // legacy — critical
+        'fallback_dispatched',      // fallback pool offer sent
+        'fallback_accepted',        // fallback accepted
+        null, undefined, '',        // no dispatch_status set — treat as open
+      ];
+
+      // EXCLUDED_STATUSES: ride statuses that indicate a closed or in-progress cycle.
+      // These are ALWAYS excluded from the Dispatch Queue regardless of dispatch_status.
+      const DISPATCH_QUEUE_EXCLUDED_STATUSES = [
+        'en_route', 'arrived', 'in_trip', 'completed', 'no_show', 'archived',
+      ];
+
+      // Guard: rides in live execution or finalized are always excluded
+      if (DISPATCH_QUEUE_EXCLUDED_STATUSES.includes(s)) {
+        // inProgress and completed buckets still receive these for monitoring
+        if (["en_route", "arrived", "in_trip", "in_progress"].includes(s)) {
+          inProgress.push(r);
+        } else if (s === "completed") {
+          completed.push(r);
+        }
+        // Register audit event for guard application
+        ;(r as any).visibility_guard_applied = 'EXCLUDED_LIVE_OR_FINAL';
+        continue;
+      }
+
+      // Guard: rides with assigned_driver_id AND a closed dispatch_status are excluded
+      // UNLESS admin_override=true is passed
+      const hasAssignedDriver = !!r.assigned_driver_id;
+      const isOpenDispatchStatus = DISPATCH_QUEUE_VISIBLE_STATUSES.includes(ds) ||
+        DISPATCH_QUEUE_VISIBLE_STATUSES.includes(null); // null/empty = open
+      const isClosedCycle =
+        hasAssignedDriver &&
+        !isOpenDispatchStatus &&
+        ['assigned', 'accepted', 'driver_confirmed'].includes(s) &&
+        ds !== 'offer_pending' &&
+        ds !== 'reassignment_required';
+
+      if (isClosedCycle && !adminOverride) {
+        // BM12: EXCLUDED from Dispatch Queue — closed dispatch cycle
+        // Mark as locked and push to assigned bucket for monitoring only
+        ;(r as any).locked_dispatch = true;
+        ;(r as any).locked_reason = 'bm12_visibility_guard';
+        ;(r as any).visibility_guard_applied = 'EXCLUDED_CLOSED_CYCLE';
+        ;(r as any).admin_override_required = true;
+        assigned.push(r);
+        continue;
+      }
+
+      if (isClosedCycle && adminOverride) {
+        // Admin override: show in assigned bucket with override flag
+        ;(r as any).locked_dispatch = false;
+        ;(r as any).admin_override_active = true;
+        ;(r as any).visibility_guard_applied = 'OVERRIDE_ACTIVE';
       }
 
       if (hasDriverIssue) {
@@ -672,6 +757,15 @@ export async function GET() {
       };
     } catch { /* non-blocking */ }
 
+    // BM12: Compute visibility guard audit summary
+    const guardExcludedCount = assigned.filter((r: any) => r.visibility_guard_applied === 'EXCLUDED_CLOSED_CYCLE').length;
+    const guardOverrideCount = assigned.filter((r: any) => r.visibility_guard_applied === 'OVERRIDE_ACTIVE').length;
+    const dispatchQueueRides = [
+      ...driverIssue,
+      ...needsReview,
+      ...readyForDispatch,
+    ];
+
     return NextResponse.json({
       driverIssue,
       needsReview,
@@ -690,6 +784,17 @@ export async function GET() {
         inProgress: inProgress.length,
         completed: completed.length,
         recentlyCancelled: recentlyCancelled.length,
+      },
+      // BM12: Dispatch Queue Visibility State Guard audit fields
+      dispatch_visibility_guard: {
+        applied: true,
+        admin_override_active: adminOverride,
+        excluded_closed_cycle: guardExcludedCount,
+        override_active_count: guardOverrideCount,
+        dispatch_queue_open_count: dispatchQueueRides.length,
+        guard_version: 'BM12_v1',
+        excluded_statuses: ['assigned', 'accepted', 'driver_confirmed', 'en_route', 'arrived', 'in_trip', 'completed', 'cancelled'],
+        visible_dispatch_statuses: ['pending_dispatch', 'pool_offer', 'reassignment_required', 'offer_pending'],
       },
       awaitingSourceOwner: readyForDispatch.filter((r: any) => r.dispatch_status === "awaiting_source_owner"),
       awaitingSlnMember: readyForDispatch.filter((r: any) => r.dispatch_status === "awaiting_sln_member"),
