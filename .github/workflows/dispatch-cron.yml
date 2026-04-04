@@ -1,0 +1,47 @@
+name: SLN Dispatch Cron — expire-driver-offers
+
+on:
+  schedule:
+    # Runs every minute (GitHub Actions minimum is 1 minute)
+    - cron: '* * * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Manual trigger reason'
+        required: false
+        default: 'manual'
+
+jobs:
+  expire-driver-offers:
+    name: Expire timed-out driver offers & trigger BM10 reassignment
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Call expire-driver-offers endpoint
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X GET "${{ secrets.SLN_PRODUCTION_URL }}/api/cron/expire-driver-offers" \
+            -H "x-cron-secret: ${{ secrets.SLN_CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 55)
+
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Cron endpoint returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+          # Parse and display key metrics
+          EXPIRED=$(echo "$HTTP_BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('expired',0))" 2>/dev/null || echo "N/A")
+          DISPATCHED=$(echo "$HTTP_BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('dispatched',0))" 2>/dev/null || echo "N/A")
+          ADMIN_REQUIRED=$(echo "$HTTP_BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('admin_attention_required',0))" 2>/dev/null || echo "N/A")
+
+          echo "✅ Offers expired: $EXPIRED"
+          echo "✅ Next driver dispatched: $DISPATCHED"
+          echo "⚠️  Admin attention required: $ADMIN_REQUIRED"
