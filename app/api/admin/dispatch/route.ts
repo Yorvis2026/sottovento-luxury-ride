@@ -98,6 +98,17 @@ export async function GET() {
         OR (b.status = 'completed' AND b.updated_at > NOW() - INTERVAL '24 hours')
         OR (b.status = 'cancelled' AND b.updated_at > NOW() - INTERVAL '24 hours')
       )
+      -- BUG B FIX: Exclude stale/unclosed rides from the active operational view.
+      -- Rides with status accepted/assigned whose pickup_at is more than 4 hours in the past
+      -- and were never completed/cancelled are considered stale test or zombie rides.
+      -- They should not contaminate the admin dispatch view.
+      -- Exception: en_route/arrived/in_trip are always shown (live flow).
+      AND NOT (
+        b.status IN ('accepted', 'assigned')
+        AND b.pickup_at IS NOT NULL
+        AND b.pickup_at < NOW() - INTERVAL '4 hours'
+        AND b.status NOT IN ('en_route', 'arrived', 'in_trip', 'completed', 'cancelled', 'archived', 'no_show')
+      )
       ORDER BY
         CASE
           WHEN b.status = 'driver_issue' THEN 1
@@ -217,22 +228,34 @@ export async function GET() {
       } else if (s === "in_progress" || ["en_route", "arrived", "in_trip"].includes(s)) {
         inProgress.push(r);
       } else if (
-        // BM10 FIX B: ASSIGNED bucket requires driver actually accepted the offer.
+        // BUG A FIX: Expanded assigned bucket condition.
+        // A ride belongs in assigned when:
+        //   (a) dispatch_state = 'ASSIGNED' (canonical post-acceptance state), OR
+        //   (b) dispatch_state is a round BUT dispatch_status = 'assigned' (driver already accepted
+        //       but respond-offer ran before this fix and didn't update dispatch_state), OR
+        //   (c) dispatch_state is null/NEW (legacy rides before BM10)
         // Guard: if dispatch_status='offer_pending', the offer is still awaiting response —
         // the booking must appear in readyForDispatch so the admin can see it is in-flight.
-        // Only push to assigned when dispatch_status is NOT offer_pending.
         (s === "assigned" || s === "driver_confirmed" || s === "accepted") &&
         r.dispatch_status !== "offer_pending" &&
-        (r.dispatch_state === "ASSIGNED" || r.dispatch_state === "IN_PROGRESS" || !r.dispatch_state || r.dispatch_state === "NEW")
+        (
+          r.dispatch_state === "ASSIGNED" ||
+          r.dispatch_state === "IN_PROGRESS" ||
+          !r.dispatch_state ||
+          r.dispatch_state === "NEW" ||
+          // Rides that were accepted but dispatch_state was not updated (pre-fix)
+          (r.dispatch_status === "assigned" && r.assigned_driver_id)
+        )
       ) {
         assigned.push(r);
       } else if (
         // offer_pending (any status or dispatch_state) → still in dispatch flow
-        s === "offer_pending" ||
-        r.dispatch_status === "offer_pending" ||
-        r.dispatch_state === "ROUND_1_CAPTOR_PRIORITY" ||
-        r.dispatch_state === "ROUND_2_PREMIUM_PRIORITY" ||
-        r.dispatch_state === "ROUND_3_POOL_OPEN"
+        // Exception: if dispatch_status is already 'assigned', the driver accepted — go to assigned
+        (s === "offer_pending" && r.dispatch_status !== "assigned") ||
+        (r.dispatch_status === "offer_pending") ||
+        (r.dispatch_state === "ROUND_1_CAPTOR_PRIORITY" && r.dispatch_status !== "assigned") ||
+        (r.dispatch_state === "ROUND_2_PREMIUM_PRIORITY" && r.dispatch_status !== "assigned") ||
+        (r.dispatch_state === "ROUND_3_POOL_OPEN" && r.dispatch_status !== "assigned")
       ) {
         // Actively being dispatched — show in readyForDispatch with dispatch_state context
         readyForDispatch.push(r);

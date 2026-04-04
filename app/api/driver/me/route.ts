@@ -399,17 +399,20 @@ export async function GET(req: NextRequest) {
             -- These statuses are always resumable regardless of pickup time
             status IN ('en_route', 'arrived', 'in_trip')
             OR
-            -- ACTIVE_WINDOW: accepted/assigned rides within an extended time window.
+            -- ACTIVE_WINDOW: accepted/assigned rides within an operational time window.
             -- pickup_at IS NULL: rides without a scheduled time are always actionable.
-            -- pickup_at IS NOT NULL: rides within the 7-day past to 120min future window.
-            -- Extended to 7 days to handle rides accepted but not yet executed/completed.
+            -- pickup_at IS NOT NULL: rides within the 4-hour past to 120min future window.
+            -- BUG B FIX: Reduced from 7 days to 4 hours past to prevent stale/unclosed rides
+            -- from contaminating the active driver view. Rides older than 4h that were never
+            -- completed are considered stale and should not block the driver's current panel.
+            -- dispatch_state = 'ASSIGNED' guard: only show rides that have been fully confirmed.
             (
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled')
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at >= NOW() - INTERVAL '7 days'
+                  pickup_at >= NOW() - INTERVAL '4 hours'
                   AND pickup_at <= NOW() + INTERVAL '120 minutes'
                 )
               )
@@ -421,7 +424,7 @@ export async function GET(req: NextRequest) {
               AND (
                 pickup_at IS NULL
                 OR (
-                  pickup_at >= NOW() - INTERVAL '7 days'
+                  pickup_at >= NOW() - INTERVAL '4 hours'
                   AND pickup_at <= NOW() + INTERVAL '120 minutes'
                 )
               )

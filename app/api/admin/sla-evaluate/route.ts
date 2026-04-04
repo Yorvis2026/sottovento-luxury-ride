@@ -112,15 +112,17 @@ export async function GET(req: NextRequest) {
     for (const booking of candidates) {
       // ── BM8: Use operational_pickup_target_at for airport rides ──
       // This prevents false SLA alerts when flight is delayed.
+      // BUG D FIX: Airport gate MUST use pickup_zone as the authoritative source.
+      // The special permit gate applies ONLY when the PICKUP (origin) is at one of the
+      // 4 designated MCO locations (Terminal A, B, C, Brightline) — represented by
+      // pickup_zone = 'MCO' — or at SFB Airport (pickup_zone = 'SFB').
+      // It does NOT apply for dropoff-to-airport routes (Disney→MCO, Hotel→MCO, etc.).
+      // Removed: text matching on pickup_address which could falsely match dropoff addresses.
       const isAirport =
         booking.airport_monitoring_enabled === true ||
-        booking.service_location_type === "airport" ||
-        booking.trip_type === "airport" ||
-        (booking.pickup_zone && booking.pickup_zone.toLowerCase().includes("airport")) ||
-        (booking.pickup_zone && booking.pickup_zone.toLowerCase().includes("mco")) ||
-        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("airport")) ||
-        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("jeff fuqua")) ||
-        (booking.pickup_address && booking.pickup_address.toLowerCase().includes("mco"));
+        booking.service_location_type === "airport_pickup_mco" ||
+        booking.service_location_type === "airport_pickup_sfb" ||
+        (booking.pickup_zone && ["MCO", "SFB"].includes(booking.pickup_zone.toUpperCase()));
 
       // BM8: For airport rides with active monitoring, use operational target
       // to avoid false SLA alerts when flight is delayed

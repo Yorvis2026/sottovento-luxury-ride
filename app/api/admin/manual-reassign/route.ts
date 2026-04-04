@@ -266,13 +266,19 @@ export async function POST(req: NextRequest) {
     const newOfferId = newOfferRows[0]?.id ?? null;
 
     // ── Update booking state ──────────────────────────────────
+    // BUG A FIX: Set assigned_driver_id to the target driver (not NULL).
+    // Previously this was NULL, so the driver panel could not find the ride
+    // via assigned_driver_id = driver.id in the driver/me query.
+    // dispatch_state = 'ROUND_3_POOL_OPEN' is correct here because the offer
+    // is still pending acceptance. Once the driver accepts via respond-offer,
+    // that endpoint will set dispatch_state = 'ASSIGNED'.
     // SAFETY: Does NOT change booking.status
     await sql`
       UPDATE bookings SET
         dispatch_state           = 'ROUND_3_POOL_OPEN',
         dispatch_status          = 'offer_pending',
         dispatch_round           = ${nextRound},
-        assigned_driver_id       = NULL,
+        assigned_driver_id       = ${targetDriverId}::uuid,
         manual_dispatch_required = FALSE,
         offer_expires_at         = NOW() + (${offerWindowMinutes} || ' minutes')::interval,
         updated_at               = NOW()

@@ -3171,7 +3171,13 @@ export default function DriverDashboardByCode() {
           { key: "overview",  label: "Overview",  badge: null },
           { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
           { key: "completed", label: lang === "es" ? "Completados" : "Completed", badge: null },
-          { key: "cancelled", label: lang === "es" ? "Cancelados" : "Cancelled", badge: (summary?.cancelled_rides?.length ?? 0) > 0 ? (summary?.cancelled_rides?.length ?? 0) : null },
+          // BUG C FIX: Show expired_offers_count in the Cancelled tab badge.
+          // expired_offers are rendered inside the cancelled tab but the badge only
+          // counted cancelled_rides, so drivers had no visual cue that expired offers existed.
+          { key: "cancelled", label: lang === "es" ? "Cancelados" : "Cancelled",
+            badge: ((summary?.cancelled_rides?.length ?? 0) + (summary?.expired_offers_count ?? 0)) > 0
+              ? (summary?.cancelled_rides?.length ?? 0) + (summary?.expired_offers_count ?? 0)
+              : null },
           { key: "earnings",  label: lang === "es" ? "Ganancias" : "Earnings",  badge: null },
         ] as { key: "overview" | "upcoming" | "completed" | "cancelled" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
           <button key={tab.key}

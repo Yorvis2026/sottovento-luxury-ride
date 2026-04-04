@@ -161,6 +161,12 @@ export async function POST(req: NextRequest) {
         `;
       }
 
+      // BUG A FIX: Also set dispatch_state = 'ASSIGNED' and manual_dispatch_required = false.
+      // Previously, respond-offer only updated status/dispatch_status but left dispatch_state
+      // stuck in ROUND_1/2/3_POOL_OPEN or ADMIN_ATTENTION_REQUIRED.
+      // The admin bucket classifier (admin/dispatch/route.ts line 224) requires
+      // dispatch_state IN ('ASSIGNED', 'IN_PROGRESS', 'NEW', null) to push to the assigned bucket.
+      // Without this fix, accepted rides were falling into readyForDispatch instead of assigned.
       await sql`
         UPDATE bookings
         SET
@@ -173,6 +179,8 @@ export async function POST(req: NextRequest) {
           accepted_at           = ${respondedAt}::timestamptz,
           status                = 'accepted',
           dispatch_status       = 'assigned',
+          dispatch_state        = 'ASSIGNED',
+          manual_dispatch_required = false,
           updated_at            = NOW()
         WHERE id = ${booking.id}
       `;
@@ -246,6 +254,32 @@ export async function POST(req: NextRequest) {
 
       // Dispatch to network (next round) — exclude the driver who just declined
       await dispatchToNetwork(booking.id, offer.offer_round + 1, body.driver_id);
+
+      // BUG C FIX: Write offer_declined to driver_offer_history so driver can see it in panel.
+      // Previously, only the cron (expire-driver-offers) wrote to driver_offer_history for
+      // expired offers, but manual declines were never recorded.
+      try {
+        const driverRows = await sql`SELECT driver_code FROM drivers WHERE id = ${body.driver_id}::uuid LIMIT 1`;
+        const driverCode = driverRows[0]?.driver_code ?? null;
+        await sql`
+          INSERT INTO driver_offer_history (
+            booking_id, driver_id, driver_code,
+            round_number, offer_status,
+            sent_at, responded_at, notes, created_at
+          ) VALUES (
+            ${booking.id}::uuid,
+            ${body.driver_id}::uuid,
+            ${driverCode},
+            ${offer.offer_round ?? 1},
+            'offer_declined',
+            ${offer.sent_at ?? respondedAt}::timestamptz,
+            ${respondedAt}::timestamptz,
+            ${'Driver declined offer in round ' + (offer.offer_round ?? 1)},
+            NOW()
+          )
+          ON CONFLICT DO NOTHING
+        `;
+      } catch { /* non-blocking */ }
 
       await db.auditLogs.create({
         entity_type: "booking",
