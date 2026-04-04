@@ -136,6 +136,48 @@ export async function POST(req: NextRequest) {
       }, { status: 422 });
     }
 
+    // ── Guard 4: Block double reassignment (BM10 Follow-Up 4) ────
+    // RULE: Cannot create a new offer if:
+    //   (a) There is already an active pending offer for this booking, OR
+    //   (b) The booking is in a fully accepted/locked state (dispatch_state=ASSIGNED)
+    //       and override_state is not explicitly set.
+    // This prevents the admin from accidentally creating two parallel active offers
+    // and prevents reassigning a ride that a driver has already accepted.
+    const existingPendingOffers = await sql`
+      SELECT id::text, driver_id::text, expires_at
+      FROM dispatch_offers
+      WHERE booking_id = ${booking_id}::uuid
+        AND response = 'pending'
+        AND (expires_at IS NULL OR expires_at > NOW())
+      LIMIT 1
+    `;
+
+    if (existingPendingOffers.length > 0 && !override_state) {
+      const existing = existingPendingOffers[0];
+      return NextResponse.json({
+        error: `Cannot reassign: booking already has an active pending offer (offer_id=${existing.id}). The driver has not yet responded. Wait for the offer to expire or use override_state=true to supersede it.`,
+        existing_offer_id: existing.id,
+        existing_offer_expires_at: existing.expires_at,
+        booking_status: booking.status,
+        dispatch_state: booking.dispatch_state,
+      }, { status: 409 });
+    }
+
+    const isFullyAccepted =
+      booking.dispatch_state === 'ASSIGNED' &&
+      (booking.status === 'accepted' || booking.status === 'assigned') &&
+      booking.dispatch_status === 'assigned';
+
+    if (isFullyAccepted && !override_state) {
+      return NextResponse.json({
+        error: `Cannot reassign: booking is fully accepted by a driver (dispatch_state=ASSIGNED, status=${booking.status}). The driver has already confirmed this ride. Use override_state=true to force a reassignment.`,
+        booking_status: booking.status,
+        dispatch_state: booking.dispatch_state,
+        dispatch_status: booking.dispatch_status,
+        assigned_driver_id: booking.assigned_driver_id,
+      }, { status: 409 });
+    }
+
     // ── Resolve target driver ─────────────────────────────────
     let targetDriverId: string | null = driver_id ?? null;
     let targetDriverCode: string | null = null;

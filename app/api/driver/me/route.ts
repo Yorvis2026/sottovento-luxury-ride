@@ -144,8 +144,18 @@ export async function GET(req: NextRequest) {
         WHERE dof.driver_id = ${driver.id}::uuid
           AND dof.response = 'pending'
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
-          AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
-          AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled', 'assigned')
+          AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip')
+          -- BUG 1 FIX (BM10 Follow-Up 4): 'accepted' was previously excluded here.
+          -- This caused a critical security gap: when an admin manually reassigns a ride
+          -- that was previously accepted by another driver, the new dispatch_offer (pending)
+          -- was never shown to the new driver. The driver would receive the ride as
+          -- 'assigned_ride' directly (via the assigned_ride query) without passing through
+          -- the mandatory OFFER SCREEN acceptance layer.
+          -- RULE: A pending dispatch_offer ALWAYS takes priority over any booking status.
+          -- If there is a pending offer for this driver, they MUST see the OFFER SCREEN.
+          -- The only exclusion is when the booking is already in a live execution state
+          -- (en_route, arrived, in_trip) or finalized (completed, cancelled, archived, no_show).
+          AND b.dispatch_status NOT IN ('completed', 'cancelled')
           -- BUG 2 FIX: Removed COALESCE(dof.is_fallback_offer, false) = false
           -- manual-reassign creates offers with is_fallback_offer=true.
           -- Filtering them out caused the driver panel to never show manually
@@ -385,6 +395,23 @@ export async function GET(req: NextRequest) {
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
           -- PIPELINE SANITIZATION: also exclude system_cleanup_legacy rides explicitly.
           AND (dispatch_status IS NULL OR dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'system_cleanup_legacy'))
+          -- BUG 1 FIX (BM10 Follow-Up 4): OFFER SCREEN PRIORITY GATE.
+          -- If this booking has an active pending dispatch_offer for this driver,
+          -- it MUST NOT appear as assigned_ride. It must go to active_offer instead.
+          -- This prevents the driver from receiving the ride as 'assigned' without
+          -- passing through the mandatory acceptance layer.
+          -- Exception: if the booking is in live execution (en_route/arrived/in_trip),
+          -- it always appears as assigned_ride regardless of pending offers.
+          AND NOT (
+            status NOT IN ('en_route', 'arrived', 'in_trip')
+            AND EXISTS (
+              SELECT 1 FROM dispatch_offers dof_guard
+              WHERE dof_guard.booking_id = id
+                AND dof_guard.driver_id = ${driver.id}::uuid
+                AND dof_guard.response = 'pending'
+                AND (dof_guard.expires_at IS NULL OR dof_guard.expires_at > NOW())
+            )
+          )
           -- Include driver_issue rides that are still assigned to this driver (for at_risk display)
           -- These are NOT excluded by the status filter above
           AND (

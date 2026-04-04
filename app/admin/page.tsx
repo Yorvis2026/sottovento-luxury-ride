@@ -1332,14 +1332,48 @@ export default function AdminPanel() {
                       </button>
 
                       {/* Assign / Reassign driver */}
-                      {["new", "needs_review", "ready_for_dispatch", "assigned", "driver_confirmed", "driver_issue"].includes(b.status) && (
-                        <button
-                          onClick={() => setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })}
-                          style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}
-                        >
-                          {b.driver_name ? "🔄 Reassign" : "👤 Assign Driver"}
-                        </button>
-                      )}
+                      {/* BUG 2 FIX (BM10 Follow-Up 4): Block reassignment when:
+                           (a) dispatch_status='offer_pending' — driver has not yet responded to active offer.
+                               Showing Reassign here would allow double-offer creation.
+                           (b) dispatch_state='ASSIGNED' AND status='accepted' — driver fully confirmed.
+                               Ride is locked. Admin must use override explicitly.
+                           In both cases, show a locked indicator instead of the button. */}
+                      {(() => {
+                        const hasActivePendingOffer = b.dispatch_status === 'offer_pending'
+                        const isFullyAccepted = b.dispatch_state === 'ASSIGNED' && b.status === 'accepted'
+                        const canReassign = ["new", "needs_review", "ready_for_dispatch", "assigned", "driver_confirmed", "driver_issue"].includes(b.status)
+                        if (!canReassign) return null
+                        if (hasActivePendingOffer) {
+                          return (
+                            <button
+                              disabled
+                              title="Awaiting driver response — cannot reassign while offer is pending"
+                              style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#1a2a00", color: "#6b8c42", border: "1px solid #2a3a00", cursor: "not-allowed", opacity: 0.6 }}
+                            >
+                              ⏳ Awaiting Acceptance
+                            </button>
+                          )
+                        }
+                        if (isFullyAccepted) {
+                          return (
+                            <button
+                              disabled
+                              title="Driver has accepted this ride — use override to force reassignment"
+                              style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#0d2a0d", color: "#4ade8060", border: "1px solid #14532d40", cursor: "not-allowed", opacity: 0.6 }}
+                            >
+                              🔒 Accepted — Locked
+                            </button>
+                          )
+                        }
+                        return (
+                          <button
+                            onClick={() => setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address })}
+                            style={{ ...S.btn(), fontSize: 11, padding: "6px 12px", background: "#14532d", color: "#4ade80", border: "none" }}
+                          >
+                            {b.driver_name ? "🔄 Reassign" : "👤 Assign Driver"}
+                          </button>
+                        )
+                      })()}
 
                       {/* Move to Needs Review */}
                       {["new", "ready_for_dispatch"].includes(b.status) && (
