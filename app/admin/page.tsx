@@ -1897,12 +1897,35 @@ export default function AdminPanel() {
                             {b.notes && <div style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>Notas: {b.notes}</div>}
                           </div>
                         )}
+                        {/* BM10 Follow-Up 5: locked_dispatch badge — dispatch cycle is CLOSED */}
+                        {(b as any).locked_dispatch && (
+                          <div style={{ marginTop: 8, padding: "6px 12px", background: "#0d2a0d", border: "1px solid #14532d50", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 12 }}>🔒</span>
+                            <span style={{ fontSize: 11, color: "#4ade8090", fontWeight: 600 }}>Ciclo de dispatch cerrado — conductor confirmó. Solo monitoreo.</span>
+                            <span style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{(b as any).locked_reason}</span>
+                          </div>
+                        )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                           <button onClick={() => handleOpenEdit(b)} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5f" }}>✏️ Editar</button>
-                          <button
-                            onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }}
-                            style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}
-                          >🔄 Reasignar Conductor</button>
+                          {/* BM10 Follow-Up 5: Block Reassign when locked_dispatch=true.
+                               locked_dispatch is set by admin/dispatch when dispatch_state=ASSIGNED
+                               or dispatch_status=assigned (driver already accepted).
+                               Showing Reassign here would allow re-opening a closed dispatch cycle.
+                               Admin must use the Bookings panel with override_state=true. */}
+                          {(b as any).locked_dispatch ? (
+                            <button
+                              disabled
+                              title="Conductor ya aceptó este ride. Ciclo de dispatch cerrado. Para forzar reasignación, usa el panel de Bookings con override."
+                              style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#0d2a0d", color: "#4ade8040", border: "1px solid #14532d30", cursor: "not-allowed", opacity: 0.5 }}
+                            >
+                              🔒 Reasignación Bloqueada
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => { setAssignModal({ bookingId: b.id, pickup: b.pickup_zone || b.pickup_address, dropoff: b.dropoff_zone || b.dropoff_address }); setAssignMsg("") }}
+                              style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b1f5e", color: "#a78bfa", border: "none" }}
+                            >🔄 Reasignar Conductor</button>
+                          )}
                           {b.driver_phone && (
                             <a href={`tel:${b.driver_phone}`} style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#14532d", color: "#4ade80", border: "none", textDecoration: "none" }}>
                               📞 Llamar Conductor

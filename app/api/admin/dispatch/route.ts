@@ -232,12 +232,15 @@ export async function GET() {
       } else if (s === "in_progress" || ["en_route", "arrived", "in_trip"].includes(s)) {
         inProgress.push(r);
       } else if (
-        // BUG A FIX: Expanded assigned bucket condition.
-        // A ride belongs in assigned when:
+        // BM10 Follow-Up 5: CLOSED DISPATCH CYCLE — ride is fully accepted by a driver.
+        // A ride belongs in assigned (LOCKED / monitoring-only) when:
         //   (a) dispatch_state = 'ASSIGNED' (canonical post-acceptance state), OR
-        //   (b) dispatch_state is a round BUT dispatch_status = 'assigned' (driver already accepted
-        //       but respond-offer ran before this fix and didn't update dispatch_state), OR
-        //   (c) dispatch_state is null/NEW (legacy rides before BM10)
+        //   (b) dispatch_status = 'assigned' AND assigned_driver_id is set (driver confirmed)
+        //       AND dispatch_status is NOT 'offer_pending' (no open offer)
+        // RULE: rides in this state have CLOSED their dispatch cycle.
+        //   - They are shown in the assigned bucket for monitoring purposes only.
+        //   - They are NOT operationally open for reassignment.
+        //   - The frontend must render them with locked=true (no Reassign button).
         // Guard: if dispatch_status='offer_pending', the offer is still awaiting response —
         // the booking must appear in readyForDispatch so the admin can see it is in-flight.
         (s === "assigned" || s === "driver_confirmed" || s === "accepted") &&
@@ -251,6 +254,17 @@ export async function GET() {
           (r.dispatch_status === "assigned" && r.assigned_driver_id)
         )
       ) {
+        // BM10 Follow-Up 5: Mark as locked — dispatch cycle is CLOSED.
+        // locked_dispatch = true signals the frontend to render in monitoring-only mode.
+        // The Reassign button must be hidden or disabled for locked rides.
+        // Admin can still override via the dedicated override flow (override_state=true).
+        ;(r as any).locked_dispatch = true;
+        ;(r as any).locked_reason = (
+          s === 'accepted' ? 'driver_accepted' :
+          s === 'driver_confirmed' ? 'driver_confirmed' :
+          r.dispatch_state === 'ASSIGNED' ? 'dispatch_state_assigned' :
+          'dispatch_status_assigned'
+        );
         assigned.push(r);
       } else if (
         // offer_pending (any status or dispatch_state) → still in dispatch flow
