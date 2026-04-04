@@ -146,7 +146,10 @@ export async function GET(req: NextRequest) {
           AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
           AND b.status NOT IN ('cancelled', 'completed', 'no_show', 'archived', 'en_route', 'arrived', 'in_trip', 'accepted')
           AND b.dispatch_status NOT IN ('accepted', 'completed', 'cancelled', 'assigned')
-          AND COALESCE(dof.is_fallback_offer, false) = false
+          -- BUG 2 FIX: Removed COALESCE(dof.is_fallback_offer, false) = false
+          -- manual-reassign creates offers with is_fallback_offer=true.
+          -- Filtering them out caused the driver panel to never show manually
+          -- assigned offers. We now accept both standard and fallback/manual offers.
         ORDER BY dof.created_at DESC
         LIMIT 1
       `;

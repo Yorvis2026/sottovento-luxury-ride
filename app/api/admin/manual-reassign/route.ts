@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
         ${nextRound},
         ${nextRound},
         false,
-        true,
+        false,
         NOW(),
         NOW() + (${offerWindowMinutes} || ' minutes')::interval,
         NOW()

@@ -252,9 +252,12 @@ export async function PATCH(
       }
 
       // ── Vehicle Eligibility Gate (VEG v1) ──────────────────────────────────
-      // Derive service_location_type from pickup_zone if not already set
-      const slt = bookingCheck.service_location_type ||
-                  deriveServiceLocationType(bookingCheck.pickup_zone ?? "");
+      // BUG 1 FIX: Always derive slt from pickup_zone (the authoritative source).
+      // Never trust the stored service_location_type — it may have been set
+      // incorrectly by a prior migration or bug (e.g. MCO stored when pickup_zone
+      // is DISNEY, triggering a false airport gate on non-MCO pickups).
+      // pickup_zone is the only field that determines eligibility gate activation.
+      const slt = deriveServiceLocationType(bookingCheck.pickup_zone ?? "");
       if (requiresEligibilityGate(slt)) {
         // Load driver's primary vehicle (or any active vehicle for this driver)
         const vehicleRows = await sql`

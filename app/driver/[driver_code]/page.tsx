@@ -537,6 +537,21 @@ interface CancelledRide {
   client_name?: string | null
 }
 
+interface ExpiredOffer {
+  booking_id: string
+  round_number: number
+  offer_status: string
+  sent_at: string | null
+  responded_at: string | null
+  notes: string | null
+  created_at: string
+  pickup_location: string
+  dropoff_location: string
+  pickup_datetime: string | null
+  vehicle_type: string
+  total_price: number
+}
+
 interface DriverSummary {
   driver_id: string
   driver_name: string
@@ -553,6 +568,8 @@ interface DriverSummary {
   upcoming_rides: UpcomingRide[]
   completed_rides: CompletedRide[]
   cancelled_rides: CancelledRide[]
+  expired_offers: ExpiredOffer[]
+  expired_offers_count: number
   // BM5: Driver Reliability Score Engine
   reliability_score?: number
   driver_tier?: string
@@ -1161,6 +1178,8 @@ export default function DriverDashboardByCode() {
         upcoming_rides: d.upcoming_rides ?? [],
         completed_rides: d.completed_rides ?? [],
         cancelled_rides: d.cancelled_rides ?? [],
+        expired_offers: d.expired_offers ?? [],
+        expired_offers_count: d.stats?.expired_offers_count ?? (d.expired_offers?.length ?? 0),
         // BM5: Driver Reliability Score Engine
         reliability_score: d.reliability_score ?? undefined,
         driver_tier: d.driver_tier ?? undefined,
@@ -3774,6 +3793,54 @@ export default function DriverDashboardByCode() {
             </div>
           )}
         </div>
+
+        {/* ── Expired Offers History ── */}
+        {summary.expired_offers && summary.expired_offers.length > 0 && (
+          <div className="mt-6">
+            <div className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">
+              {lang === "es" ? "Ofertas expiradas / rechazadas" : "Expired / Declined Offers"}
+            </div>
+            <div className="space-y-2">
+              {summary.expired_offers.map((offer, idx) => {
+                const offerDate = offer.sent_at
+                  ? new Date(offer.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""
+                const offerTime = offer.sent_at
+                  ? new Date(offer.sent_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                const isExpired = offer.offer_status === "offer_expired"
+                return (
+                  <div key={`${offer.booking_id}-${idx}`}
+                    className="rounded-xl border border-zinc-800/60 bg-zinc-900/60 overflow-hidden">
+                    <div className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-zinc-300 truncate">{offer.pickup_location}</div>
+                          <div className="text-xs text-zinc-500 mt-0.5">→ {offer.dropoff_location}</div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-bold text-zinc-600">${offer.total_price.toFixed(0)}</div>
+                          <div className={`text-xs mt-0.5 ${isExpired ? "text-orange-500" : "text-red-400"}`}>
+                            {isExpired
+                              ? (lang === "es" ? "Expirada" : "Expired")
+                              : (lang === "es" ? "Rechazada" : "Declined")}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {offerDate && <span className="text-xs text-zinc-500">{offerDate}</span>}
+                        {offerTime && <span className="text-xs text-zinc-600">{offerTime}</span>}
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500">{offer.vehicle_type}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800/60 text-zinc-600">
+                          {lang === "es" ? "Ronda" : "Round"} {offer.round_number}
+                        </span>
+                        <span className="text-xs text-zinc-700 font-mono ml-auto">{offer.booking_id.slice(0, 8)}…</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       )}
 
       {/* ── TAB: EARNINGS ── */}
