@@ -796,6 +796,10 @@ export default function DriverDashboardByCode() {
   const prevRideIdRef = useRef<string | null>(null)
   const prevOfferIdRef = useRef<string | null>(null)
   const prevRideUpdatedAtRef = useRef<string | null>(null)
+  // FIX C — DEDUP GUARD: Set of offer_ids already alerted in this session
+  // Prevents re-alert on every polling refresh while same offer is active
+  // but allows alerting for second, third, etc. offers in the same session
+  const seenOfferIdsRef = useRef<Set<string>>(new Set())
   // ── Real-time alert layer ─────────────────────────────────────
   // showOfferBanner: persistent top banner while offer is active
   // offerAlertCount: cumulative new-offer count in this session
@@ -875,6 +879,34 @@ export default function DriverDashboardByCode() {
     } catch {}
   }, [])
 
+  // FIX B — Distinct urgent alert for reassignment/fallback offers (offer_round > 1)
+  // Descending 4-tone pattern repeated twice — clearly different from standard alert
+  const playUrgentAlert = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const playTone = (freq: number, startTime: number, duration: number, vol = 0.65) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime)
+        gain.gain.setValueAtTime(vol, ctx.currentTime + startTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration)
+        osc.start(ctx.currentTime + startTime)
+        osc.stop(ctx.currentTime + startTime + duration)
+      }
+      // Descending urgent pattern: G6 → E6 → C6 → G5, repeated twice
+      playTone(1568, 0.00, 0.14) // G6
+      playTone(1319, 0.17, 0.14) // E6
+      playTone(1047, 0.34, 0.14) // C6
+      playTone(784,  0.51, 0.25) // G5 — low final note
+      playTone(1568, 0.85, 0.14) // G6 repeat
+      playTone(1319, 1.02, 0.14) // E6
+      playTone(1047, 1.19, 0.14) // C6
+      playTone(784,  1.36, 0.30) // G5
+    } catch {}
+  }, [])
+
   // ── Dashboard banner: repeat audio + vibration every 5s while banner is active ──
   // This fires when the driver is on the DASHBOARD (not on OfferScreen) and has a pending offer.
   // The OfferScreen has its own independent alert loop (playOfferBeep).
@@ -945,9 +977,14 @@ export default function DriverDashboardByCode() {
         prevRideUpdatedAtRef.current !== null &&
         newUpdatedAt !== prevRideUpdatedAtRef.current
 
-      // ── ALERT LAYER: detect transition no_offer → new_offer ──────────────────────
-      // offerChanged && hadNoOffer = genuine new offer arrived in this session
-      if (offerChanged && hadNoOffer) {
+      // ── ALERT LAYER: detect ANY new offer not yet seen in this session ──────────────────────
+      // FIX A: Fire on EVERY new offer_id, not just the first one in the session.
+      // FIX C: seenOfferIdsRef prevents duplicate alerts on polling refresh
+      //        while the same offer is still active (no re-alert on every 5s poll).
+      const isNewUnseenOffer = newOfferId !== null && !seenOfferIdsRef.current.has(newOfferId)
+      if (isNewUnseenOffer) {
+        // Mark as seen immediately to prevent duplicate on next poll cycle
+        seenOfferIdsRef.current.add(newOfferId)
         // 1. Persistent top banner
         setShowOfferBanner(true)
         // 2. Increment counter (supports multiple offers in session)
@@ -956,8 +993,14 @@ export default function DriverDashboardByCode() {
         setShowOfferAlertModal(true)
         // 4. Vibration: urgent triple-pulse pattern per spec
         try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]) } catch {}
-        // 5. Sound: only if tab is visible
-        if (document.visibilityState === 'visible') {
+        // 5. FIX A: Sound fires immediately on new offer detection
+        //    FIX B: Distinct urgent pattern for reassignment offers (offer_round > 1)
+        const offerRound = d.active_offer?.offer_round ?? 1
+        if (offerRound > 1) {
+          // Reassignment/urgent offer — stronger descending alert
+          playUrgentAlert()
+          try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300, 100, 300]) } catch {}
+        } else {
           playAlert()
         }
       }
@@ -969,8 +1012,8 @@ export default function DriverDashboardByCode() {
         setShowOfferAlertModal(false)
       }
 
-      if (rideChanged || (offerChanged && hadNoOffer)) {
-        if (!offerChanged || !hadNoOffer) playAlert() // avoid double-play when both conditions true
+      if (rideChanged || isNewUnseenOffer) {
+        if (!isNewUnseenOffer) playAlert() // avoid double-play when both conditions true
         // Vibrate if supported (pattern: 3 pulses)
         try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]) } catch {}
         // Browser Notification API — fires even when tab is in background
@@ -1062,9 +1105,10 @@ export default function DriverDashboardByCode() {
             return prev - 1
           })
         }, 1000)
-        // Alert
-        try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]) } catch {}
-        if (document.visibilityState === 'visible') { try { playAlert() } catch {} }
+        // FIX B: Fallback offers are always urgent — use distinct urgent alert
+        // FIX A: Removed visibilityState guard — sound fires immediately on detection
+        try { playUrgentAlert() } catch {}
+        try { if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300, 100, 300]) } catch {}
       }
       // Clear fallback offer modal when offer disappears
       if (!d.fallback_offer && prevFallbackOfferIdRef.current !== null) {
@@ -3879,23 +3923,40 @@ function OfferScreen({
         transition: "box-shadow 0.3s ease",
       }}>
 
-      {/* ── URGENT ALERT BANNER ── */}
+      {/* FIX F — URGENT ALERT BANNER: enhanced with round badge and reassignment indicator */}
       {!expired && !responding && (
         <div
           className="flex items-center justify-center gap-3 px-4 flex-shrink-0"
           style={{
-            backgroundColor: flashOn ? "#dc2626" : "#7f1d1d",
+            backgroundColor: flashOn
+              ? (offer.offer_round && offer.offer_round > 1 ? "#7c3aed" : "#dc2626")
+              : (offer.offer_round && offer.offer_round > 1 ? "#4c1d95" : "#7f1d1d"),
             transition: "background-color 0.25s ease",
             paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
             paddingBottom: "10px",
-            boxShadow: flashOn ? "0 4px 32px #dc262699" : "0 2px 8px #dc262640",
+            boxShadow: flashOn
+              ? (offer.offer_round && offer.offer_round > 1 ? "0 4px 32px #7c3aed99" : "0 4px 32px #dc262699")
+              : "0 2px 8px #00000040",
           }}>
-          <span className="text-xl animate-bounce">🔔</span>
-          <span className="font-black tracking-widest uppercase"
-            style={{ color: "#fff", fontSize: 15, letterSpacing: "0.12em" }}>
-            {t.newRideOffer}
+          <span className="text-xl animate-bounce">
+            {offer.offer_round && offer.offer_round > 1 ? "⚡" : "🔔"}
           </span>
-          <span className="text-xl animate-bounce">🔔</span>
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-black tracking-widest uppercase"
+              style={{ color: "#fff", fontSize: 15, letterSpacing: "0.12em" }}>
+              {offer.offer_round && offer.offer_round > 1
+                ? (lang === "es" ? "REASIGNACIÓN URGENTE" : lang === "ht" ? "REASIÈNMAN IJANS" : "URGENT REASSIGNMENT")
+                : t.newRideOffer}
+            </span>
+            {offer.offer_round && offer.offer_round > 1 && (
+              <span className="text-xs font-semibold" style={{ color: "#c4b5fd", letterSpacing: "0.08em" }}>
+                {lang === "es" ? `Ronda ${offer.offer_round} de despacho` : `Dispatch Round ${offer.offer_round}`}
+              </span>
+            )}
+          </div>
+          <span className="text-xl animate-bounce">
+            {offer.offer_round && offer.offer_round > 1 ? "⚡" : "🔔"}
+          </span>
         </div>
       )}
       {/* Expired banner */}
@@ -3930,7 +3991,10 @@ function OfferScreen({
             </span>
           )}
           {offer.offer_round && offer.offer_round > 1 && (
-            <span className="text-xs text-zinc-500">{t.round} {offer.offer_round}</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full animate-pulse"
+              style={{ backgroundColor: "#4c1d95", color: "#c4b5fd", border: "1px solid #7c3aed" }}>
+              {t.round} {offer.offer_round} ⚡
+            </span>
           )}
         </div>
         <div className="flex items-center gap-3">
