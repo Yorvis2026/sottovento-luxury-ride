@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
 
 // ============================================================
 // POST /api/admin/manual-reassign
@@ -318,7 +319,56 @@ export async function POST(req: NextRequest) {
       targetDriverName = candidates[0].full_name;
     }
 
-    // ── Determine next round ──────────────────────────────────
+    // ── BM18 Guard: Conflict Detection ────────────────────────
+    // Validate driver availability BEFORE creating the offer.
+    // Non-blocking: if override_state=true, conflict is logged but not blocked.
+    if (targetDriverId) {
+      try {
+        const conflictResult = await checkDriverAvailabilityForBooking(
+          sql,
+          targetDriverId,
+          booking_id
+        );
+        if (!conflictResult.available && !override_state) {
+          console.log('[BM18_CONFLICT_BLOCKED]', JSON.stringify({
+            booking_id,
+            driver_id: targetDriverId,
+            driver_code: targetDriverCode,
+            reason: conflictResult.reason,
+            explanation: conflictResult.explanation,
+            conflicting_booking_id: conflictResult.conflicting_booking_id,
+            ts: new Date().toISOString(),
+          }));
+          return NextResponse.json({
+            error: `[BM18] Driver ${targetDriverCode ?? targetDriverId} has a schedule conflict: ${conflictResult.reason}. ${conflictResult.explanation ?? ''}. Use override_state=true to force assignment.`,
+            bm18_conflict: {
+              available: false,
+              reason: conflictResult.reason,
+              explanation: conflictResult.explanation,
+              conflicting_booking_id: conflictResult.conflicting_booking_id,
+              conflict_minutes: conflictResult.conflict_minutes,
+            },
+            blocked_reason: 'BM18_SCHEDULE_CONFLICT',
+          }, { status: 409 });
+        }
+        if (!conflictResult.available && override_state) {
+          console.log('[BM18_CONFLICT_OVERRIDE]', JSON.stringify({
+            booking_id,
+            driver_id: targetDriverId,
+            driver_code: targetDriverCode,
+            reason: conflictResult.reason,
+            explanation: conflictResult.explanation,
+            override_state: true,
+            ts: new Date().toISOString(),
+          }));
+        }
+      } catch (conflictErr) {
+        // Non-blocking: conflict check failure must never block reassignment
+        console.error('[BM18] conflict check failed (non-blocking):', conflictErr);
+      }
+    }
+
+    // ── Determine next round ──────────────────────────
     const currentRound = booking.dispatch_round ?? 1;
     const nextRound = currentRound + 1;
     const offerWindowMinutes = 20;

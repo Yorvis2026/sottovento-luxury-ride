@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { checkDriverAvailabilityForBooking } from '@/lib/dispatch/conflict-engine';
 const sql = neon(process.env.DATABASE_URL_UNPOOLED as string);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,8 +159,37 @@ async function dispatchFallbackPool(booking: any, dryRun: boolean): Promise<obje
   const declinedIds = declinedRows.map((r: any) => r.driver_id as string);
   if (originalDriverId) declinedIds.push(originalDriverId);
 
-  // Get candidate drivers
-  const candidates = await getCandidateDrivers(booking, declinedIds, candidateLimit);
+  // Get candidate drivers (fetch extra pool for BM18 conflict filtering)
+  const rawCandidates = await getCandidateDrivers(booking, declinedIds, candidateLimit * 3);
+
+  // BM18: Filter out candidates with schedule conflicts
+  const candidates: typeof rawCandidates = [];
+  for (const candidate of rawCandidates) {
+    try {
+      const conflictResult = await checkDriverAvailabilityForBooking(
+        sql,
+        candidate.id,
+        bookingId
+      );
+      if (conflictResult.available) {
+        candidates.push(candidate);
+        if (candidates.length >= candidateLimit) break;
+      } else {
+        console.log('[BM18_FALLBACK_CANDIDATE_SKIPPED]', JSON.stringify({
+          booking_id: bookingId,
+          driver_id: candidate.id,
+          driver_code: candidate.driver_code,
+          reason: conflictResult.reason,
+          explanation: conflictResult.explanation,
+          ts: new Date().toISOString(),
+        }));
+      }
+    } catch {
+      // Non-blocking: if check fails, include the candidate
+      candidates.push(candidate);
+      if (candidates.length >= candidateLimit) break;
+    }
+  }
 
   if (candidates.length === 0) {
     if (!dryRun) {

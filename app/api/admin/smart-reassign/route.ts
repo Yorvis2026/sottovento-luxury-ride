@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -161,8 +162,35 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── Select top rescue candidate ───────────────────────────
-    const topCandidate = candidates[0];
+    // ── Select top rescue candidate (BM18: conflict-aware) ─────────────
+    // BM18: Iterate candidates in priority order and skip those with conflicts.
+    // Falls back to candidates[0] if all have conflicts (rescue must proceed).
+    let topCandidate = candidates[0];
+    for (const candidate of candidates) {
+      try {
+        const conflictResult = await checkDriverAvailabilityForBooking(
+          sql,
+          candidate.id,
+          booking_id
+        );
+        if (conflictResult.available) {
+          topCandidate = candidate;
+          break;
+        }
+        console.log('[BM18_CANDIDATE_SKIPPED]', JSON.stringify({
+          booking_id,
+          driver_id: candidate.id,
+          driver_code: candidate.driver_code,
+          reason: conflictResult.reason,
+          explanation: conflictResult.explanation,
+          ts: new Date().toISOString(),
+        }));
+      } catch {
+        // Non-blocking: if check fails, keep this candidate and proceed
+        topCandidate = candidate;
+        break;
+      }
+    }
 
     // ── For CRITICAL: auto-offer to top SOTTOVENTO_LEGAL_FLEET driver ──
     const isCritical = booking.sla_current_state === "sla_critical" || booking.sla_protection_level === "CRITICAL";
