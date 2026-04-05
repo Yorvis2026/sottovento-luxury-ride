@@ -3598,45 +3598,68 @@ export default function DriverDashboardByCode() {
       </div>
 
       {/* ── TABS ── */}
-      {/* Safe-area horizontal padding prevents tabs from touching screen edges on notch/Dynamic Island devices */}
+      {/* BM18-FIX-UI: Tab rail — horizontal scroll, snap suave, safe-area aware */}
+      {/* INVARIANT: No business logic changed — only layout/presentation */}
       <div
-        className="flex border-b border-zinc-800 mt-4"
+        className="mt-4 border-b border-zinc-800"
         style={{
-          paddingLeft:  "max(env(safe-area-inset-left),  16px)",
-          paddingRight: "max(env(safe-area-inset-right), 16px)",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          scrollSnapType: "x proximity",
+          /* Hide scrollbar cross-browser */
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
         }}
       >
-        {([
-          // BUG B FIX: Show activeOfferCount badge on Overview tab.
-          // When a new offer arrives, the Overview tab now shows a badge (1) so the driver
-          // knows there's a pending offer even if they're on a different tab.
-          // The badge clears immediately when the offer is accepted/declined/expired
-          // because activeOfferCount is derived from summary.active_offer (reactive).
-          { key: "overview",  label: "Overview",  badge: activeOfferCount > 0 ? activeOfferCount : null },
-          { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
-          { key: "completed", label: lang === "es" ? "Completados" : "Completed", badge: null },
-          // BUG C FIX: Show expired_offers_count in the Cancelled tab badge.
-          // expired_offers are rendered inside the cancelled tab but the badge only
-          // counted cancelled_rides, so drivers had no visual cue that expired offers existed.
-          { key: "cancelled", label: lang === "es" ? "Cancelados" : "Cancelled",
-            badge: ((summary?.cancelled_rides?.length ?? 0) + (summary?.expired_offers_count ?? 0)) > 0
-              ? (summary?.cancelled_rides?.length ?? 0) + (summary?.expired_offers_count ?? 0)
-              : null },
-          { key: "earnings",  label: lang === "es" ? "Ganancias" : "Earnings",  badge: null },
-        ] as { key: "overview" | "upcoming" | "completed" | "cancelled" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
-          <button key={tab.key}
-            onClick={() => setDashTab(tab.key)}
-            className="relative pb-2 pt-1 flex-1 text-xs font-medium uppercase tracking-widest transition-all text-center"
-            style={{ color: dashTab === tab.key ? GOLD : "#6b7280", borderBottom: dashTab === tab.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>
-            {tab.label}
-            {tab.badge !== null && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs font-bold"
-                style={{ backgroundColor: GOLD, color: "#000" }}>
-                {tab.badge}
-              </span>
-            )}
-          </button>
-        ))}
+        <div
+          className="flex"
+          style={{
+            paddingLeft:  "max(env(safe-area-inset-left),  12px)",
+            paddingRight: "max(env(safe-area-inset-right), 12px)",
+            gap: 0,
+            minWidth: "max-content",
+          }}
+        >
+          {([
+            // BUG B FIX: Show activeOfferCount badge on Overview tab.
+            // When a new offer arrives, the Overview tab now shows a badge (1) so the driver
+            // knows there's a pending offer even if they're on a different tab.
+            // The badge clears immediately when the offer is accepted/declined/expired
+            // because activeOfferCount is derived from summary.active_offer (reactive).
+            { key: "overview",  label: "Overview",  badge: activeOfferCount > 0 ? activeOfferCount : null },
+            { key: "upcoming",  label: lang === "es" ? "Próximos" : "Upcoming",  badge: upcomingCount > 0 ? upcomingCount : null },
+            { key: "completed", label: lang === "es" ? "Completados" : "Completed", badge: null },
+            // BUG C FIX: Show expired_offers_count in the Cancelled tab badge.
+            // expired_offers are rendered inside the cancelled tab but the badge only
+            // counted cancelled_rides, so drivers had no visual cue that expired offers existed.
+            { key: "cancelled", label: lang === "es" ? "Cancelados" : "Cancelled",
+              badge: ((summary?.cancelled_rides?.length ?? 0) + (summary?.expired_offers_count ?? 0)) > 0
+                ? (summary?.cancelled_rides?.length ?? 0) + (summary?.expired_offers_count ?? 0)
+                : null },
+            { key: "earnings",  label: lang === "es" ? "Ganancias" : "Earnings",  badge: null },
+          ] as { key: "overview" | "upcoming" | "completed" | "cancelled" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
+            <button key={tab.key}
+              onClick={() => setDashTab(tab.key)}
+              className="relative pb-2.5 pt-1.5 text-xs font-medium uppercase tracking-widest transition-all whitespace-nowrap"
+              style={{
+                color: dashTab === tab.key ? GOLD : "#6b7280",
+                borderBottom: dashTab === tab.key ? `2px solid ${GOLD}` : "2px solid transparent",
+                scrollSnapAlign: "start",
+                paddingLeft: 16,
+                paddingRight: 16,
+                flexShrink: 0,
+              }}>
+              {tab.label}
+              {tab.badge !== null && (
+                <span
+                  className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs font-bold"
+                  style={{ backgroundColor: GOLD, color: "#000", verticalAlign: "middle" }}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── TAB: OVERVIEW ── */}
@@ -3726,18 +3749,44 @@ export default function DriverDashboardByCode() {
             </div>
           )}
 
-          {/* Metrics */}
-          <div className="px-4 mt-4 grid grid-cols-2 gap-3">
+          {/* BM18-FIX-UI: Metrics rail — horizontal scroll, same pattern as admin KPI cards */}
+          {/* INVARIANT: No business logic changed — only layout/presentation */}
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              scrollSnapType: "x proximity",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              paddingLeft: "max(env(safe-area-inset-left), 16px)",
+              paddingRight: "max(env(safe-area-inset-right), 16px)",
+              paddingBottom: 8,
+              marginTop: 16,
+            }}
+          >
             {[
               { label: t.totalClients, value: summary.total_clients, icon: "👥", color: GOLD },
               { label: offerAlertCount > 0 ? (lang === "es" ? `🔴 SOLICITUD (${offerAlertCount})` : `🔴 REQUEST (${offerAlertCount})`) : t.pendingOffers, value: offerAlertCount > 0 ? offerAlertCount : summary.pending_offers, icon: offerAlertCount > 0 ? "🔴" : "⏳", color: offerAlertCount > 0 ? "#dc2626" : (summary.pending_offers > 0 ? "#f87171" : "#6b7280") },
               { label: t.monthEarnings, value: `$${summary.month_earnings.toFixed(2)}`, icon: "💰", color: GOLD },
               { label: t.lifetimeEarnings, value: `$${summary.lifetime_earnings.toFixed(2)}`, icon: "📈", color: "#a78bfa" },
             ].map((card) => (
-              <div key={card.label} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                <div className="text-xl mb-1">{card.icon}</div>
-                <div className="text-xl font-light" style={{ color: card.color }}>{card.value}</div>
-                <div className="text-xs text-zinc-400 mt-1">{card.label}</div>
+              <div
+                key={card.label}
+                style={{
+                  background: "#111",
+                  border: "1px solid #222",
+                  borderRadius: 12,
+                  padding: "16px 18px",
+                  minWidth: 130,
+                  flexShrink: 0,
+                  scrollSnapAlign: "start",
+                }}
+              >
+                <div style={{ fontSize: 20, marginBottom: 4 }}>{card.icon}</div>
+                <div style={{ fontSize: 20, fontWeight: 300, color: card.color, lineHeight: 1.2 }}>{card.value}</div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>{card.label}</div>
               </div>
             ))}
           </div>
