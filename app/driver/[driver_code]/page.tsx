@@ -3826,6 +3826,83 @@ export default function DriverDashboardByCode() {
               })}
             </div>
           )}
+
+          {/* ── BM16: FUTURE SCHEDULE SECTION ──────────────────────────── */}
+          {/* Shows rides accepted/assigned with pickup_at > 120min, up to 72h ahead */}
+          {/* Separate from upcoming_rides (operational) — read-only, grouped by date */}
+          {(summary?.driver as any)?.future_bookings?.length > 0 && (
+            <div className="mt-6">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>📆 {lang === "es" ? "Agenda Futura" : "Future Schedule"}</div>
+                <div className="flex-1 h-px bg-zinc-800" />
+                <div className="text-xs text-zinc-500">{lang === "es" ? "Hasta 72h" : "Up to 72h"}</div>
+              </div>
+              {/* Group by date */}
+              {(() => {
+                const futureRides = (summary?.driver as any)?.future_bookings ?? [];
+                const grouped: Record<string, any[]> = {};
+                for (const ride of futureRides) {
+                  const dateKey = ride.pickup_datetime
+                    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
+                    : "TBD";
+                  if (!grouped[dateKey]) grouped[dateKey] = [];
+                  grouped[dateKey].push(ride);
+                }
+                return Object.entries(grouped).map(([dateLabel, rides]) => (
+                  <div key={dateLabel} className="mb-4">
+                    <div className="text-xs text-zinc-500 font-medium mb-2 px-1">{dateLabel}</div>
+                    <div className="space-y-2">
+                      {rides.map((ride: any) => {
+                        const pickupTime = ride.pickup_datetime
+                          ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+                        const hoursUntil = ride.hours_until_pickup ?? Math.round((ride.minutes_until_pickup ?? 0) / 60);
+                        const hasConflict = ride.has_schedule_conflict === true;
+                        return (
+                          <div key={ride.booking_id}
+                            className="rounded-xl border bg-zinc-900 overflow-hidden"
+                            style={{ borderColor: hasConflict ? "#f87171" : "#27272a" }}>
+                            {hasConflict && (
+                              <div className="px-3 py-1.5 text-xs font-semibold flex items-center gap-2"
+                                style={{ backgroundColor: "#f8717115", color: "#f87171" }}>
+                                ⚠️ {lang === "es" ? "Posible conflicto de horario" : "Possible schedule conflict"}
+                              </div>
+                            )}
+                            <div className="px-4 py-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-white truncate">{ride.pickup_location}</div>
+                                  <div className="text-xs text-zinc-500 mt-0.5">→ {ride.dropoff_location}</div>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <div className="text-base font-bold" style={{ color: GOLD }}>${ride.total_price?.toFixed(0) ?? '0'}</div>
+                                  <div className="text-xs text-zinc-500 mt-0.5">{pickupTime}</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{ride.vehicle_type ?? 'Sedan'}</span>
+                                {ride.passengers && (
+                                  <span className="text-xs text-zinc-500">👥 {ride.passengers}</span>
+                                )}
+                                <span className="text-xs ml-auto text-zinc-500">
+                                  {hoursUntil > 0 ? `${hoursUntil}h` : ''} {lang === "es" ? "restantes" : "away"}
+                                </span>
+                              </div>
+                              {ride.flight_number && (
+                                <div className="mt-1.5 text-xs text-zinc-500">
+                                  ✈️ {ride.flight_number}
+                                </div>
+                              )}
+                              <div className="mt-1.5 text-xs text-zinc-700 font-mono">{ride.booking_id?.slice(0, 8).toUpperCase()}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          )}
         </div>
       )}
 

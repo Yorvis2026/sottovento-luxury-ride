@@ -30,6 +30,11 @@ import {
   deriveServiceLocationType,
   type ServiceLocationType,
 } from "@/lib/vehicles/gate";
+import {
+  checkScheduleConflict,
+  BM16_CONFIG,
+  type ScheduledRide,
+} from "@/lib/dispatch/schedule-conflict";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -145,9 +150,86 @@ export async function GET(req: NextRequest) {
       }
     } catch {
       // audit_logs may not have these entries yet — non-blocking
+    }    // ── 5. BM16: Fetch future committed bookings per driver for conflict check ───
+    // Fetch the proposed booking's pickup_at for conflict evaluation
+    let proposedPickupAt: Date | null = null;
+    let proposedDurationMin: number | null = null;
+    let proposedPickupLat: number | null = null;
+    let proposedPickupLng: number | null = null;
+    let proposedDropoffLat: number | null = null;
+    let proposedDropoffLng: number | null = null;
+    let proposedPickupAddress = '';
+    let proposedDropoffAddress = '';
+    try {
+      const [proposedBooking] = await sql`
+        SELECT pickup_at, estimated_duration_minutes,
+               pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+               pickup_address, dropoff_address
+        FROM bookings WHERE id = ${bookingId}::uuid LIMIT 1
+      `;
+      if (proposedBooking?.pickup_at) {
+        proposedPickupAt = new Date(proposedBooking.pickup_at);
+        proposedDurationMin = proposedBooking.estimated_duration_minutes ?? null;
+        proposedPickupLat = proposedBooking.pickup_lat ?? null;
+        proposedPickupLng = proposedBooking.pickup_lng ?? null;
+        proposedDropoffLat = proposedBooking.dropoff_lat ?? null;
+        proposedDropoffLng = proposedBooking.dropoff_lng ?? null;
+        proposedPickupAddress = proposedBooking.pickup_address ?? '';
+        proposedDropoffAddress = proposedBooking.dropoff_address ?? '';
+      }
+    } catch { /* non-blocking */ }
+
+    // Fetch future committed bookings for all candidate drivers
+    const driverIds = driverRows.map((d: any) => d.id);
+    let driverFutureBookingsMap: Record<string, ScheduledRide[]> = {};
+    if (proposedPickupAt && driverIds.length > 0) {
+      try {
+        const lookaheadHours = BM16_CONFIG.CONFLICT_LOOKAHEAD_HOURS;
+        const futureBookingRows = await sql`
+          SELECT
+            b.id AS booking_id,
+            b.assigned_driver_id::text AS driver_id,
+            b.pickup_at,
+            b.estimated_duration_minutes,
+            b.pickup_lat, b.pickup_lng,
+            b.dropoff_lat, b.dropoff_lng,
+            b.pickup_address, b.dropoff_address,
+            b.status, b.dispatch_status
+          FROM bookings b
+          WHERE b.assigned_driver_id = ANY(${driverIds}::uuid[])
+            AND b.status IN ('accepted', 'assigned')
+            AND b.dispatch_status NOT IN (
+              'offer_pending', 'reassignment_required', 'pool_offer',
+              'completed', 'cancelled', 'archived', 'no_show',
+              'system_cleanup_legacy'
+            )
+            AND b.status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'en_route', 'arrived', 'in_trip')
+            AND b.pickup_at > NOW() - INTERVAL '2 hours'
+            AND b.pickup_at <= NOW() + (${lookaheadHours} || ' hours')::interval
+            AND b.id != ${bookingId}::uuid
+          ORDER BY b.pickup_at ASC
+        `;
+        for (const row of futureBookingRows) {
+          const dId = row.driver_id;
+          if (!driverFutureBookingsMap[dId]) driverFutureBookingsMap[dId] = [];
+          driverFutureBookingsMap[dId].push({
+            booking_id: row.booking_id,
+            pickup_at: new Date(row.pickup_at),
+            estimated_duration_minutes: row.estimated_duration_minutes ?? null,
+            pickup_lat: row.pickup_lat ?? null,
+            pickup_lng: row.pickup_lng ?? null,
+            dropoff_lat: row.dropoff_lat ?? null,
+            dropoff_lng: row.dropoff_lng ?? null,
+            pickup_address: row.pickup_address ?? '',
+            dropoff_address: row.dropoff_address ?? '',
+            status: row.status,
+            dispatch_status: row.dispatch_status ?? row.status,
+          });
+        }
+      } catch { /* non-blocking */ }
     }
 
-    // ── 5. Build DriverCandidate array ────────────────────────────────────
+    // ── 5. Build DriverCandidate array ──────────────────────────────────────
     const candidates: DriverCandidate[] = driverRows.map((d: any) => {
       const behavior = recentBehaviorMap[d.id] ?? { late_cancel: 0, complaint: 0, no_response: 0 };
       return {
@@ -171,8 +253,70 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // ── 5b. BM16: Apply schedule conflict filter ────────────────────────────
+    // Exclude drivers with strong schedule conflicts from the candidate pool.
+    // Borderline conflicts are logged but driver remains eligible.
+    const scheduleExcluded: Array<{ driver_id: string; driver_code: string; reason: string }> = [];
+    let filteredCandidates = candidates;
+
+    if (proposedPickupAt) {
+      const proposedRide: ScheduledRide = {
+        booking_id: bookingId,
+        pickup_at: proposedPickupAt,
+        estimated_duration_minutes: proposedDurationMin,
+        pickup_lat: proposedPickupLat,
+        pickup_lng: proposedPickupLng,
+        dropoff_lat: proposedDropoffLat,
+        dropoff_lng: proposedDropoffLng,
+        pickup_address: proposedPickupAddress,
+        dropoff_address: proposedDropoffAddress,
+        status: 'pending',
+        dispatch_status: 'pending_dispatch',
+      };
+
+      filteredCandidates = candidates.filter((c) => {
+        const existingRides = driverFutureBookingsMap[c.id] ?? [];
+        if (existingRides.length === 0) return true; // no future rides — always eligible
+
+        const conflictResult = checkScheduleConflict(c.id, proposedRide, existingRides);
+
+        if (conflictResult.has_strong_conflict) {
+          // [BM16_DRIVER_EXCLUDED_BY_SCHEDULE] log
+          console.log('[BM16_DRIVER_EXCLUDED_BY_SCHEDULE]', JSON.stringify({
+            driver_id: c.id,
+            driver_code: c.driver_code,
+            booking_id: bookingId,
+            conflict_pairs: conflictResult.conflict_pairs,
+            exclusion_reason: conflictResult.exclusion_reason,
+            ts: new Date().toISOString(),
+          }));
+          scheduleExcluded.push({
+            driver_id: c.id,
+            driver_code: c.driver_code,
+            reason: conflictResult.exclusion_reason ?? 'BM16_STRONG_CONFLICT',
+          });
+          return false;
+        }
+
+        if (conflictResult.has_borderline_conflict) {
+          // [BM16_CONFLICT_DETECTED] borderline — driver remains eligible but logged
+          console.log('[BM16_CONFLICT_DETECTED]', JSON.stringify({
+            driver_id: c.id,
+            driver_code: c.driver_code,
+            booking_id: bookingId,
+            severity: 'borderline',
+            conflict_pairs: conflictResult.conflict_pairs,
+            ts: new Date().toISOString(),
+          }));
+        }
+
+        return true; // eligible
+      });
+    }
+
     // ── 6. Run Priority Engine ────────────────────────────────────────────
-    const result = runPriorityEngine(candidates, bookingCtx);
+    // BM16: Use filteredCandidates (schedule-conflict excluded drivers removed)
+    const result = runPriorityEngine(filteredCandidates, bookingCtx);
 
     // ── 7. Persist audit log ──────────────────────────────────────────────
     try {
@@ -199,6 +343,16 @@ export async function GET(req: NextRequest) {
       ranked:                 result.ranked,
       excluded:               result.excluded,
       audit_payload:          result.audit_payload,
+      // BM16: Schedule conflict exclusions
+      schedule_excluded:      scheduleExcluded,
+      bm16_conflict_check: {
+        applied: proposedPickupAt !== null,
+        proposed_pickup_at: proposedPickupAt?.toISOString() ?? null,
+        drivers_evaluated: candidates.length,
+        drivers_excluded_by_schedule: scheduleExcluded.length,
+        conflict_lookahead_hours: BM16_CONFIG.CONFLICT_LOOKAHEAD_HOURS,
+        min_turn_buffer_minutes: BM16_CONFIG.MIN_TURN_BUFFER_MINUTES,
+      },
     });
 
   } catch (err: any) {

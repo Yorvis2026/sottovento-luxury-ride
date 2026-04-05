@@ -1,6 +1,11 @@
 export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import {
+  checkInternalScheduleConflicts,
+  BM16_CONFIG,
+  type ScheduledRide,
+} from "@/lib/dispatch/schedule-conflict";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -897,6 +902,135 @@ export async function GET(req: NextRequest) {
       expired_offers_count = expired_offers.length;
     } catch { /* non-blocking — driver_offer_history may not exist on older deployments */ }
 
+    // ── BM16: Future Schedule Layer ─────────────────────────────────
+    // future_bookings: rides accepted/assigned with pickup_at BEYOND the
+    // current operational window (>120min future) up to FUTURE_SCHEDULE_WINDOW_HOURS.
+    // Separate from upcoming_rides — enriched with conflict detection.
+    // EXCLUSIONS: offer_pending, reassignment_required, pool_offer,
+    //             cancelled, completed, archived, en_route, arrived, in_trip
+    let future_bookings: Record<string, unknown>[] = [];
+    let future_schedule_conflicts: Record<string, unknown>[] = [];
+    try {
+      const futureWindowHours = BM16_CONFIG.FUTURE_SCHEDULE_WINDOW_HOURS;
+      const futureRows = await sql`
+        SELECT
+          b.id AS booking_id,
+          b.status,
+          b.dispatch_status,
+          b.pickup_address,
+          b.dropoff_address,
+          b.pickup_at,
+          b.vehicle_type,
+          b.total_price,
+          b.flight_number,
+          b.passengers,
+          b.luggage,
+          b.notes,
+          b.estimated_duration_minutes,
+          b.pickup_lat,
+          b.pickup_lng,
+          b.dropoff_lat,
+          b.dropoff_lng,
+          c.full_name AS client_name,
+          c.phone AS client_phone
+        FROM bookings b
+        LEFT JOIN clients c ON c.id = b.client_id
+        WHERE b.assigned_driver_id = ${driver.id}
+          -- Only confirmed/committed rides (not offers or operational states)
+          AND b.status IN ('accepted', 'assigned')
+          AND b.dispatch_status NOT IN (
+            'offer_pending', 'reassignment_required', 'pool_offer',
+            'completed', 'cancelled', 'archived', 'no_show',
+            'system_cleanup_legacy', 'en_route', 'arrived', 'in_trip'
+          )
+          AND b.status NOT IN (
+            'completed', 'cancelled', 'archived', 'no_show',
+            'en_route', 'arrived', 'in_trip'
+          )
+          -- FUTURE SCHEDULE WINDOW: beyond operational window, up to FUTURE_SCHEDULE_WINDOW_HOURS
+          AND b.pickup_at > NOW() + INTERVAL '120 minutes'
+          AND b.pickup_at <= NOW() + (${futureWindowHours} || ' hours')::interval
+        ORDER BY b.pickup_at ASC
+        LIMIT ${BM16_CONFIG.MAX_DRIVER_FUTURE_VISIBLE_COUNT}
+      `;
+
+      // Build ScheduledRide objects for conflict detection
+      const scheduledRides: ScheduledRide[] = futureRows.map((r: any) => ({
+        booking_id: r.booking_id,
+        pickup_at: new Date(r.pickup_at),
+        estimated_duration_minutes: r.estimated_duration_minutes ?? null,
+        pickup_lat: r.pickup_lat ?? null,
+        pickup_lng: r.pickup_lng ?? null,
+        dropoff_lat: r.dropoff_lat ?? null,
+        dropoff_lng: r.dropoff_lng ?? null,
+        pickup_address: r.pickup_address ?? 'TBD',
+        dropoff_address: r.dropoff_address ?? 'TBD',
+        status: r.status,
+        dispatch_status: r.dispatch_status ?? r.status,
+      }));
+
+      // Run internal conflict detection across all future rides
+      const internalConflicts = checkInternalScheduleConflicts(driver.id, scheduledRides);
+      future_schedule_conflicts = internalConflicts;
+
+      // Build conflict index for fast lookup
+      const conflictIndex = new Set<string>();
+      for (const cp of internalConflicts) {
+        conflictIndex.add(cp.ride_a_id);
+        conflictIndex.add(cp.ride_b_id);
+      }
+
+      // Map to response objects
+      future_bookings = futureRows.map((r: any) => {
+        const pickupAt = new Date(r.pickup_at);
+        const now = new Date();
+        const minutesUntil = Math.round((pickupAt.getTime() - now.getTime()) / 60000);
+        const hoursUntil = Math.round(minutesUntil / 60);
+        const hasConflict = conflictIndex.has(r.booking_id);
+        const conflictDetail = internalConflicts.find(
+          (cp) => cp.ride_a_id === r.booking_id || cp.ride_b_id === r.booking_id
+        ) ?? null;
+
+        // [BM16_FUTURE_SCHEDULE_INCLUDED] log
+        console.log('[BM16_FUTURE_SCHEDULE_INCLUDED]', JSON.stringify({
+          booking_id: r.booking_id,
+          driver_id: driver.id,
+          pickup_at: r.pickup_at,
+          minutes_until: minutesUntil,
+          has_conflict: hasConflict,
+          conflict_type: conflictDetail?.conflict_type ?? null,
+          ts: new Date().toISOString(),
+        }));
+
+        return {
+          booking_id: r.booking_id,
+          status: r.status,
+          dispatch_status: r.dispatch_status ?? r.status,
+          pickup_location: r.pickup_address ?? 'TBD',
+          dropoff_location: r.dropoff_address ?? 'TBD',
+          pickup_datetime: r.pickup_at,
+          vehicle_type: r.vehicle_type ?? 'Sedan',
+          total_price: Number(r.total_price ?? 0),
+          flight_number: r.flight_number ?? null,
+          passengers: r.passengers ?? null,
+          luggage: r.luggage ?? null,
+          notes: r.notes ?? null,
+          client_name: r.client_name ?? null,
+          client_phone: r.client_phone ?? null,
+          minutes_until_pickup: minutesUntil,
+          hours_until_pickup: hoursUntil,
+          // Schedule layer metadata
+          schedule_layer: 'future_confirmed',
+          has_schedule_conflict: hasConflict,
+          conflict_detail: hasConflict ? {
+            type: conflictDetail?.conflict_type,
+            severity: conflictDetail?.severity,
+            reason: conflictDetail?.reason,
+          } : null,
+        };
+      });
+    } catch { /* non-blocking — future schedule is additive */ }
+
     return NextResponse.json({
       driver: {
         ...driver,
@@ -911,6 +1045,8 @@ export async function GET(req: NextRequest) {
         active_offer,
         assigned_ride,
         upcoming_rides,
+        future_bookings,
+        future_schedule_conflicts,
         completed_rides,
         cancelled_rides,
         expired_offers,
