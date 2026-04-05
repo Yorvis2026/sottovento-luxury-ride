@@ -434,6 +434,7 @@ export default function AdminPanel() {
     inProgress: Booking[];
     completed: Booking[];
     recentlyCancelled: any[]; // Fase 10: cancelled in last 24h with cancel_reason, cancel_responsibility, etc.
+    overdueIncidents: any[]; // BM17: rides past pickup + 15min grace with no resolved incident
     total: number;
     // Legacy
     awaitingSourceOwner: Booking[];
@@ -1491,6 +1492,7 @@ export default function AdminPanel() {
                 { label: "In Progress", count: dispatchData?.inProgress?.length ?? 0, color: "#4ade80", icon: "🚗", anchor: "bucket-in-progress" },
                 { label: "Completed (24h)", count: dispatchData?.completed?.length ?? 0, color: "#6b7280", icon: "✅", anchor: "bucket-completed" },
                 { label: "Cancelled (24h)", count: (dispatchData as any)?.recentlyCancelled?.length ?? 0, color: "#f87171", icon: "❌", anchor: "bucket-recently-cancelled" },
+                { label: "Overdue Incidents", count: (dispatchData as any)?.overdueIncidents?.length ?? 0, color: "#dc2626", icon: "🔴", anchor: "bucket-overdue-incidents" },
                 { label: "Fallback Queue", count: fallbackQueue.length, color: "#fb923c", icon: "🔄", anchor: "bucket-fallback-queue" },
               ].map(k => (
                 <div
@@ -2836,6 +2838,87 @@ export default function AdminPanel() {
                     )
                   })}
                 </div>
+              {/* ════════════════════════════════════════════════
+                    BM17 BUCKET: OVERDUE INCIDENTS
+                ════════════════════════════════════════════════ */}
+                <div id="bucket-overdue-incidents" style={{ ...S.card, marginBottom: 16, marginTop: 16, borderColor: ((dispatchData as any)?.overdueIncidents?.length ?? 0) > 0 ? "#dc262640" : "#222" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>&#x1F534; Overdue Incidents (BM17)</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Rides past pickup + 15min grace with no resolved incident report from driver</div>
+                    </div>
+                    <span style={{ ...S.badge("#3b0000"), color: "#dc2626" }}>{(dispatchData as any)?.overdueIncidents?.length ?? 0}</span>
+                  </div>
+                  {!((dispatchData as any)?.overdueIncidents?.length) ? (
+                    <div style={{ color: "#555", fontSize: 13 }}>No overdue incidents at this time</div>
+                  ) : ((dispatchData as any).overdueIncidents ?? []).map((b: any) => {
+                    const isExpanded = expandedDispatchId === b.booking_id
+                    const hasIncident = b.incident_status !== null && b.incident_status !== undefined
+                    return (
+                      <div key={b.booking_id} style={{ padding: "12px 0", borderBottom: "1px solid #2a0000" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#dc2626", fontFamily: "monospace" }}>{b.booking_ref || b.booking_id?.slice(0,8).toUpperCase()}</span>
+                              <span style={{ ...S.badge("#3b0000"), color: "#f87171", fontSize: 10, fontWeight: 700 }}>{b.status?.toUpperCase()}</span>
+                              {b.overdue_minutes != null && (
+                                <span style={{ ...S.badge("#3b0000"), color: "#dc2626", fontSize: 10, fontWeight: 700 }}>&#x23F0; {b.overdue_minutes}min OVERDUE</span>
+                              )}
+                              {hasIncident && (
+                                <span style={{ ...S.badge("#1a2200"), color: "#86efac", fontSize: 10, fontWeight: 700 }}>INCIDENT: {b.incident_status?.toUpperCase()}</span>
+                              )}
+                              {!hasIncident && (
+                                <span style={{ ...S.badge("#3b1a00"), color: "#fbbf24", fontSize: 10, fontWeight: 700 }}>&#x26A0;&#xFE0F; NO REPORT YET</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#dc2626" }}>{b.pickup_location || "?"} &rarr; {b.dropoff_location || "?"}</div>
+                            <div style={{ fontSize: 12, color: "#888" }}>
+                              {b.pickup_datetime ? new Date(b.pickup_datetime).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                              {b.total_price != null ? ` · $${parseFloat(b.total_price).toFixed(2)}` : ""}
+                            </div>
+                            {b.driver_name && <div style={{ fontSize: 12, color: "#888" }}>&#x1F464; {b.driver_name} {b.driver_code ? `(${b.driver_code})` : ""}</div>}
+                            {b.client_name && <div style={{ fontSize: 12, color: "#888" }}>&#x1F9D1; {b.client_name}</div>}
+                            {b.incident_reason_code && (
+                              <div style={{ marginTop: 6, padding: "5px 10px", background: "#1a0000", borderRadius: 6, fontSize: 11, color: "#f87171" }}>
+                                <span style={{ color: "#888" }}>Incident reason: </span>
+                                <span style={{ fontWeight: 600 }}>{b.incident_reason_code.replace(/_/g, " ")}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                            <span style={{ ...S.badge("#3b0000"), color: "#dc2626" }}>OVERDUE</span>
+                            <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.booking_id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "&#x25B2; Hide" : "&#x25BC; Details"}</button>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div style={{ marginTop: 12, padding: "12px 14px", background: "#0d0000", borderRadius: 8, border: "1px solid #3b0000", fontSize: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+                              <div><span style={{ color: "#666" }}>Booking ID:</span> <span style={{ color: "#fff", fontFamily: "monospace", fontSize: 10 }}>{b.booking_id}</span></div>
+                              <div><span style={{ color: "#666" }}>Status:</span> <span style={{ color: "#f87171" }}>{b.status?.toUpperCase()}</span></div>
+                              <div><span style={{ color: "#666" }}>Overdue:</span> <span style={{ color: "#dc2626", fontWeight: 700 }}>{b.overdue_minutes != null ? `${b.overdue_minutes} min` : "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Incident Status:</span> <span style={{ color: hasIncident ? "#86efac" : "#fbbf24" }}>{b.incident_status?.toUpperCase() || "NONE"}</span></div>
+                              <div><span style={{ color: "#666" }}>Incident Reason:</span> <span style={{ color: "#fff" }}>{b.incident_reason_code?.replace(/_/g, " ") || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Vehicle:</span> <span style={{ color: "#aaa" }}>{b.vehicle_type || "—"}</span></div>
+                              <div><span style={{ color: "#666" }}>Driver:</span> <span style={{ color: "#aaa" }}>{b.driver_name || "—"} {b.driver_code ? `(${b.driver_code})` : ""}</span></div>
+                              <div><span style={{ color: "#666" }}>Client:</span> <span style={{ color: "#aaa" }}>{b.client_name || "—"}</span></div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                              <button
+                                onClick={() => handleBookingStatus(b.booking_id, "needs_review", "not_required")}
+                                style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b2200", color: "#f59e0b", border: "none" }}
+                              >&#x26A0;&#xFE0F; Mark Needs Review</button>
+                              <button
+                                onClick={() => handleBookingStatus(b.booking_id, "cancelled", "not_required")}
+                                style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}
+                              >&#x274C; Cancel Ride</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
               {/* ════════════════════════════════════════════════
                     BUCKET 8: FALLBACK QUEUE (Bloque Maestro 3)
                 ════════════════════════════════════════════════ */}
