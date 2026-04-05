@@ -5494,7 +5494,7 @@ function RideFlowScreen({
                 className="w-full py-3 rounded-2xl border border-zinc-800 text-zinc-500 text-sm font-medium transition-all active:scale-95 disabled:opacity-40">
                 {t.noShow}
               </button>
-            )
+            )}
 
             {/* ── BM11: Release Ride Button (pre-execution only) ─────────────────────── */}
             {/* Visible ONLY for accepted/assigned (pre-execution) — clean release flow */}
