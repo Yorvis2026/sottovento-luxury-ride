@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
 import { runPriorityEngine, type DriverCandidate, type BookingContext, type ServiceType } from "@/lib/dispatch/priority-engine";
+import { evaluateOverdue, buildServerTimeContext } from "@/lib/dispatch/overdue-engine";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -139,6 +140,7 @@ export async function GET(req: NextRequest) {
     const inProgress: any[] = [];
     const completed: any[] = [];
     const recentlyCancelled: any[] = []; // Fase 10: cancelled in last 24h
+    const overdueIncidents: any[] = []; // BM17: rides past pickup_at + 15min without execution
 
     for (const rRaw of rows) {
       // Spread into a mutable object so we can attach computed flags
@@ -192,17 +194,35 @@ export async function GET(req: NextRequest) {
       (r as any).missing_critical = missingCritical;
       (r as any).missing_optional = missingOptional;
       (r as any).missing_optional_info = missingOptional.length > 0;
-      // ── FASE 6: Overdue flag ────────────────────────────────────────────────
-      // is_overdue: pickup_at has passed but ride is not yet in_trip/completed
-      // overdue_minutes: how many minutes past pickup_at
-      const pickupAt = r.pickup_at ? new Date(r.pickup_at).getTime() : null
+      // ── FASE 6: Overdue Detection (BM17 — uses overdue-engine) ──────────────────────────────
+      // BM17: Use evaluateOverdue from overdue-engine for consistent detection.
+      // INVARIANT: en_route, arrived, in_trip are NEVER overdue (live execution).
+      // INVARIANT: Only accepted, assigned, driver_confirmed are eligible.
       const nowMs = Date.now()
-      const overdueMs = pickupAt ? nowMs - pickupAt : 0
-      const overdueMin = overdueMs > 0 ? Math.floor(overdueMs / 60000) : 0
-      const isOverdueStatus = ["accepted", "assigned", "en_route", "arrived", "offer_pending"].includes(r.status ?? "")
-      const isOverdue = isOverdueStatus && overdueMin > 0
-      ;(r as any).is_overdue = isOverdue
-      ;(r as any).overdue_minutes = isOverdue ? overdueMin : 0
+      const overdueResult = evaluateOverdue(
+        {
+          pickup_at: r.pickup_at,
+          status: r.status ?? '',
+          dispatch_state: r.dispatch_state ?? null,
+          dispatch_status: r.dispatch_status ?? null,
+          incident_status: r.incident_status ?? null,
+          incident_reason_code: r.incident_reason_code ?? null,
+          assigned_driver_id: r.assigned_driver_id ?? null,
+        },
+        new Date()
+      );
+      ;(r as any).is_overdue = overdueResult.is_overdue
+      ;(r as any).overdue_minutes = overdueResult.overdue_since_minutes
+      ;(r as any).overdue_reason_required = overdueResult.overdue_reason_required
+      ;(r as any).incident_status = overdueResult.incident_status
+      ;(r as any).incident_reason_code = overdueResult.incident_reason_code
+      ;(r as any).overdue_activation_condition = overdueResult.overdue_activation_condition
+      // BM17: Time Source Hardening — attach server-side time context to each ride
+      const rideTimeCtx = buildServerTimeContext(r.pickup_at);
+      ;(r as any).server_now = rideTimeCtx.server_now
+      ;(r as any).server_timezone = rideTimeCtx.server_timezone
+      ;(r as any).minutes_until_pickup = rideTimeCtx.minutes_until_pickup
+      ;(r as any).pickup_is_past = rideTimeCtx.pickup_is_past
       // ── FASE 8: Offer no-response flag ─────────────────────────────────────────────
       // offer_no_response: booking has been in offer_pending for >10 min without driver response
       const updatedAt = r.updated_at ? new Date(r.updated_at).getTime() : null
@@ -227,6 +247,20 @@ export async function GET(req: NextRequest) {
       if (s === "cancelled") {
         recentlyCancelled.push(r);
         continue;
+      }
+
+      // ── BM17: OVERDUE INCIDENTS BUCKET ──────────────────────────────────────
+      // RULE: If is_overdue=true AND status is NOT in live-execution states,
+      //   push to overdueIncidents bucket (in ADDITION to its normal bucket).
+      //   This allows admin to see overdue rides in a dedicated section while
+      //   the ride still appears in its primary bucket (assigned, readyForDispatch, etc.).
+      // INVARIANT: en_route, arrived, in_trip are NEVER overdue (live execution).
+      const LIVE_EXECUTION_STATUSES = ['en_route', 'arrived', 'in_trip', 'completed', 'cancelled'];
+      if ((r as any).is_overdue === true && !LIVE_EXECUTION_STATUSES.includes(s)) {
+        overdueIncidents.push({
+          ...r,
+          overdue_bucket_reason: 'past_pickup_grace',
+        });
       }
 
       // ── BM12: DISPATCH QUEUE VISIBILITY STATE GUARD ──────────────────────────
@@ -810,6 +844,8 @@ export async function GET(req: NextRequest) {
       completed,
       recentlyCancelled,
       cancelMetrics,
+      // BM17: Overdue Incidents bucket — rides past pickup_at + 15min grace without live execution
+      overdue_incidents: overdueIncidents,
       total: rows.length,
       counts: {
         driverIssue: driverIssue.length,
@@ -822,6 +858,8 @@ export async function GET(req: NextRequest) {
         inProgress: inProgress.length,
         completed: completed.length,
         recentlyCancelled: recentlyCancelled.length,
+        // BM17: overdue incidents count
+        overdue_incidents: overdueIncidents.length,
       },
       // BM12 + BM14: Dispatch Queue Visibility State Guard audit fields
       dispatch_visibility_guard: {

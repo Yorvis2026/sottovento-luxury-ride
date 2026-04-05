@@ -560,6 +560,23 @@ interface ExpiredOffer {
   total_price: number
 }
 
+// BM17: Overdue ride type for incident reporting block
+interface OverdueRide {
+  booking_id: string
+  status: string
+  pickup_location: string
+  dropoff_location: string
+  pickup_datetime: string | null
+  vehicle_type: string
+  total_price: number
+  client_name?: string | null
+  is_overdue: boolean
+  overdue_minutes: number | null
+  overdue_reason_required: boolean
+  incident_status: string | null
+  incident_reason_code: string | null
+}
+
 interface DriverSummary {
   driver_id: string
   driver_name: string
@@ -578,6 +595,8 @@ interface DriverSummary {
   cancelled_rides: CancelledRide[]
   expired_offers: ExpiredOffer[]
   expired_offers_count: number
+  // BM17: Overdue rides requiring incident report
+  overdue_rides: OverdueRide[]
   // BM5: Driver Reliability Score Engine
   reliability_score?: number
   driver_tier?: string
@@ -872,6 +891,22 @@ export default function DriverDashboardByCode() {
   const [cancelNotes, setCancelNotes] = useState<string>("")
   const [cancelStep, setCancelStep] = useState<"reason" | "no_show_confirm" | "submitting" | "done">("reason")
   const [cancelResult, setCancelResult] = useState<{ success: boolean; responsibility?: string; payout_status?: string; message?: string } | null>(null)
+  // ── BM17: Overdue Incident Report Modal ─────────────────────────────────────
+  const [showOverdueIncidentModal, setShowOverdueIncidentModal] = useState(false)
+  const [overdueIncidentRideId, setOverdueIncidentRideId] = useState<string | null>(null)
+  const [overdueIncidentReason, setOverdueIncidentReason] = useState<string>("")
+  const [overdueIncidentNotes, setOverdueIncidentNotes] = useState<string>("")
+  const [overdueIncidentSubmitting, setOverdueIncidentSubmitting] = useState(false)
+  const [overdueIncidentResult, setOverdueIncidentResult] = useState<{
+    success: boolean
+    incident_action?: string
+    incident_action_description?: string
+    redispatch_triggered?: boolean
+    admin_alert_required?: boolean
+    new_status?: string
+    overdue_since_minutes?: number
+    message?: string
+  } | null>(null)
 
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
@@ -1195,6 +1230,8 @@ export default function DriverDashboardByCode() {
         cancelled_rides: d.cancelled_rides ?? [],
         expired_offers: d.expired_offers ?? [],
         expired_offers_count: d.stats?.expired_offers_count ?? (d.expired_offers?.length ?? 0),
+        // BM17: Overdue rides requiring incident report
+        overdue_rides: d.overdue_rides ?? [],
         // BM5: Driver Reliability Score Engine
         reliability_score: d.reliability_score ?? undefined,
         driver_tier: d.driver_tier ?? undefined,
@@ -1993,6 +2030,50 @@ export default function DriverDashboardByCode() {
       setTimeout(() => setCopied(false), 2000)
     } catch {}
   }, [tabletUrl])
+
+  // ── BM17: Submit Overdue Incident Report ───────────────────────────────────────────────
+  const submitOverdueIncident = async () => {
+    if (!overdueIncidentRideId || !overdueIncidentReason || overdueIncidentSubmitting) return
+    setOverdueIncidentSubmitting(true)
+    setOverdueIncidentResult(null)
+    try {
+      const res = await fetch('/api/driver/report-incident', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_id: overdueIncidentRideId,
+          driver_code: driverCode,
+          reason_code: overdueIncidentReason,
+          notes: overdueIncidentNotes.trim() || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setOverdueIncidentResult({ success: false, message: data.error })
+      } else {
+        setOverdueIncidentResult({
+          success: true,
+          incident_action: data.incident_action,
+          incident_action_description: data.incident_action_description,
+          redispatch_triggered: data.redispatch_triggered,
+          admin_alert_required: data.admin_alert_required,
+          new_status: data.new_status,
+          overdue_since_minutes: data.overdue_since_minutes,
+        })
+        setTimeout(() => {
+          loadData()
+          setShowOverdueIncidentModal(false)
+          setOverdueIncidentRideId(null)
+          setOverdueIncidentReason('')
+          setOverdueIncidentNotes('')
+          setOverdueIncidentResult(null)
+        }, 3000)
+      }
+    } catch {
+      setOverdueIncidentResult({ success: false, message: 'Network error. Try again.' })
+    }
+    setOverdueIncidentSubmitting(false)
+  }
 
   // ── Loading / Active Mode Re-entry ──────────────────────────────────────────
   // ACTIVE MODE: if we have a cached operational ride, show the ride console
@@ -3561,6 +3642,90 @@ export default function DriverDashboardByCode() {
       {/* ── TAB: OVERVIEW ── */}
       {dashTab === "overview" && (
         <div>
+          {/* BM17: Overdue Incident Alert Block */}
+          {/* INVARIANT: Only rides past pickup_at + 15min grace, not in live execution, appear here */}
+          {(summary.overdue_rides ?? []).length > 0 && (
+            <div className="px-4 mt-4 space-y-3">
+              <div className="text-xs uppercase tracking-widest px-1 font-bold" style={{ color: "#ef4444" }}>
+                {lang === "es" ? "Viajes con Retraso" : lang === "ht" ? "Vwayaj An Reta" : "Overdue Rides"}
+              </div>
+              {(summary.overdue_rides ?? []).map((ride) => (
+                <div key={ride.booking_id}
+                  className="rounded-2xl overflow-hidden"
+                  style={{ border: "2px solid #dc2626", background: "#0a0000", boxShadow: "0 0 16px #dc262630" }}>
+                  {/* Red header */}
+                  <div className="px-4 py-2 flex items-center justify-between"
+                    style={{ backgroundColor: "#dc262615", borderBottom: "1px solid #dc262640" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-500 text-base animate-pulse">&#x1F534;</span>
+                      <span className="text-xs font-black uppercase tracking-widest text-red-400">
+                        {lang === "es" ? "VIAJE VENCIDO" : lang === "ht" ? "VWAYAJ AN RETA" : "OVERDUE RIDE"}
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-red-300">
+                      {ride.overdue_minutes != null
+                        ? (lang === "es"
+                          ? `${ride.overdue_minutes}min de retraso`
+                          : lang === "ht"
+                          ? `${ride.overdue_minutes}min an reta`
+                          : `${ride.overdue_minutes}min overdue`)
+                        : (lang === "es" ? "Retraso detectado" : "Overdue detected")}
+                    </div>
+                  </div>
+                  {/* Ride info */}
+                  <div className="px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-400 text-sm">&#x2191;</span>
+                      <span className="text-sm text-white/80 truncate">{ride.pickup_location}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-400 text-sm">&#x2193;</span>
+                      <span className="text-sm text-white/80 truncate">{ride.dropoff_location}</span>
+                    </div>
+                    {ride.pickup_datetime && (
+                      <div className="text-xs text-zinc-500">
+                        {lang === "es" ? "Hora de recogida: " : "Pickup: "}
+                        {new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      </div>
+                    )}
+                    {ride.client_name && (
+                      <div className="text-xs text-zinc-400">
+                        {lang === "es" ? "Cliente: " : "Client: "}{ride.client_name}
+                      </div>
+                    )}
+                  </div>
+                  {/* Incident status / action */}
+                  <div className="px-4 pb-4">
+                    {ride.incident_status === null || ride.incident_status === "pending_reason" ? (
+                      <button
+                        onClick={() => {
+                          setOverdueIncidentRideId(ride.booking_id)
+                          setOverdueIncidentReason("")
+                          setOverdueIncidentNotes("")
+                          setOverdueIncidentResult(null)
+                          setShowOverdueIncidentModal(true)
+                        }}
+                        className="w-full py-3 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-95"
+                        style={{ backgroundColor: "#dc2626", color: "#fff" }}
+                      >
+                        {lang === "es" ? "Reportar Incidente" : lang === "ht" ? "Rapò Ensidan" : "Report Incident"}
+                      </button>
+                    ) : (
+                      <div className="rounded-xl px-4 py-2 text-center text-xs font-bold uppercase tracking-widest"
+                        style={{ backgroundColor: "#052e16", color: "#4ade80", border: "1px solid #16a34a40" }}>
+                        {ride.incident_status === "reported"
+                          ? (lang === "es" ? "Incidente reportado - Admin notificado" : "Incident reported - Admin notified")
+                          : ride.incident_status === "resolved"
+                          ? (lang === "es" ? "Incidente resuelto" : "Incident resolved")
+                          : ride.incident_status}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Metrics */}
           <div className="px-4 mt-4 grid grid-cols-2 gap-3">
             {[
@@ -4319,6 +4484,137 @@ export default function DriverDashboardByCode() {
             </div>
             <span className="text-zinc-400">→</span>
           </Link>
+        </div>
+      )}
+
+      {/* BM17: Overdue Incident Report Modal */}
+      {/* Full-screen overlay modal for driver to submit incident reason for an overdue ride */}
+      {showOverdueIncidentModal && (
+        <div className="fixed inset-0 z-[300] flex flex-col bg-zinc-950 overflow-y-auto"
+          style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+          {/* Header */}
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-800 sticky top-0 bg-zinc-950 z-10">
+            <button
+              onClick={() => {
+                if (!overdueIncidentSubmitting) {
+                  setShowOverdueIncidentModal(false)
+                  setOverdueIncidentRideId(null)
+                  setOverdueIncidentReason('')
+                  setOverdueIncidentNotes('')
+                  setOverdueIncidentResult(null)
+                }
+              }}
+              className="text-zinc-400 text-xl leading-none active:scale-95 transition-transform">
+              &#x2190;
+            </button>
+            <div>
+              <div className="text-sm font-semibold text-red-400">
+                {lang === "es" ? "Reporte de Incidente" : lang === "ht" ? "Rapò Ensidan" : "Incident Report"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {lang === "es" ? "Indica el motivo del retraso" : lang === "ht" ? "Bay rezon reta a" : "Explain the reason for the delay"}
+              </div>
+            </div>
+          </div>
+
+          {/* Result state */}
+          {overdueIncidentResult ? (
+            <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+              {overdueIncidentResult.success ? (
+                <>
+                  <div className="text-6xl mb-5">&#x2705;</div>
+                  <div className="text-xl font-light text-white mb-2">
+                    {lang === "es" ? "Incidente reportado" : "Incident reported"}
+                  </div>
+                  {overdueIncidentResult.incident_action_description && (
+                    <div className="text-sm text-zinc-400 text-center mt-2">
+                      {overdueIncidentResult.incident_action_description}
+                    </div>
+                  )}
+                  {overdueIncidentResult.redispatch_triggered && (
+                    <div className="mt-4 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest"
+                      style={{ backgroundColor: "#052e16", color: "#4ade80" }}>
+                      {lang === "es" ? "Redespacho iniciado" : "Redispatch triggered"}
+                    </div>
+                  )}
+                  {overdueIncidentResult.admin_alert_required && (
+                    <div className="mt-3 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest"
+                      style={{ backgroundColor: "#1a0a2e", color: "#c9a84c" }}>
+                      {lang === "es" ? "Admin notificado" : "Admin alerted"}
+                    </div>
+                  )}
+                  <div className="text-xs text-zinc-600 mt-6">
+                    {lang === "es" ? "Recargando..." : "Reloading..."}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-6xl mb-5">&#x274C;</div>
+                  <div className="text-xl font-light text-red-400 mb-2">
+                    {lang === "es" ? "Error al reportar" : "Report failed"}
+                  </div>
+                  <div className="text-sm text-zinc-400 text-center">{overdueIncidentResult.message}</div>
+                  <button
+                    onClick={() => setOverdueIncidentResult(null)}
+                    className="mt-6 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-widest"
+                    style={{ backgroundColor: "#dc2626", color: "#fff" }}>
+                    {lang === "es" ? "Reintentar" : "Try Again"}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="px-4 py-4 space-y-4 flex-1">
+              {/* Reason selector */}
+              <div className="text-xs text-zinc-500 uppercase tracking-widest px-1">
+                {lang === "es" ? "Motivo del incidente" : lang === "ht" ? "Rezon ensidan" : "Incident reason"}
+              </div>
+              {([
+                { key: "DRIVER_NO_SHOW",       label: lang === "es" ? "No me presenté al servicio"         : lang === "ht" ? "Mwen pa t parèt"             : "Driver did not show up" },
+                { key: "VEHICLE_BREAKDOWN",    label: lang === "es" ? "Falla mecánica del vehículo"        : lang === "ht" ? "Machin kraze"                : "Vehicle breakdown" },
+                { key: "PASSENGER_UNREACHABLE",label: lang === "es" ? "Pasajero no contestó / inalcanzable": lang === "ht" ? "Pasaje pa reponn"            : "Passenger unreachable" },
+                { key: "WRONG_ADDRESS",        label: lang === "es" ? "Dirección incorrecta o inaccesible" : lang === "ht" ? "Adrès mal oswa enaksesib"    : "Wrong or inaccessible address" },
+                { key: "TRAFFIC_DELAY",        label: lang === "es" ? "Retraso por tráfico"                : lang === "ht" ? "Reta akoz trafik"            : "Traffic delay" },
+                { key: "DISPATCH_ISSUE",       label: lang === "es" ? "Problema de despacho"               : lang === "ht" ? "Pwoblèm dispach"             : "Dispatch issue" },
+                { key: "SAFETY_CONCERN",       label: lang === "es" ? "Preocupación de seguridad"          : lang === "ht" ? "Pwoblèm sekirite"            : "Safety concern" },
+                { key: "OTHER",                label: lang === "es" ? "Otro motivo"                        : lang === "ht" ? "Lòt rezon"                   : "Other" },
+              ] as { key: string; label: string }[]).map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setOverdueIncidentReason(r.key)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border text-left transition-all active:scale-[0.98] ${
+                    overdueIncidentReason === r.key
+                      ? "border-red-500 bg-red-500/10 text-white"
+                      : "border-zinc-800 bg-zinc-900 text-zinc-300"
+                  }`}>
+                  <span className="text-sm font-medium">{r.label}</span>
+                </button>
+              ))}
+
+              {/* Optional notes */}
+              <div className="text-xs text-zinc-500 uppercase tracking-widest px-1 pt-2">
+                {lang === "es" ? "Notas adicionales (opcional)" : lang === "ht" ? "Nòt adisyonèl (opsyonèl)" : "Additional notes (optional)"}
+              </div>
+              <textarea
+                value={overdueIncidentNotes}
+                onChange={(e) => setOverdueIncidentNotes(e.target.value)}
+                placeholder={lang === "es" ? "Describe lo que ocurrió..." : lang === "ht" ? "Dekri sa k te pase..." : "Describe what happened..."}
+                rows={3}
+                className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 resize-none focus:outline-none focus:border-red-500"
+              />
+
+              {/* Submit button */}
+              <button
+                onClick={submitOverdueIncident}
+                disabled={!overdueIncidentReason || overdueIncidentSubmitting}
+                className="w-full py-4 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40"
+                style={{ backgroundColor: overdueIncidentReason ? "#dc2626" : "#3f3f46", color: "#fff" }}>
+                {overdueIncidentSubmitting
+                  ? (lang === "es" ? "Enviando..." : "Submitting...")
+                  : (lang === "es" ? "Enviar Reporte" : lang === "ht" ? "Voye Rapò" : "Submit Report")}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

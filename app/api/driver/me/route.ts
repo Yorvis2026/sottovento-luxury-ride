@@ -6,6 +6,10 @@ import {
   BM16_CONFIG,
   type ScheduledRide,
 } from "@/lib/dispatch/schedule-conflict";
+import {
+  evaluateOverdue,
+  buildServerTimeContext,
+} from "@/lib/dispatch/overdue-engine";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -1031,6 +1035,84 @@ export async function GET(req: NextRequest) {
       });
     } catch { /* non-blocking — future schedule is additive */ }
 
+    // ── BM17: Overdue Rides Detection ────────────────────────────────────────
+    // Evaluate overdue status for assigned_ride and upcoming_rides
+    // Server clock is the ONLY source of truth — client device only renders
+    const serverNow = new Date();
+    let overdue_rides: any[] = [];
+    try {
+      // Check assigned_ride for overdue
+      if (assigned_ride) {
+        const overdueResult = evaluateOverdue(
+          {
+            pickup_at: assigned_ride.pickup_datetime,
+            status: assigned_ride.status,
+            dispatch_state: assigned_ride.dispatch_state ?? null,
+            dispatch_status: assigned_ride.dispatch_status ?? null,
+            incident_status: assigned_ride.incident_status ?? null,
+            incident_reason_code: assigned_ride.incident_reason_code ?? null,
+            assigned_driver_id: driver.id,
+          },
+          serverNow
+        );
+        if (overdueResult.is_overdue) {
+          const timeCtx = buildServerTimeContext(assigned_ride.pickup_datetime);
+          overdue_rides.push({
+            ...assigned_ride,
+            ...overdueResult,
+            ...timeCtx,
+            source_bucket: 'assigned_ride',
+          });
+          // Annotate the assigned_ride with overdue fields
+          (assigned_ride as any).is_overdue = true;
+          (assigned_ride as any).overdue_since_minutes = overdueResult.overdue_since_minutes;
+          (assigned_ride as any).overdue_reason_required = overdueResult.overdue_reason_required;
+          (assigned_ride as any).incident_status = overdueResult.incident_status;
+          console.log(`[BM17_OVERDUE_DETECTED] booking=${assigned_ride.booking_id} driver=${driver.driver_code} overdue=${overdueResult.overdue_since_minutes}min`);
+        }
+      }
+      // Check upcoming_rides for overdue (rides that slipped past their window)
+      for (const ride of (upcoming_rides ?? [])) {
+        const overdueResult = evaluateOverdue(
+          {
+            pickup_at: ride.pickup_datetime,
+            status: ride.status,
+            dispatch_state: ride.dispatch_state ?? null,
+            dispatch_status: ride.dispatch_status ?? null,
+            incident_status: ride.incident_status ?? null,
+            incident_reason_code: ride.incident_reason_code ?? null,
+            assigned_driver_id: driver.id,
+          },
+          serverNow
+        );
+        if (overdueResult.is_overdue) {
+          const timeCtx = buildServerTimeContext(ride.pickup_datetime);
+          overdue_rides.push({
+            ...ride,
+            ...overdueResult,
+            ...timeCtx,
+            source_bucket: 'upcoming_rides',
+          });
+          (ride as any).is_overdue = true;
+          (ride as any).overdue_since_minutes = overdueResult.overdue_since_minutes;
+          (ride as any).overdue_reason_required = overdueResult.overdue_reason_required;
+        }
+      }
+    } catch { /* non-blocking — overdue detection is additive */ }
+
+    // ── BM17 PART 9: Filter overdue rides OUT of upcoming_rides ──────────────────
+    // BM17 Spec: If overdue_execution = true, ride must NOT appear in Upcoming.
+    // It must appear ONLY in the Incident Required section.
+    const overdue_booking_ids = new Set(overdue_rides.map((r: any) => r.booking_id ?? r.id));
+    const upcoming_rides_filtered = (upcoming_rides ?? []).filter(
+      (r: any) => !(r as any).is_overdue && !overdue_booking_ids.has(r.booking_id ?? r.id)
+    );
+
+    // ── BM17: Server Time Context (Time Source Hardening) ────────────────────
+    const serverTimeContext = buildServerTimeContext(
+      assigned_ride?.pickup_datetime ?? upcoming_rides?.[0]?.pickup_datetime ?? null
+    );
+
     return NextResponse.json({
       driver: {
         ...driver,
@@ -1044,13 +1126,22 @@ export async function GET(req: NextRequest) {
         },
         active_offer,
         assigned_ride,
-        upcoming_rides,
+        upcoming_rides: upcoming_rides_filtered,
+        upcoming_rides_raw_count: (upcoming_rides ?? []).length,
         future_bookings,
         future_schedule_conflicts,
         completed_rides,
         cancelled_rides,
         expired_offers,
         fallback_offer,
+        // BM17: Overdue incident layer
+        overdue_rides,
+        overdue_count: overdue_rides.length,
+        has_overdue: overdue_rides.length > 0,
+        // BM17: Time Source Hardening — server clock is the ONLY source of truth
+        server_now: serverTimeContext.server_now,
+        server_timezone: serverTimeContext.server_timezone,
+        time_source: 'server_utc',
       },
     });
   } catch (err: any) {
