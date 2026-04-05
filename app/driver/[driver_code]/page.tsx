@@ -3673,9 +3673,26 @@ export default function DriverDashboardByCode() {
               }}>
               {tab.label}
               {tab.badge !== null && (
-                <span
-                  className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs font-bold"
-                  style={{ backgroundColor: GOLD, color: "#000", verticalAlign: "middle" }}>
+                /* BM18-FIX-TABS-BADGE-FLOW: pure inline — no Tailwind, no verticalAlign hack */
+                /* badge is a child of inline-flex button, so alignItems:center handles alignment */
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginLeft: 5,
+                  paddingLeft: 5,
+                  paddingRight: 5,
+                  paddingTop: 1,
+                  paddingBottom: 1,
+                  borderRadius: 999,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  backgroundColor: GOLD,
+                  color: "#000",
+                  flexShrink: 0,
+                  minWidth: 16,
+                }}>
                   {tab.badge}
                 </span>
               )}
