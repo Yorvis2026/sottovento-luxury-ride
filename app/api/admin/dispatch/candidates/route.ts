@@ -180,7 +180,7 @@ export async function GET(req: NextRequest) {
     } catch { /* non-blocking */ }
 
     // Fetch future committed bookings for all candidate drivers
-    const driverIds = driverRows.map((d: any) => d.id);
+    // (driverIds already declared above at line ~99 — reusing existing variable)
     let driverFutureBookingsMap: Record<string, ScheduledRide[]> = {};
     if (proposedPickupAt && driverIds.length > 0) {
       try {
