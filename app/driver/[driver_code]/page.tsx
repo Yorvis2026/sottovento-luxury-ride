@@ -3598,26 +3598,31 @@ export default function DriverDashboardByCode() {
       </div>
 
       {/* ── TABS ── */}
-      {/* BM18-FIX-UI: Tab rail — horizontal scroll, snap suave, safe-area aware */}
+      {/* BM18-FIX-TABS-COLLAPSE: Tab rail — overflow-x outer + flex-nowrap inner + min-w-max */}
       {/* INVARIANT: No business logic changed — only layout/presentation */}
+      {/* FIX: outer uses pure inline style (no Tailwind) to avoid min-w-0 collapse from ancestor flex */}
       <div
-        className="mt-4 border-b border-zinc-800"
         style={{
+          width: "100%",
+          marginTop: 16,
+          borderBottom: "1px solid #27272a",
           overflowX: "auto",
           WebkitOverflowScrolling: "touch",
           scrollSnapType: "x proximity",
-          /* Hide scrollbar cross-browser */
           scrollbarWidth: "none",
           msOverflowStyle: "none",
         }}
       >
+        {/* FIX: inner uses minWidth max-content + flexWrap nowrap to prevent text collapse */}
         <div
-          className="flex"
           style={{
+            display: "flex",
+            flexWrap: "nowrap",
+            flexShrink: 0,
+            minWidth: "max-content",
             paddingLeft:  "max(env(safe-area-inset-left),  12px)",
             paddingRight: "max(env(safe-area-inset-right), 12px)",
             gap: 0,
-            minWidth: "max-content",
           }}
         >
           {([
@@ -3640,14 +3645,31 @@ export default function DriverDashboardByCode() {
           ] as { key: "overview" | "upcoming" | "completed" | "cancelled" | "earnings"; label: string; badge: number | null }[]).map((tab) => (
             <button key={tab.key}
               onClick={() => setDashTab(tab.key)}
-              className="relative pb-2.5 pt-1.5 text-xs font-medium uppercase tracking-widest transition-all whitespace-nowrap"
               style={{
-                color: dashTab === tab.key ? GOLD : "#6b7280",
-                borderBottom: dashTab === tab.key ? `2px solid ${GOLD}` : "2px solid transparent",
-                scrollSnapAlign: "start",
+                /* BM18-FIX-TABS-COLLAPSE: pure inline — no Tailwind class can override */
+                display: "inline-flex",
+                alignItems: "center",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
                 paddingLeft: 16,
                 paddingRight: 16,
-                flexShrink: 0,
+                paddingTop: 6,
+                paddingBottom: 10,
+                fontSize: 11,
+                fontWeight: 500,
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                color: dashTab === tab.key ? GOLD : "#6b7280",
+                /* border shorthand reset first, then borderBottom override */
+                borderTop: "none",
+                borderLeft: "none",
+                borderRight: "none",
+                borderBottom: dashTab === tab.key ? `2px solid ${GOLD}` : "2px solid transparent",
+                scrollSnapAlign: "start",
+                background: "none",
+                cursor: "pointer",
+                transition: "color 150ms, border-color 150ms",
+                position: "relative",
               }}>
               {tab.label}
               {tab.badge !== null && (
