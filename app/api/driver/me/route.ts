@@ -1068,7 +1068,7 @@ export async function GET(req: NextRequest) {
           (assigned_ride as any).overdue_since_minutes = overdueResult.overdue_since_minutes;
           (assigned_ride as any).overdue_reason_required = overdueResult.overdue_reason_required;
           (assigned_ride as any).incident_status = overdueResult.incident_status;
-          console.log(`[BM17_OVERDUE_DETECTED] booking=${assigned_ride.booking_id} driver=${driver.driver_code} overdue=${overdueResult.overdue_since_minutes}min`);
+          console.log(`[BM19_OVERDUE_DETECTED] booking=${assigned_ride.booking_id} driver=${driver.driver_code} overdue=${overdueResult.overdue_since_minutes}min classification=${overdueResult.overdue_classification}`);
         }
       }
       // Check upcoming_rides for overdue (rides that slipped past their window)
@@ -1138,9 +1138,12 @@ export async function GET(req: NextRequest) {
         overdue_rides,
         overdue_count: overdue_rides.length,
         has_overdue: overdue_rides.length > 0,
-        // BM17: Time Source Hardening — server clock is the ONLY source of truth
+        // BM19: Time Source Hardening — server clock is the ONLY source of truth
         server_now: serverTimeContext.server_now,
         server_timezone: serverTimeContext.server_timezone,
+        minutes_until_pickup: serverTimeContext.minutes_until_pickup,
+        minutes_since_pickup: serverTimeContext.minutes_since_pickup,
+        pickup_is_past: serverTimeContext.pickup_is_past,
         time_source: 'server_utc',
       },
     });

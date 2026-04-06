@@ -2870,6 +2870,18 @@ export default function AdminPanel() {
                               {!hasIncident && (
                                 <span style={{ ...S.badge("#3b1a00"), color: "#fbbf24", fontSize: 10, fontWeight: 700 }}>&#x26A0;&#xFE0F; NO REPORT YET</span>
                               )}
+                              {/* BM19: 6-state classification badge */}
+                              {b.overdue_classification && (
+                                <span style={{
+                                  ...S.badge(
+                                    b.overdue_classification === 'OVERDUE_RESOLVED' ? '#001a00' :
+                                    b.overdue_classification === 'OVERDUE_WITH_DRIVER_REPORTED' ? '#001a33' : '#3b0000'
+                                  ),
+                                  color: b.overdue_classification === 'OVERDUE_RESOLVED' ? '#86efac' :
+                                         b.overdue_classification === 'OVERDUE_WITH_DRIVER_REPORTED' ? '#93c5fd' : '#fca5a5',
+                                  fontSize: 9, fontWeight: 700
+                                }}>{b.overdue_classification?.replace(/_/g, ' ')}</span>
+                              )}
                             </div>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#dc2626" }}>{b.pickup_location || "?"} &rarr; {b.dropoff_location || "?"}</div>
                             <div style={{ fontSize: 12, color: "#888" }}>
@@ -2902,15 +2914,32 @@ export default function AdminPanel() {
                               <div><span style={{ color: "#666" }}>Driver:</span> <span style={{ color: "#aaa" }}>{b.driver_name || "—"} {b.driver_code ? `(${b.driver_code})` : ""}</span></div>
                               <div><span style={{ color: "#666" }}>Client:</span> <span style={{ color: "#aaa" }}>{b.client_name || "—"}</span></div>
                             </div>
+                            {/* BM19: Dynamic admin_actions from overdue-engine */}
                             <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                              <button
-                                onClick={() => handleBookingStatus(b.booking_id, "needs_review", "not_required")}
-                                style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b2200", color: "#f59e0b", border: "none" }}
-                              >&#x26A0;&#xFE0F; Mark Needs Review</button>
-                              <button
-                                onClick={() => handleBookingStatus(b.booking_id, "cancelled", "not_required")}
-                                style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}
-                              >&#x274C; Cancel Ride</button>
+                              {(b.admin_actions ?? ['mark_needs_review', 'cancel_ride']).includes('mark_needs_review') && (
+                                <button
+                                  onClick={() => handleBookingStatus(b.booking_id, "needs_review", "not_required")}
+                                  style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b2200", color: "#f59e0b", border: "none" }}
+                                >&#x26A0;&#xFE0F; Mark Needs Review</button>
+                              )}
+                              {(b.admin_actions ?? ['mark_needs_review', 'cancel_ride']).includes('cancel_ride') && (
+                                <button
+                                  onClick={() => handleBookingStatus(b.booking_id, "cancelled", "not_required")}
+                                  style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#3b0000", color: "#f87171", border: "none" }}
+                                >&#x274C; Cancel Ride</button>
+                              )}
+                              {(b.admin_actions ?? []).includes('mark_resolved') && (
+                                <button
+                                  onClick={() => handleDispatchStatus(b.booking_id, 'resolved')}
+                                  style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#001a00", color: "#86efac", border: "none" }}
+                                >&#x2714;&#xFE0F; Mark Resolved</button>
+                              )}
+                              {(b.admin_actions ?? []).includes('reassign_with_override') && (
+                                <button
+                                  onClick={() => { setAssignModal({ bookingId: b.booking_id, pickup: b.pickup_location || b.pickup_zone || '', dropoff: b.dropoff_location || b.dropoff_zone || '' }); setAssignMsg(''); }}
+                                  style={{ ...S.btn(), fontSize: 12, padding: "7px 14px", background: "#001a33", color: "#93c5fd", border: "none" }}
+                                >&#x1F504; Reassign</button>
+                              )}
                             </div>
                           </div>
                         )}

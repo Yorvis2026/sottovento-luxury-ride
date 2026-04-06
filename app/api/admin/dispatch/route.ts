@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
 import { runPriorityEngine, type DriverCandidate, type BookingContext, type ServiceType } from "@/lib/dispatch/priority-engine";
-import { evaluateOverdue, buildServerTimeContext } from "@/lib/dispatch/overdue-engine";
+import {
+  evaluateOverdue,
+  buildServerTimeContext,
+  classifyOverdueState,
+  getAdminActionsForOverdue,
+} from "@/lib/dispatch/overdue-engine";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -257,9 +262,19 @@ export async function GET(req: NextRequest) {
       // INVARIANT: en_route, arrived, in_trip are NEVER overdue (live execution).
       const LIVE_EXECUTION_STATUSES = ['en_route', 'arrived', 'in_trip', 'completed', 'cancelled'];
       if ((r as any).is_overdue === true && !LIVE_EXECUTION_STATUSES.includes(s)) {
+        // BM19: Add 6-state classification and admin_actions to each overdue ride
+        const overdueClassification = classifyOverdueState({
+          incident_status: (r as any).incident_status ?? null,
+          incident_reason_code: (r as any).incident_reason_code ?? null,
+        });
+        const adminActions = getAdminActionsForOverdue(overdueClassification);
         overdueIncidents.push({
           ...r,
           overdue_bucket_reason: 'past_pickup_grace',
+          // BM19: canonical 6-state classification
+          overdue_classification: overdueClassification,
+          // BM19: available admin actions for this ride
+          admin_actions: adminActions,
         });
       }
 
@@ -844,8 +859,12 @@ export async function GET(req: NextRequest) {
       completed,
       recentlyCancelled,
       cancelMetrics,
-      // BM17: Overdue Incidents bucket — rides past pickup_at + 15min grace without live execution
+      // BM19: Overdue Incidents bucket — rides past pickup_at + 15min grace without live execution
+      // Each item includes overdue_classification (6-state) and admin_actions[]
       overdue_incidents: overdueIncidents,
+      // BM19: Server time as source of truth for the entire dispatch response
+      server_now: new Date().toISOString(),
+      server_timezone: 'America/New_York',
       total: rows.length,
       counts: {
         driverIssue: driverIssue.length,

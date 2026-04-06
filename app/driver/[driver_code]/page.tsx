@@ -1865,9 +1865,14 @@ export default function DriverDashboardByCode() {
         return
       }
 
-      // GUARDRAIL B: overdue — driver tries to go en_route but pickup already passed by >30 min
-      // Show a warning so driver is aware, but allow them to proceed
-      if (newStatus === "en_route" && minutesUntil < -30) {
+      // GUARDRAIL B (BM19): overdue — driver tries to go en_route but server confirms ride is overdue
+      // BM19: Use server-side overdue_reason_required (from overdue-engine) as the source of truth.
+      // If the server says the ride requires an incident reason, BLOCK the transition and
+      // redirect the driver to the incident reporting flow.
+      // Fallback: if server data not available, use client clock (minutesUntil < -15 = grace period)
+      const serverOverdueRequired = summary.assigned_ride?.overdue_reason_required === true;
+      const clientOverdueFallback = minutesUntil < -15; // OVERDUE_GRACE_MINUTES = 15
+      if (newStatus === "en_route" && (serverOverdueRequired || clientOverdueFallback)) {
         const overdue = Math.abs(Math.round(minutesUntil))
         setOverdueMinutes(overdue)
         setShowOverdueModal(true)

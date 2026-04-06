@@ -1,13 +1,21 @@
 // ============================================================
-// SOTTOVENTO NETWORK — Overdue / Missed Ride Engine (BM17)
+// SOTTOVENTO NETWORK — Overdue / Missed Ride Engine (BM19)
 // Detects rides that passed their pickup_at without entering
-// live execution, and classifies the incident type.
+// live execution, and classifies the incident state.
+//
+// BM19 ADDITIONS over BM17:
+//   - OverdueClassification enum (6 states)
+//   - OVERDUE_GRACE_MINUTES alias (BM19 spec name)
+//   - classifyOverdueState() → OverdueClassification
+//   - buildServerTimeContext() extended with overdue fields
+//   - admin_actions[] per overdue ride
 //
 // INVARIANTS:
 //   - Rides in LIVE_EXECUTION_STATES are NEVER overdue
 //   - Rides in FINALIZED_STATES are NEVER overdue
 //   - Only rides in OVERDUE_ELIGIBLE_STATUSES can be overdue
 //   - The server clock is the ONLY source of truth for time
+//   - BM10 / BM12 / BM13 / BM16 / BM18 are NOT affected
 // ============================================================
 
 // ── Constants ────────────────────────────────────────────────
@@ -31,8 +39,14 @@ export const OVERDUE_ELIGIBLE_DISPATCH_STATES = [
   "ASSIGNED", "NEW", null, undefined, "",
 ] as const;
 
-/** Minutes after pickup_at before the incident flow is triggered (BM17 spec: 15min SLA) */
+/**
+ * Minutes after pickup_at before the incident flow is triggered.
+ * BM17 spec name: OVERDUE_GRACE_PERIOD_MINUTES
+ * BM19 spec name: OVERDUE_GRACE_MINUTES (alias — same value)
+ */
 export const OVERDUE_GRACE_PERIOD_MINUTES = 15;
+/** BM19 alias — same constant, preferred name in new code */
+export const OVERDUE_GRACE_MINUTES = OVERDUE_GRACE_PERIOD_MINUTES;
 
 /** Incident reason codes */
 export const INCIDENT_REASON_CODES = [
@@ -78,6 +92,59 @@ export const NO_SHOW_CODES: IncidentReasonCode[] = [
   "CLIENT_NO_SHOW",
 ];
 
+// ── BM19: 6-State Classification Enum ───────────────────────
+/**
+ * BM19 canonical classification of a ride's overdue state.
+ *
+ * NOT_OVERDUE              — pickup_at in future or within grace period
+ * OVERDUE_PENDING_ACTION   — past grace period, no incident reported yet
+ * OVERDUE_WITH_DRIVER_REPORTED — driver has submitted an incident reason
+ * OVERDUE_RESOLVED         — admin marked resolved or ride finalized
+ * EXCLUDED_LIVE_EXECUTION  — en_route / arrived / in_trip — never overdue
+ * EXCLUDED_FINAL_STATE     — completed / cancelled / archived / no_show
+ */
+export type OverdueClassification =
+  | "NOT_OVERDUE"
+  | "OVERDUE_PENDING_ACTION"
+  | "OVERDUE_WITH_DRIVER_REPORTED"
+  | "OVERDUE_RESOLVED"
+  | "EXCLUDED_LIVE_EXECUTION"
+  | "EXCLUDED_FINAL_STATE";
+
+// ── Admin Actions per overdue ride ───────────────────────────
+export type AdminOverdueAction =
+  | "mark_needs_review"
+  | "cancel_ride"
+  | "reassign_with_override"
+  | "mark_resolved"
+  | "edit_ride";
+
+export const ALL_ADMIN_OVERDUE_ACTIONS: AdminOverdueAction[] = [
+  "mark_needs_review",
+  "cancel_ride",
+  "reassign_with_override",
+  "mark_resolved",
+  "edit_ride",
+];
+
+/**
+ * Returns the set of admin actions available for a given overdue classification.
+ */
+export function getAdminActionsForOverdue(
+  classification: OverdueClassification
+): AdminOverdueAction[] {
+  switch (classification) {
+    case "OVERDUE_PENDING_ACTION":
+      return ["mark_needs_review", "cancel_ride", "reassign_with_override", "edit_ride"];
+    case "OVERDUE_WITH_DRIVER_REPORTED":
+      return ["mark_needs_review", "cancel_ride", "reassign_with_override", "mark_resolved", "edit_ride"];
+    case "OVERDUE_RESOLVED":
+      return ["edit_ride"]; // already resolved — minimal actions
+    default:
+      return [];
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────
 export interface OverdueResult {
   is_overdue: boolean;
@@ -88,6 +155,8 @@ export interface OverdueResult {
   incident_status: IncidentStatus | null;
   incident_reason_code: IncidentReasonCode | null;
   overdue_activation_condition: string;
+  /** BM19: canonical 6-state classification */
+  overdue_classification: OverdueClassification;
 }
 
 export interface RideForOverdueCheck {
@@ -105,12 +174,12 @@ export interface RideForOverdueCheck {
  * Evaluates whether a ride is overdue and requires incident reporting.
  * Uses server-side time exclusively — no client clock.
  *
- * ACTIVATION CONDITION (BM17):
+ * ACTIVATION CONDITION (BM17/BM19):
  *   pickup_at < NOW()
  *   AND status IN ('assigned', 'accepted', 'driver_confirmed')
  *   AND dispatch_state IN ('ASSIGNED', NULL, 'NEW')
  *   AND NOT status IN ('en_route', 'arrived', 'in_trip', 'completed', 'cancelled', 'archived')
- *   AND minutes_past_pickup > OVERDUE_GRACE_PERIOD_MINUTES
+ *   AND minutes_past_pickup > OVERDUE_GRACE_MINUTES
  */
 export function evaluateOverdue(ride: RideForOverdueCheck, serverNow: Date = new Date()): OverdueResult {
   const NOT_OVERDUE: OverdueResult = {
@@ -122,16 +191,25 @@ export function evaluateOverdue(ride: RideForOverdueCheck, serverNow: Date = new
     incident_status: null,
     incident_reason_code: null,
     overdue_activation_condition: "NOT_OVERDUE",
+    overdue_classification: "NOT_OVERDUE",
   };
 
   // Guard 1: Live execution states are NEVER overdue
   if (LIVE_EXECUTION_STATES.includes(ride.status as any)) {
-    return { ...NOT_OVERDUE, overdue_activation_condition: "EXCLUDED_LIVE_EXECUTION" };
+    return {
+      ...NOT_OVERDUE,
+      overdue_activation_condition: "EXCLUDED_LIVE_EXECUTION",
+      overdue_classification: "EXCLUDED_LIVE_EXECUTION",
+    };
   }
 
   // Guard 2: Finalized states are NEVER overdue
   if (FINALIZED_STATES.includes(ride.status as any)) {
-    return { ...NOT_OVERDUE, overdue_activation_condition: "EXCLUDED_FINALIZED" };
+    return {
+      ...NOT_OVERDUE,
+      overdue_activation_condition: "EXCLUDED_FINALIZED",
+      overdue_classification: "EXCLUDED_FINAL_STATE",
+    };
   }
 
   // Guard 3: Only eligible statuses can be overdue
@@ -146,14 +224,14 @@ export function evaluateOverdue(ride: RideForOverdueCheck, serverNow: Date = new
     return { ...NOT_OVERDUE, overdue_activation_condition: "NOT_ELIGIBLE_DISPATCH_STATE" };
   }
 
-  // Guard 5: pickup_at must exist and be in the past
+  // Guard 5: pickup_at must exist and be in the past beyond grace period
   if (!ride.pickup_at) {
     return { ...NOT_OVERDUE, overdue_activation_condition: "NO_PICKUP_AT" };
   }
   const pickupAt = new Date(ride.pickup_at);
   const minutesPast = Math.floor((serverNow.getTime() - pickupAt.getTime()) / 60000);
 
-  if (minutesPast <= OVERDUE_GRACE_PERIOD_MINUTES) {
+  if (minutesPast <= OVERDUE_GRACE_MINUTES) {
     return { ...NOT_OVERDUE, overdue_activation_condition: "WITHIN_GRACE_PERIOD" };
   }
 
@@ -161,9 +239,9 @@ export function evaluateOverdue(ride: RideForOverdueCheck, serverNow: Date = new
   // Determine incident owner based on context
   let incidentOwner: IncidentOwner = "shared";
   if (ride.assigned_driver_id) {
-    incidentOwner = "driver"; // driver had the ride — primary owner
+    incidentOwner = "driver";
   } else {
-    incidentOwner = "admin"; // no driver assigned — admin owns it
+    incidentOwner = "admin";
   }
 
   // Determine incident status
@@ -175,6 +253,12 @@ export function evaluateOverdue(ride: RideForOverdueCheck, serverNow: Date = new
   // Determine incident reason code (if already reported)
   const incidentReasonCode = ride.incident_reason_code as IncidentReasonCode | null ?? null;
 
+  // BM19: Determine 6-state classification
+  const classification = classifyOverdueState({
+    incident_status: incidentStatus,
+    incident_reason_code: incidentReasonCode,
+  });
+
   return {
     is_overdue: true,
     overdue_execution: true,
@@ -184,7 +268,35 @@ export function evaluateOverdue(ride: RideForOverdueCheck, serverNow: Date = new
     incident_status: incidentStatus,
     incident_reason_code: incidentReasonCode,
     overdue_activation_condition: "OVERDUE_CONFIRMED",
+    overdue_classification: classification,
   };
+}
+
+// ── BM19: 6-State Classifier ─────────────────────────────────
+/**
+ * Given an already-confirmed overdue ride's incident fields,
+ * returns the canonical BM19 OverdueClassification.
+ *
+ * Call this ONLY after evaluateOverdue() confirms is_overdue = true.
+ * For non-overdue rides, use evaluateOverdue() which sets the
+ * classification directly in the result.
+ */
+export function classifyOverdueState(opts: {
+  incident_status: IncidentStatus | string | null | undefined;
+  incident_reason_code: IncidentReasonCode | string | null | undefined;
+}): OverdueClassification {
+  const { incident_status } = opts;
+
+  if (!incident_status || incident_status === "pending_reason") {
+    return "OVERDUE_PENDING_ACTION";
+  }
+
+  if (incident_status === "resolved" || incident_status === "redispatched" || incident_status === "cancelled") {
+    return "OVERDUE_RESOLVED";
+  }
+
+  // driver_reported, admin_review, rescheduled
+  return "OVERDUE_WITH_DRIVER_REPORTED";
 }
 
 // ── Redispatch Decision ──────────────────────────────────────
@@ -213,32 +325,39 @@ export function getIncidentAction(reasonCode: IncidentReasonCode): {
       description: "Client no-show. Move to admin confirmation for no-show/cancellation.",
     };
   }
-  // OTHER, TRAFFIC_DELAY, ADMIN_REASSIGNED
   return {
     action: "admin_review",
     description: "Generic incident. Requires admin review.",
   };
 }
 
-// ── Time Source Hardening ────────────────────────────────────
+// ── BM19: Server Time Context (extended) ─────────────────────
 /**
  * Builds the server-side time context for API responses.
  * This is the ONLY source of truth for time in the system.
  * The client device ONLY renders — it never decides logic.
+ *
+ * BM19 extension: includes overdue fields when pickup_at is provided.
  */
 export function buildServerTimeContext(pickupAt?: Date | string | null): {
   server_now: string;
   server_timezone: string;
   pickup_at_canonical: string | null;
   minutes_until_pickup: number | null;
+  minutes_since_pickup: number | null;
   pickup_is_past: boolean;
+  is_overdue: boolean;
+  overdue_minutes: number;
 } {
   const serverNow = new Date();
   const serverNowISO = serverNow.toISOString();
 
   let pickupAtCanonical: string | null = null;
   let minutesUntilPickup: number | null = null;
+  let minutesSincePickup: number | null = null;
   let pickupIsPast = false;
+  let isOverdue = false;
+  let overdueMinutes = 0;
 
   if (pickupAt) {
     const pickupDate = new Date(pickupAt);
@@ -246,6 +365,12 @@ export function buildServerTimeContext(pickupAt?: Date | string | null): {
     const diffMs = pickupDate.getTime() - serverNow.getTime();
     minutesUntilPickup = Math.round(diffMs / 60000);
     pickupIsPast = diffMs < 0;
+
+    if (pickupIsPast) {
+      minutesSincePickup = Math.abs(minutesUntilPickup);
+      isOverdue = minutesSincePickup > OVERDUE_GRACE_MINUTES;
+      overdueMinutes = isOverdue ? minutesSincePickup - OVERDUE_GRACE_MINUTES : 0;
+    }
   }
 
   return {
@@ -253,6 +378,9 @@ export function buildServerTimeContext(pickupAt?: Date | string | null): {
     server_timezone: "America/New_York",
     pickup_at_canonical: pickupAtCanonical,
     minutes_until_pickup: minutesUntilPickup,
+    minutes_since_pickup: minutesSincePickup,
     pickup_is_past: pickupIsPast,
+    is_overdue: isOverdue,
+    overdue_minutes: overdueMinutes,
   };
 }
