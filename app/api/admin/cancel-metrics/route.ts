@@ -1,4 +1,3 @@
-export const dynamic = "force-dynamic"
 import { NextResponse } from "next/server"
 import { neon } from "@neondatabase/serverless"
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
@@ -6,25 +5,37 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
 // ============================================================
 // GET /api/admin/cancel-metrics
 //
-// Returns comprehensive cancellation metrics for admin dashboard.
+// BM19 Unified Metrics Engine — Single Source of Truth
 //
-// Verified columns (from information_schema.columns):
-//   bookings: id, status, pickup_address, dropoff_address, pickup_at,
-//             cancelled_at, cancellation_reason, cancelled_by,
-//             cancellation_fee, total_price, assigned_driver_id, client_id,
-//             cancelled_by_type, cancelled_by_id, cancel_reason_code,
-//             cancel_reason_text, cancel_stage, affects_driver_metrics,
-//             affects_payout
+// Reads directly from:
+//   - bookings (status, cancel_reason, cancel_stage, expired_at)
+//   - driver_offer_history (offer_status for expired/declined offers)
 //
-// NOTE: cancel_responsibility does NOT exist. Use cancelled_by_type instead.
+// Returns 8 canonical termination categories:
+//   1. cancelled_by_client
+//   2. cancelled_by_driver
+//   3. cancelled_by_admin
+//   4. cancelled_by_system
+//   5. expired_by_timeout       (offer expired without driver response)
+//   6. expired_unassigned       (booking expired before any driver was assigned)
+//   7. declined_by_driver       (driver explicitly declined offer)
+//   8. fallback_expired         (fallback pool exhausted without assignment)
+//
+// Verified columns (bookings):
+//   id, status, pickup_address, dropoff_address, pickup_at,
+//   cancelled_at, cancellation_reason, cancelled_by,
+//   cancellation_fee, total_price, assigned_driver_id, client_id,
+//   cancelled_by_type, cancelled_by_id, cancel_reason_code,
+//   cancel_reason_text, cancel_stage, affects_driver_metrics,
+//   affects_payout
 // ============================================================
 
 export async function GET() {
   try {
-    // ── Aggregate counts ──────────────────────────────────────
+    // ── BM19: Aggregate counts from bookings (canonical status) ──────────────
     const counts = await sql`
       SELECT
-        -- Time windows
+        -- ── Time windows (cancelled only, using cancelled_at) ──
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND cancelled_at >= NOW() - INTERVAL '24 hours'
@@ -43,28 +54,34 @@ export async function GET() {
         ) AS this_month,
         COUNT(*) FILTER (
           WHERE status = 'cancelled' OR cancelled_at IS NOT NULL
-        ) AS total,
-        -- By type breakdown (using cancelled_by_type, fallback via cancelled_by text)
+        ) AS total_cancelled,
+
+        -- ── BM19: 8-category termination breakdown ──
+        -- 1. cancelled_by_client
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND COALESCE(cancelled_by_type,
               CASE
-                WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
-                WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
                 WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
+                WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
+                WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
                 ELSE 'system'
               END, 'system') = 'client'
-        ) AS by_client,
+        ) AS cancelled_by_client,
+
+        -- 2. cancelled_by_driver
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND COALESCE(cancelled_by_type,
               CASE
-                WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
                 WHEN cancelled_by ILIKE '%driver%' THEN 'driver'
                 WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
+                WHEN cancelled_by ILIKE '%admin%' OR cancelled_by ILIKE '%dispatch%' THEN 'admin'
                 ELSE 'system'
               END, 'system') = 'driver'
-        ) AS by_driver,
+        ) AS cancelled_by_driver,
+
+        -- 3. cancelled_by_admin
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND COALESCE(cancelled_by_type,
@@ -74,7 +91,9 @@ export async function GET() {
                 WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
                 ELSE 'system'
               END, 'system') = 'admin'
-        ) AS by_admin,
+        ) AS cancelled_by_admin,
+
+        -- 4. cancelled_by_system
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND COALESCE(cancelled_by_type,
@@ -84,8 +103,28 @@ export async function GET() {
                 WHEN cancelled_by ILIKE '%client%' OR cancelled_by ILIKE '%passenger%' THEN 'client'
                 ELSE 'system'
               END, 'system') = 'system'
-        ) AS by_system,
-        -- Stage breakdown
+        ) AS cancelled_by_system,
+
+        -- 5. expired_unassigned: bookings that expired before any driver was assigned
+        -- Proxy: status = 'cancelled' AND assigned_driver_id IS NULL AND cancel_stage = 'before_assignment'
+        COUNT(*) FILTER (
+          WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+            AND assigned_driver_id IS NULL
+            AND COALESCE(cancel_stage, 'before_assignment') = 'before_assignment'
+        ) AS expired_unassigned,
+
+        -- 6. fallback_expired: bookings that went through fallback pool but were never assigned
+        -- Proxy: cancel_stage = 'post_driver_issue' OR cancel_reason_code ILIKE '%fallback%'
+        COUNT(*) FILTER (
+          WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
+            AND (
+              cancel_stage = 'post_driver_issue'
+              OR cancel_reason_code ILIKE '%fallback%'
+              OR cancellation_reason ILIKE '%fallback%'
+            )
+        ) AS fallback_expired,
+
+        -- ── Stage breakdown (legacy, kept for backward compat) ──
         COUNT(*) FILTER (
           WHERE (status = 'cancelled' OR cancelled_at IS NOT NULL)
             AND COALESCE(cancel_stage, 'before_assignment') = 'before_assignment'
@@ -105,7 +144,23 @@ export async function GET() {
       FROM bookings
     `
 
-    // ── Recent cancelled list (last 50) ───────────────────────
+    // ── BM19: Offer-level metrics from driver_offer_history ──────────────────
+    // Categories 7 (expired_by_timeout) and 8 (declined_by_driver) come from
+    // the offer history table, not the bookings table.
+    let expired_by_timeout = 0
+    let declined_by_driver = 0
+    try {
+      const offerCounts = await sql`
+        SELECT
+          COUNT(*) FILTER (WHERE offer_status = 'offer_expired') AS expired_by_timeout,
+          COUNT(*) FILTER (WHERE offer_status = 'offer_declined') AS declined_by_driver
+        FROM driver_offer_history
+      `
+      expired_by_timeout = Number(offerCounts[0]?.expired_by_timeout ?? 0)
+      declined_by_driver = Number(offerCounts[0]?.declined_by_driver ?? 0)
+    } catch { /* driver_offer_history may not exist on older deployments */ }
+
+    // ── Recent cancelled list (last 50) ───────────────────────────────────────
     const recent = await sql`
       SELECT
         b.id AS booking_id,
@@ -127,7 +182,7 @@ export async function GET() {
         COALESCE(b.cancel_reason_code,
           UPPER(REPLACE(COALESCE(b.cancellation_reason, 'UNKNOWN'), ' ', '_'))
         ) AS cancel_reason_code,
-        -- Reason text: prefer new column, fallback to cancellation_reason
+        -- Reason text
         COALESCE(b.cancel_reason_text,
           CASE UPPER(REPLACE(COALESCE(b.cancellation_reason, ''), ' ', '_'))
             WHEN 'PASSENGER_NO_SHOW'                THEN 'Passenger no-show'
@@ -163,20 +218,36 @@ export async function GET() {
     `
 
     const c = counts[0]
+
     return NextResponse.json({
+      // ── BM19: Unified time-window counts ──
       counts: {
         last_24h:    Number(c.last_24h ?? 0),
         today:       Number(c.today ?? 0),
         this_week:   Number(c.this_week ?? 0),
         this_month:  Number(c.this_month ?? 0),
-        total:       Number(c.total ?? 0),
+        total:       Number(c.total_cancelled ?? 0),
       },
+      // ── BM19: 8-category termination breakdown ──
+      // This is the canonical single source of truth for all panels.
+      termination_breakdown: {
+        cancelled_by_client:  Number(c.cancelled_by_client ?? 0),
+        cancelled_by_driver:  Number(c.cancelled_by_driver ?? 0),
+        cancelled_by_admin:   Number(c.cancelled_by_admin ?? 0),
+        cancelled_by_system:  Number(c.cancelled_by_system ?? 0),
+        expired_by_timeout,   // from driver_offer_history
+        expired_unassigned:   Number(c.expired_unassigned ?? 0),
+        declined_by_driver,   // from driver_offer_history
+        fallback_expired:     Number(c.fallback_expired ?? 0),
+      },
+      // ── Legacy breakdown (kept for backward compat with existing admin UI) ──
       breakdown: {
-        by_client: Number(c.by_client ?? 0),
-        by_driver: Number(c.by_driver ?? 0),
-        by_admin:  Number(c.by_admin ?? 0),
-        by_system: Number(c.by_system ?? 0),
+        by_client: Number(c.cancelled_by_client ?? 0),
+        by_driver: Number(c.cancelled_by_driver ?? 0),
+        by_admin:  Number(c.cancelled_by_admin ?? 0),
+        by_system: Number(c.cancelled_by_system ?? 0),
       },
+      // ── Stage breakdown ──
       stage_breakdown: {
         before_assignment:  Number(c.stage_before_assignment ?? 0),
         assigned:           Number(c.stage_assigned ?? 0),
@@ -185,6 +256,9 @@ export async function GET() {
       },
       recent_list: recent,
       generated_at: new Date().toISOString(),
+      // BM19 metadata
+      source: 'rides_table_direct',
+      bm19_version: '1.0',
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })

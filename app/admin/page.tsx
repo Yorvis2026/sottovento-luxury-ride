@@ -458,10 +458,19 @@ export default function AdminPanel() {
   // ── Cancel Metrics (Bloque Maestro 4) ────────────────────────────────────
   const [cancelMetricsData, setCancelMetricsData] = useState<{
     counts: { last_24h: number; today: number; this_week: number; this_month: number; total: number };
+    // BM19: 8-category termination breakdown (single source of truth)
+    termination_breakdown?: {
+      cancelled_by_client: number; cancelled_by_driver: number;
+      cancelled_by_admin: number; cancelled_by_system: number;
+      expired_by_timeout: number; expired_unassigned: number;
+      declined_by_driver: number; fallback_expired: number;
+    };
     breakdown: { by_client: number; by_driver: number; by_admin: number; by_system: number };
     stage_breakdown: { before_assignment: number; assigned: number; in_progress: number; post_driver_issue: number };
     recent_list: any[];
     generated_at: string;
+    source?: string;
+    bm19_version?: string;
   } | null>(null)
   const [loadingCancelMetrics, setLoadingCancelMetrics] = useState(false)
 
@@ -2165,17 +2174,43 @@ export default function AdminPanel() {
                           </div>
                         ))}
                       </div>
-                      {/* ── Row 2: Breakdown by origin ── */}
-                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Breakdown por origen</div>
+                      {/* ── Row 2: BM19 8-Category Termination Breakdown (Single Source of Truth) ── */}
+                      {cancelMetricsData.termination_breakdown && (
+                        <>
+                          <div style={{ fontSize: 11, color: "#60a5fa", marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>BM19 — 8 Categorías de Terminación</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+                            {[
+                              { label: "Cancelled Client",  value: cancelMetricsData.termination_breakdown.cancelled_by_client,  color: "#fbbf24", icon: "&#x1F464;" },
+                              { label: "Cancelled Driver",  value: cancelMetricsData.termination_breakdown.cancelled_by_driver,  color: "#f87171", icon: "&#x1F697;" },
+                              { label: "Cancelled Admin",   value: cancelMetricsData.termination_breakdown.cancelled_by_admin,   color: "#a78bfa", icon: "&#x1F6E0;&#xFE0F;" },
+                              { label: "Cancelled System",  value: cancelMetricsData.termination_breakdown.cancelled_by_system,  color: "#6b7280", icon: "&#x2699;&#xFE0F;" },
+                              { label: "Expired Timeout",   value: cancelMetricsData.termination_breakdown.expired_by_timeout,   color: "#fb923c", icon: "&#x23F0;" },
+                              { label: "Expired Unassigned",value: cancelMetricsData.termination_breakdown.expired_unassigned,   color: "#f59e0b", icon: "&#x1F4ED;" },
+                              { label: "Declined Driver",   value: cancelMetricsData.termination_breakdown.declined_by_driver,   color: "#ef4444", icon: "&#x274C;" },
+                              { label: "Fallback Expired",  value: cancelMetricsData.termination_breakdown.fallback_expired,     color: "#dc2626", icon: "&#x1F504;" },
+                            ].map(m => (
+                              <div key={m.label} style={{ background: "#080810", border: "1px solid #1a1a3a", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 16 }} dangerouslySetInnerHTML={{ __html: m.icon }} />
+                                <div>
+                                  <div style={{ fontSize: 20, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
+                                  <div style={{ fontSize: 10, color: "#666" }}>{m.label}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {/* ── Row 2b: Breakdown by origin (legacy, kept for reference) ── */}
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Breakdown por origen (legacy)</div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
                         {[
-                          { label: "By Client",  value: cancelMetricsData.breakdown.by_client, color: "#fbbf24", icon: "👤" },
-                          { label: "By Driver",  value: cancelMetricsData.breakdown.by_driver, color: "#f87171", icon: "🚗" },
-                          { label: "By Admin",   value: cancelMetricsData.breakdown.by_admin,  color: "#a78bfa", icon: "🛠️" },
-                          { label: "By System",  value: cancelMetricsData.breakdown.by_system, color: "#6b7280", icon: "⚙️" },
+                          { label: "By Client",  value: cancelMetricsData.breakdown.by_client, color: "#fbbf24", icon: "&#x1F464;" },
+                          { label: "By Driver",  value: cancelMetricsData.breakdown.by_driver, color: "#f87171", icon: "&#x1F697;" },
+                          { label: "By Admin",   value: cancelMetricsData.breakdown.by_admin,  color: "#a78bfa", icon: "&#x1F6E0;&#xFE0F;" },
+                          { label: "By System",  value: cancelMetricsData.breakdown.by_system, color: "#6b7280", icon: "&#x2699;&#xFE0F;" },
                         ].map(m => (
                           <div key={m.label} style={{ background: "#0d0000", border: "1px solid #2a1a1a", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ fontSize: 18 }}>{m.icon}</span>
+                            <span style={{ fontSize: 18 }} dangerouslySetInnerHTML={{ __html: m.icon }} />
                             <div>
                               <div style={{ fontSize: 20, fontWeight: 700, color: m.value > 0 ? m.color : "#444" }}>{m.value}</div>
                               <div style={{ fontSize: 10, color: "#666" }}>{m.label}</div>
