@@ -548,9 +548,30 @@ export default function AdminPanel() {
   const [bookingDateFilter, setBookingDateFilter] = useState<"today" | "week" | "month" | "all">("all")
   const [bookingStatusFilter, setBookingStatusFilter] = useState<string>("all")
   const [bookingViewMode, setBookingViewMode] = useState<"active" | "completed" | "cancelled" | "archived">("active")
-  const [cancelModal, setCancelModal] = useState<{ bookingId: string; clientName: string } | null>(null)
-  const [cancelReason, setCancelReason] = useState("")
+  // BM20-C: Admin Cancel Audit Modal state
+  const [cancelModal, setCancelModal] = useState<{ bookingId: string; clientName: string; currentStatus?: string } | null>(null)
+  const [cancelReasonCode, setCancelReasonCode] = useState<string>("")
+  const [cancelReasonNote, setCancelReasonNote] = useState<string>("")
+  const [cancelRefundDecision, setCancelRefundDecision] = useState<string>("")
+  const [cancelReason, setCancelReason] = useState("") // legacy compat
   const [cancellingBooking, setCancellingBooking] = useState(false)
+  // BM20-C enums
+  const BM20_CANCEL_REASON_CODES = [
+    { value: "duplicate_booking",    label: "Duplicate Booking" },
+    { value: "invalid_booking_data", label: "Invalid Booking Data" },
+    { value: "client_requested",     label: "Client Requested" },
+    { value: "driver_unavailable",   label: "Driver Unavailable" },
+    { value: "pricing_correction",   label: "Pricing Correction" },
+    { value: "system_issue",         label: "System Issue" },
+    { value: "test_cleanup",         label: "Test / Cleanup" },
+    { value: "other",                label: "Other (note required)" },
+  ] as const
+  const BM20_REFUND_DECISIONS = [
+    { value: "full_refund",    label: "Full Refund" },
+    { value: "partial_refund", label: "Partial Refund" },
+    { value: "no_refund",      label: "No Refund" },
+    { value: "manual_review",  label: "Manual Review Required" },
+  ] as const
   const [driverStatusFilter, setDriverStatusFilter] = useState<"active" | "all">("all")
   const [leadSourceFilter, setLeadSourceFilter] = useState<string>("all")
 
@@ -748,15 +769,65 @@ export default function AdminPanel() {
   }
   const handleConfirmCancel = async () => {
     if (!cancelModal) return
+    // BM20-C: Validate required fields
+    if (!cancelReasonCode) {
+      setGlobalToast({ msg: "❌ Cancel reason is required", type: "error" })
+      setTimeout(() => setGlobalToast(null), 3000)
+      return
+    }
+    if (cancelReasonCode === "other" && !cancelReasonNote.trim()) {
+      setGlobalToast({ msg: "❌ A note is required when reason is Other", type: "error" })
+      setTimeout(() => setGlobalToast(null), 3000)
+      return
+    }
+    if (!cancelRefundDecision) {
+      setGlobalToast({ msg: "❌ Refund decision is required", type: "error" })
+      setTimeout(() => setGlobalToast(null), 3000)
+      return
+    }
     setCancellingBooking(true)
     try {
       const res = await fetch(`/api/admin/bookings/${cancelModal.bookingId}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "cancelled", dispatch_status: "cancelled", edit_fields: { cancellation_reason: cancelReason || "Admin cancelled", cancelled_by: "admin" } })
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-key": "sln-admin-2024" },
+        body: JSON.stringify({
+          status: "cancelled",
+          dispatch_status: "cancelled",
+          // BM20-C: Normalized cancellation audit fields
+          bm20_cancel: {
+            cancel_reason_code:  cancelReasonCode,
+            cancel_reason_note:  cancelReasonNote.trim() || null,
+            refund_decision:     cancelRefundDecision,
+            cancelled_by_role:   "admin",
+            cancel_timestamp:    new Date().toISOString(),
+          },
+          // Legacy compat
+          edit_fields: {
+            cancellation_reason: cancelReasonNote.trim() || cancelReasonCode,
+            cancelled_by: "admin",
+          },
+        }),
       })
-      if (res.ok) { setCancelModal(null); setCancelReason(""); loadBookings(bookingViewMode); loadDashboard() }
-      else { const d = await res.json().catch(() => ({})); setGlobalToast({ msg: `❌ ${d.error ?? "Failed to cancel"}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
-    } catch (e: any) { setGlobalToast({ msg: `❌ Network error: ${e.message}`, type: "error" }); setTimeout(() => setGlobalToast(null), 4000) }
+      if (res.ok) {
+        setCancelModal(null)
+        setCancelReasonCode("")
+        setCancelReasonNote("")
+        setCancelRefundDecision("")
+        setCancelReason("")
+        loadBookings(bookingViewMode)
+        loadDashboard()
+        loadCancelMetrics() // BM20-C: sync BM19 metrics after cancel
+        setGlobalToast({ msg: "✅ Booking cancelled and audit trail recorded", type: "success" })
+        setTimeout(() => setGlobalToast(null), 4000)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setGlobalToast({ msg: `❌ ${d.error ?? "Failed to cancel"}`, type: "error" })
+        setTimeout(() => setGlobalToast(null), 4000)
+      }
+    } catch (e: any) {
+      setGlobalToast({ msg: `❌ Network error: ${e.message}`, type: "error" })
+      setTimeout(() => setGlobalToast(null), 4000)
+    }
     finally { setCancellingBooking(false) }
   }
 
@@ -1326,10 +1397,74 @@ export default function AdminPanel() {
                       </div>
                     )}
 
-                    {/* Cancellation reason (cancelled view) */}
-                    {b.cancellation_reason && (
-                      <div style={{ marginBottom: 8, padding: "6px 10px", background: "#1a0000", borderRadius: 6, fontSize: 12, color: "#f87171" }}>
-                        Cancelled: {b.cancellation_reason}{b.cancelled_by ? ` (by ${b.cancelled_by})` : ""}
+                    {/* BM20-C: Cancellation Audit Block */}
+                    {(b.status === "cancelled" || b.cancellation_reason || (b as any).cancel_reason_code) && (
+                      <div style={{ marginBottom: 8, padding: "10px 12px", background: "#1a0000", border: "1px solid #3b0000", borderRadius: 8, fontSize: 12 }}>
+                        <div style={{ color: "#f87171", fontWeight: 700, marginBottom: 6, fontSize: 11, letterSpacing: 1, textTransform: "uppercase" as const }}>Cancellation Audit</div>
+                        {/* Cancel Reason */}
+                        {((b as any).cancel_reason_code || b.cancellation_reason) && (
+                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Reason:</span>
+                            <span style={{ color: "#fca5a5" }}>
+                              {(b as any).cancel_reason_code
+                                ? (b as any).cancel_reason_code.replace(/_/g, " ")
+                                : b.cancellation_reason}
+                            </span>
+                          </div>
+                        )}
+                        {/* Cancel Note */}
+                        {(b as any).cancel_reason_text && (b as any).cancel_reason_text !== (b as any).cancel_reason_code && (
+                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Note:</span>
+                            <span style={{ color: "#e5e7eb" }}>{(b as any).cancel_reason_text}</span>
+                          </div>
+                        )}
+                        {/* Cancelled By */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                          <span style={{ color: "#888", minWidth: 110 }}>Cancelled by:</span>
+                          <span style={{ color: "#fca5a5" }}>
+                            {(b as any).cancelled_by_type ?? b.cancelled_by ?? "admin"}
+                          </span>
+                        </div>
+                        {/* Cancelled At */}
+                        {((b as any).cancelled_at || b.updated_at) && (
+                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Cancelled at:</span>
+                            <span style={{ color: "#9ca3af" }}>
+                              {new Date((b as any).cancelled_at ?? b.updated_at!).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                            </span>
+                          </div>
+                        )}
+                        {/* Refund Decision */}
+                        {(b as any).refund_decision && (
+                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Refund decision:</span>
+                            <span style={{
+                              color: (b as any).refund_decision === "full_refund" ? "#4ade80"
+                                   : (b as any).refund_decision === "partial_refund" ? "#fbbf24"
+                                   : (b as any).refund_decision === "no_refund" ? "#6b7280"
+                                   : "#60a5fa",
+                              fontWeight: 600,
+                            }}>
+                              {(b as any).refund_decision.replace(/_/g, " ").toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+                        {/* Refund Status */}
+                        {(b as any).refund_status && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Refund status:</span>
+                            <span style={{
+                              color: (b as any).refund_status === "processed" ? "#4ade80"
+                                   : (b as any).refund_status === "pending" ? "#fbbf24"
+                                   : (b as any).refund_status === "failed" ? "#f87171"
+                                   : (b as any).refund_status === "manual_review" ? "#60a5fa"
+                                   : "#6b7280",
+                            }}>
+                              {(b as any).refund_status.replace(/_/g, " ").toUpperCase()}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1449,23 +1584,88 @@ export default function AdminPanel() {
             )}
 
             {/* ── Cancel Booking Modal ── */}
+            {/* BM20-C: Admin Cancel Audit Modal — mandatory fields */}
             {cancelModal && (
-              <div style={{ position: "fixed", inset: 0, background: "#000000cc", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-                <div style={{ background: "#111", border: "1px solid #3b0000", borderRadius: 16, padding: 28, maxWidth: 420, width: "100%" }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f87171", marginBottom: 8 }}>❌ Cancel Booking</div>
-                  <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>Cancelling booking for <strong style={{ color: "#fff" }}>{cancelModal.clientName}</strong>. This cannot be undone.</div>
-                  <label style={S.label}>Cancellation reason (optional)</label>
+              <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                <div style={{ background: "#111", border: "1px solid #3b0000", borderRadius: 16, padding: 28, maxWidth: 480, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+                  {/* Header */}
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f87171", marginBottom: 4 }}>Cancel Booking — Audit Required</div>
+                  <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>
+                    Cancelling booking for <strong style={{ color: "#fff" }}>{cancelModal.clientName}</strong>.
+                    All fields below are <strong style={{ color: "#f87171" }}>required</strong>. This cannot be undone.
+                  </div>
+
+                  {/* Field 1: cancel_reason_code */}
+                  <label style={{ ...S.label, color: cancelReasonCode ? "#888" : "#f87171" }}>
+                    Cancel Reason <span style={{ color: "#f87171" }}>*</span>
+                  </label>
+                  <select
+                    value={cancelReasonCode}
+                    onChange={e => setCancelReasonCode(e.target.value)}
+                    style={{ ...S.input, marginBottom: 12, appearance: "none" as const }}
+                  >
+                    <option value="">— Select reason —</option>
+                    {BM20_CANCEL_REASON_CODES.map(r => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+
+                  {/* Field 2: cancel_reason_note (required only if reason = other) */}
+                  <label style={{ ...S.label, color: (cancelReasonCode === "other" && !cancelReasonNote.trim()) ? "#f87171" : "#888" }}>
+                    Note {cancelReasonCode === "other" ? <span style={{ color: "#f87171" }}>* (required for Other)</span> : "(optional)"}
+                  </label>
                   <textarea
-                    value={cancelReason}
-                    onChange={e => setCancelReason(e.target.value)}
-                    placeholder="e.g. Client requested cancellation, No show, Duplicate booking..."
-                    style={{ ...S.input, height: 80, resize: "vertical" as const, marginBottom: 16 }}
+                    value={cancelReasonNote}
+                    onChange={e => setCancelReasonNote(e.target.value)}
+                    placeholder={cancelReasonCode === "other" ? "Describe the reason for cancellation..." : "Additional context (optional)"}
+                    style={{ ...S.input, height: 72, resize: "vertical" as const, marginBottom: 12 }}
                   />
+
+                  {/* Field 3: refund_decision */}
+                  <label style={{ ...S.label, color: cancelRefundDecision ? "#888" : "#f87171" }}>
+                    Refund Decision <span style={{ color: "#f87171" }}>*</span>
+                  </label>
+                  <select
+                    value={cancelRefundDecision}
+                    onChange={e => setCancelRefundDecision(e.target.value)}
+                    style={{ ...S.input, marginBottom: 20, appearance: "none" as const }}
+                  >
+                    <option value="">— Select refund decision —</option>
+                    {BM20_REFUND_DECISIONS.map(r => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+
+                  {/* Refund decision info banner */}
+                  {cancelRefundDecision && (
+                    <div style={{ background: "#0d1a0d", border: "1px solid #14532d", borderRadius: 8, padding: "8px 12px", marginBottom: 16, fontSize: 12, color: "#4ade80" }}>
+                      {cancelRefundDecision === "full_refund"    && "Full refund will be queued for processing. No charge to client."}
+                      {cancelRefundDecision === "partial_refund" && "Partial refund will be queued. Amount to be determined in Finance tab."}
+                      {cancelRefundDecision === "no_refund"      && "No refund will be issued. Cancellation fee may apply per contract."}
+                      {cancelRefundDecision === "manual_review"  && "Case flagged for manual review. Finance team will be notified."}
+                    </div>
+                  )}
+
+                  {/* Audit trail notice */}
+                  <div style={{ background: "#0d0d1a", border: "1px solid #1a1a3a", borderRadius: 8, padding: "8px 12px", marginBottom: 16, fontSize: 11, color: "#6b7280" }}>
+                    This cancellation will be recorded in the audit log with your admin ID, timestamp, reason code, and refund decision.
+                  </div>
+
+                  {/* Actions */}
                   <div style={{ display: "flex", gap: 10 }}>
-                    <button onClick={handleConfirmCancel} disabled={cancellingBooking} style={{ ...S.btn(), flex: 1, background: "#3b0000", color: "#f87171", border: "none" }}>
+                    <button
+                      onClick={handleConfirmCancel}
+                      disabled={cancellingBooking || !cancelReasonCode || !cancelRefundDecision || (cancelReasonCode === "other" && !cancelReasonNote.trim())}
+                      style={{ ...S.btn(), flex: 1, background: "#3b0000", color: "#f87171", border: "none", opacity: (!cancelReasonCode || !cancelRefundDecision || (cancelReasonCode === "other" && !cancelReasonNote.trim())) ? 0.5 : 1 }}
+                    >
                       {cancellingBooking ? "Cancelling..." : "Confirm Cancel"}
                     </button>
-                    <button onClick={() => { setCancelModal(null); setCancelReason("") }} style={{ ...S.btn(), flex: 1 }}>Back</button>
+                    <button
+                      onClick={() => { setCancelModal(null); setCancelReasonCode(""); setCancelReasonNote(""); setCancelRefundDecision(""); setCancelReason("") }}
+                      style={{ ...S.btn(), flex: 1 }}
+                    >
+                      Back
+                    </button>
                   </div>
                 </div>
               </div>

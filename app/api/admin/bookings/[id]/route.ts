@@ -128,6 +128,14 @@ export async function PATCH(
     const { id } = await params;
     const body = await req.json();
     let { status, dispatch_status, assigned_driver_id, edit_fields } = body;
+    // BM20-C: Extract cancellation audit payload
+    const bm20Cancel = body.bm20_cancel as {
+      cancel_reason_code:  string
+      cancel_reason_note:  string | null
+      refund_decision:     string
+      cancelled_by_role:   string
+      cancel_timestamp:    string
+    } | undefined;
 
     // ── Resolve assign_driver_code → assigned_driver_id ──────────────────────
     // Admin panel sends { assign_driver_code: 'YHV001' } instead of a raw UUID.
@@ -535,6 +543,118 @@ export async function PATCH(
         console.error("[PATCH] financial close error:", finErr?.message);
       }
     }
+    // ── BM20-C: Admin Cancellation Audit + Refund Decision Layer ──────────────
+    // Triggered when status = 'cancelled' AND bm20_cancel payload is present.
+    // Rule: cancel execution NEVER depends on audit/refund result.
+    // Both blocks are non-blocking (try/catch) — booking cancel already committed above.
+    if (status === "cancelled" && bm20Cancel) {
+      const {
+        cancel_reason_code,
+        cancel_reason_note,
+        refund_decision,
+        cancelled_by_role,
+        cancel_timestamp,
+      } = bm20Cancel;
+
+      // STEP 1: Update normalized cancellation columns on bookings
+      // Uses try/catch per column for maximum compatibility with partial migrations
+      try {
+        await sql`
+          UPDATE bookings
+          SET
+            cancel_reason_code  = ${cancel_reason_code},
+            cancel_reason_text  = ${cancel_reason_note ?? cancel_reason_code},
+            cancelled_by_type   = ${'admin'},
+            cancelled_at        = ${cancel_timestamp}::timestamptz,
+            cancel_stage        = CASE
+              WHEN status IN ('new','quote_sent','awaiting_payment','confirmed') THEN 'before_assignment'
+              WHEN status IN ('pending_dispatch','accepted','assigned')          THEN 'assigned'
+              WHEN status IN ('en_route','arrived','in_trip')                    THEN 'in_progress'
+              ELSE 'post_driver_issue'
+            END,
+            updated_at = NOW()
+          WHERE id = ${id}::uuid
+        `;
+      } catch (colErr: any) {
+        // Columns may not exist yet in older migrations — non-blocking
+        console.warn("[BM20-C] cancel columns update failed (non-blocking):", colErr?.message);
+      }
+
+      // STEP 2: Write audit trail to audit_logs (BM20-C mandatory audit)
+      try {
+        await sql`
+          INSERT INTO audit_logs (
+            entity_type, entity_id, action, actor_type,
+            new_data, created_at
+          ) VALUES (
+            'booking',
+            ${id}::uuid,
+            'admin_cancel',
+            'admin',
+            ${JSON.stringify({
+              cancel_reason_code,
+              cancel_reason_note:  cancel_reason_note ?? null,
+              refund_decision,
+              cancelled_by_role,
+              cancel_timestamp,
+              bm20_version:        "BM20-C",
+            })}::jsonb,
+            NOW()
+          )
+        `;
+      } catch (auditErr: any) {
+        console.warn("[BM20-C] audit_logs insert failed (non-blocking):", auditErr?.message);
+      }
+
+      // STEP 3: Refund decision tracking — store in bookings + audit_logs
+      // refund_status starts as 'pending' (or 'not_required' for no_refund)
+      const refundStatus = refund_decision === "no_refund" ? "not_required" : "pending";
+      try {
+        await sql`
+          UPDATE bookings
+          SET
+            refund_decision      = ${refund_decision},
+            refund_status        = ${refundStatus},
+            refund_requested_at  = ${refund_decision !== "no_refund" ? cancel_timestamp : null}::timestamptz,
+            updated_at           = NOW()
+          WHERE id = ${id}::uuid
+        `;
+      } catch (refundColErr: any) {
+        // refund columns may not exist yet — non-blocking
+        console.warn("[BM20-C] refund columns update failed (non-blocking):", refundColErr?.message);
+      }
+
+      // STEP 4: Log financial event for refund queue (async ready)
+      if (refund_decision !== "no_refund") {
+        try {
+          await sql`
+            INSERT INTO audit_logs (
+              entity_type, entity_id, action, actor_type,
+              new_data, created_at
+            ) VALUES (
+              'booking',
+              ${id}::uuid,
+              'refund_requested',
+              'admin',
+              ${JSON.stringify({
+                refund_decision,
+                refund_status:      refundStatus,
+                refund_requested_at: cancel_timestamp,
+                cancel_reason_code,
+                bm20_version:       "BM20-C",
+              })}::jsonb,
+              NOW()
+            )
+          `;
+        } catch (finEventErr: any) {
+          console.warn("[BM20-C] refund event log failed (non-blocking):", finEventErr?.message);
+        }
+      }
+
+      console.log(`[BM20-C] Admin cancel audit recorded for booking ${id}: reason=${cancel_reason_code} refund=${refund_decision}`);
+    }
+    // ── End BM20-C ─────────────────────────────────────────────────────────────
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
