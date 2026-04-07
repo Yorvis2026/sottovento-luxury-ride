@@ -1441,14 +1441,14 @@ export default function AdminPanel() {
                             </span>
                           </div>
                         )}
-                        {/* Refund Decision */}
+                        {/* Refund Decision (BM20-E engine values: full/partial/none/manual_review) */}
                         {(b as any).refund_decision && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Refund decision:</span>
                             <span style={{
-                              color: (b as any).refund_decision === "full_refund" ? "#4ade80"
-                                   : (b as any).refund_decision === "partial_refund" ? "#fbbf24"
-                                   : (b as any).refund_decision === "no_refund" ? "#6b7280"
+                              color: (b as any).refund_decision === "full" || (b as any).refund_decision === "full_refund" ? "#4ade80"
+                                   : (b as any).refund_decision === "partial" || (b as any).refund_decision === "partial_refund" ? "#fbbf24"
+                                   : (b as any).refund_decision === "none" || (b as any).refund_decision === "no_refund" ? "#6b7280"
                                    : "#60a5fa",
                               fontWeight: 600,
                             }}>
@@ -1458,7 +1458,7 @@ export default function AdminPanel() {
                         )}
                         {/* Refund Status */}
                         {(b as any).refund_status && (
-                          <div style={{ display: "flex", gap: 6 }}>
+                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Refund status:</span>
                             <span style={{
                               color: (b as any).refund_status === "processed" ? "#4ade80"
@@ -1468,6 +1468,24 @@ export default function AdminPanel() {
                                    : "#6b7280",
                             }}>
                               {(b as any).refund_status.replace(/_/g, " ").toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+                        {/* Refund Reason Code (BM20-E) */}
+                        {(b as any).refund_reason_code && (
+                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Refund reason:</span>
+                            <span style={{ color: "#9ca3af", fontFamily: "monospace", fontSize: 11 }}>
+                              {(b as any).refund_reason_code}
+                            </span>
+                          </div>
+                        )}
+                        {/* Refund Calculated At (BM20-E) */}
+                        {(b as any).refund_calculated_at && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <span style={{ color: "#888", minWidth: 110 }}>Refund calc at:</span>
+                            <span style={{ color: "#6b7280", fontSize: 11 }}>
+                              {new Date((b as any).refund_calculated_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </span>
                           </div>
                         )}

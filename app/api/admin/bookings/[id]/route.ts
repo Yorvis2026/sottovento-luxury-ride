@@ -4,6 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { lockCommission } from "@/lib/dispatch/commission-engine";
 import { postBookingLedger } from "@/lib/dispatch/ledger";
 import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
+import { evaluateRefundDecision } from "@/lib/refund/evaluateRefundDecision";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 // ============================================================
@@ -606,26 +607,60 @@ export async function PATCH(
         console.warn("[BM20-C] audit_logs insert failed (non-blocking):", auditErr?.message);
       }
 
-      // STEP 3: Refund decision tracking — store in bookings + audit_logs
-      // refund_status starts as 'pending' (or 'not_required' for no_refund)
-      const refundStatus = refund_decision === "no_refund" ? "not_required" : "pending";
+      // STEP 3 (BM20-E): Automatic refund decision engine
+      // evaluateRefundDecision() calculates decision/status/reason automatically
+      // based on cancelled_by_type, pickup_datetime, and cancelled_at.
+      // The admin's manual refund_decision from the form is stored as a hint
+      // but the engine's calculation is the authoritative value.
+      let refundEval: { decision: string; status: string; reason: string; calculated_at: string; hours_before_pickup: number | null };
+      try {
+        // Fetch pickup_datetime from DB for the engine
+        const bookingRows = await sql`
+          SELECT pickup_at, cancelled_at FROM bookings WHERE id = ${id}::uuid LIMIT 1
+        `;
+        const bookingRow = bookingRows[0];
+        refundEval = evaluateRefundDecision({
+          cancelled_by_type:    'admin',
+          pickup_datetime:      bookingRow?.pickup_at ?? null,
+          cancelled_at:         bookingRow?.cancelled_at ?? cancel_timestamp,
+          payment_intent_id:    null, // BM20-F will add this
+        });
+      } catch (evalErr: any) {
+        // Fallback to manual decision if engine fails
+        console.warn('[BM20-E] evaluateRefundDecision failed, using manual decision:', evalErr?.message);
+        const fallbackStatus = refund_decision === 'no_refund' ? 'not_required' : 'pending';
+        refundEval = {
+          decision:            refund_decision === 'no_refund' ? 'none' : refund_decision === 'full_refund' ? 'full' : refund_decision === 'partial_refund' ? 'partial' : 'manual_review',
+          status:              fallbackStatus,
+          reason:              'admin_cancelled',
+          calculated_at:       new Date().toISOString(),
+          hours_before_pickup: null,
+        };
+      }
+
+      // Store BM20-E refund fields in bookings
       try {
         await sql`
           UPDATE bookings
           SET
-            refund_decision      = ${refund_decision},
-            refund_status        = ${refundStatus},
-            refund_requested_at  = ${refund_decision !== "no_refund" ? cancel_timestamp : null}::timestamptz,
-            updated_at           = NOW()
+            refund_decision           = ${refundEval.decision},
+            refund_status             = ${refundEval.status},
+            refund_reason_code        = ${refundEval.reason},
+            refund_calculated_at      = ${refundEval.calculated_at}::timestamptz,
+            refund_requested_at       = ${refundEval.status === 'pending' ? cancel_timestamp : null}::timestamptz,
+            updated_at                = NOW()
           WHERE id = ${id}::uuid
         `;
+        console.log(`[BM20-E] Refund eval stored: decision=${refundEval.decision} status=${refundEval.status} reason=${refundEval.reason} hours=${refundEval.hours_before_pickup?.toFixed(1)}`);
       } catch (refundColErr: any) {
         // refund columns may not exist yet — non-blocking
-        console.warn("[BM20-C] refund columns update failed (non-blocking):", refundColErr?.message);
+        console.warn('[BM20-E] refund columns update failed (non-blocking):', refundColErr?.message);
       }
+      const refundStatus = refundEval.status;
 
-      // STEP 4: Log financial event for refund queue (async ready)
-      if (refund_decision !== "no_refund") {
+      // STEP 4 (BM20-E): Log financial event for refund queue (async ready)
+      // Uses engine's calculated decision, not the admin form value
+      if (refundEval.decision !== 'none') {
         try {
           await sql`
             INSERT INTO audit_logs (
@@ -637,21 +672,25 @@ export async function PATCH(
               'refund_requested',
               'admin',
               ${JSON.stringify({
-                refund_decision,
-                refund_status:      refundStatus,
-                refund_requested_at: cancel_timestamp,
+                refund_decision:        refundEval.decision,
+                refund_status:          refundEval.status,
+                refund_reason_code:     refundEval.reason,
+                refund_calculated_at:   refundEval.calculated_at,
+                hours_before_pickup:    refundEval.hours_before_pickup,
+                refund_requested_at:    cancel_timestamp,
                 cancel_reason_code,
-                bm20_version:       "BM20-C",
+                admin_form_decision:    refund_decision, // hint from admin form
+                bm20_version:           'BM20-E',
               })}::jsonb,
               NOW()
             )
           `;
         } catch (finEventErr: any) {
-          console.warn("[BM20-C] refund event log failed (non-blocking):", finEventErr?.message);
+          console.warn('[BM20-E] refund event log failed (non-blocking):', finEventErr?.message);
         }
       }
 
-      console.log(`[BM20-C] Admin cancel audit recorded for booking ${id}: reason=${cancel_reason_code} refund=${refund_decision}`);
+      console.log(`[BM20-E] Admin cancel audit recorded for booking ${id}: reason=${cancel_reason_code} engine_decision=${refundEval.decision} reason_code=${refundEval.reason}`);
     }
     // ── End BM20-C ─────────────────────────────────────────────────────────────
 
