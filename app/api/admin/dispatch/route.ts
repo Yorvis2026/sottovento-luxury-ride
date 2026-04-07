@@ -77,6 +77,9 @@ export async function GET(req: NextRequest) {
         COALESCE(b.cancellation_fee, 0)::numeric            AS cancellation_fee,
         COALESCE(b.source_driver_id::text, '')              AS source_driver_id,
         COALESCE(b.source_type, '')                         AS source_type,
+        -- BM20-E2: Refund Preview Badge fields
+        b.refund_decision,
+        b.refund_status,
         (
           SELECT al.action FROM audit_logs al
           WHERE al.entity_id = b.id

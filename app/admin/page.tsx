@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { type Lang, type TranslationKey, getTranslation, saveLang, loadLang } from "@/lib/i18n"
 import { formatBookingPickupET } from "@/lib/format-pickup-et"
+import { RefundBadge } from "@/components/admin/RefundBadge"
 
 // ============================================================
 // /admin — Sottovento Luxury Network (SLN) Admin Panel
@@ -1368,6 +1369,8 @@ export default function AdminPanel() {
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                         <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
+                        {/* BM20-E2: Refund Preview Badge — only visible when cancelled */}
+                        <RefundBadge decision={(b as any).refund_decision} cancelledAt={(b as any).cancelled_at} compact />
                         <span style={{ fontSize: 11, fontWeight: 600, color: paymentColor[b.payment_status] ?? "#888" }}>{b.payment_status?.toUpperCase()}</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: "#c9a84c" }}>${Number(b.total_price ?? 0).toFixed(2)}</span>
                       </div>
@@ -3018,6 +3021,8 @@ export default function AdminPanel() {
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                             <span style={{ ...S.badge("#3b0000"), color: "#f87171" }}>CANCELLED</span>
+                            {/* BM20-E2: Refund Preview Badge */}
+                            <RefundBadge decision={b.refund_decision} cancelledAt={b.cancelled_at} compact />
                             <button onClick={() => setExpandedDispatchId(isExpanded ? null : b.id)} style={{ ...S.btn(), fontSize: 11, padding: "3px 10px" }}>{isExpanded ? "▲ Ocultar" : "▼ Detalles"}</button>
                           </div>
                         </div>
