@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { QRCodeSVG } from "qrcode.react"
+import { formatBookingPickupET } from "@/lib/format-pickup-et"
+
+// BM20-D: Unified pickup datetime formatters for ET display
+const fmtPickupDate = (s: string | null | undefined) => formatBookingPickupET(s, "date_only")
+const fmtPickupTime = (s: string | null | undefined) => formatBookingPickupET(s, "time_only")
+const fmtPickupShort = (s: string | null | undefined) => formatBookingPickupET(s, "short")
+const fmtPickupLong = (s: string | null | undefined) => formatBookingPickupET(s, "long")
 
 // ============================================================
 // /driver/[driver_code] — SLN Driver Panel v5 (Master Block)
@@ -2129,7 +2136,7 @@ export default function DriverDashboardByCode() {
             </div>
             {cachedRide.pickup_datetime && (
               <div className="text-center text-sm text-zinc-400">
-                {new Date(cachedRide.pickup_datetime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                {fmtPickupShort(cachedRide.pickup_datetime)}
               </div>
             )}
           </div>
@@ -2247,7 +2254,7 @@ export default function DriverDashboardByCode() {
   if (showFallbackOfferModal && fallbackOfferData) {
     const fo = fallbackOfferData
     const pickupFormatted = fo.pickup_datetime
-      ? new Date(fo.pickup_datetime).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      ? fmtPickupShort(fo.pickup_datetime)
       : lang === "es" ? "Hora por confirmar" : "Time TBD"
     const ORANGE = "#FF6B00"
     const RED = "#FF2D2D"
@@ -2611,10 +2618,10 @@ export default function DriverDashboardByCode() {
   // ── EARLY START MODAL (temporal guardrail) ──────────────────────────────────────────────────
   if (showEarlyStartModal && summary?.assigned_ride) {
     const pickupTime = summary.assigned_ride.pickup_datetime
-      ? new Date(summary.assigned_ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      ? fmtPickupTime(summary.assigned_ride.pickup_datetime)
       : "scheduled time"
     const pickupDate = summary.assigned_ride.pickup_datetime
-      ? new Date(summary.assigned_ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+      ? fmtPickupDate(summary.assigned_ride.pickup_datetime)
       : ""
     const minutesUntil = summary.assigned_ride.pickup_datetime
       ? Math.round((new Date(summary.assigned_ride.pickup_datetime).getTime() - Date.now()) / 60000)
@@ -3752,7 +3759,7 @@ export default function DriverDashboardByCode() {
                     {ride.pickup_datetime && (
                       <div className="text-xs text-zinc-500">
                         {lang === "es" ? "Hora de recogida: " : "Pickup: "}
-                        {new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {fmtPickupTime(ride.pickup_datetime)}
                       </div>
                     )}
                     {ride.client_name && (
@@ -3989,9 +3996,9 @@ export default function DriverDashboardByCode() {
             <div className="space-y-3">
               {summary.upcoming_rides.map((ride) => {
                 const pickupDate = ride.pickup_datetime
-                  ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""
+                  ? fmtPickupDate(ride.pickup_datetime) : ""
                 const pickupTime = ride.pickup_datetime
-                  ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                  ? fmtPickupTime(ride.pickup_datetime) : ""
                 const minutesUntil = ride.pickup_datetime
                   ? Math.round((new Date(ride.pickup_datetime).getTime() - Date.now()) / 60000) : null
                 const isNearWindow = minutesUntil !== null && minutesUntil <= 120 // 2h operational window
@@ -4101,7 +4108,7 @@ export default function DriverDashboardByCode() {
                 const grouped: Record<string, any[]> = {};
                 for (const ride of futureRides) {
                   const dateKey = ride.pickup_datetime
-                    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
+                    ? fmtPickupDate(ride.pickup_datetime)
                     : "TBD";
                   if (!grouped[dateKey]) grouped[dateKey] = [];
                   grouped[dateKey].push(ride);
@@ -4112,7 +4119,7 @@ export default function DriverDashboardByCode() {
                     <div className="space-y-2">
                       {rides.map((ride: any) => {
                         const pickupTime = ride.pickup_datetime
-                          ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+                          ? fmtPickupTime(ride.pickup_datetime) : "";
                         const hoursUntil = ride.hours_until_pickup ?? Math.round((ride.minutes_until_pickup ?? 0) / 60);
                         const hasConflict = ride.has_schedule_conflict === true;
                         return (
@@ -4179,9 +4186,9 @@ export default function DriverDashboardByCode() {
               {summary.completed_rides.map((ride) => {
                 const isExpanded = expandedCompletedId === ride.booking_id
                 const pickupDate = ride.pickup_datetime
-                  ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
+                  ? fmtPickupDate(ride.pickup_datetime) : ""
                 const pickupTime = ride.pickup_datetime
-                  ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+                  ? fmtPickupTime(ride.pickup_datetime) : ""
                 const isNoShow = ride.status === "no_show"
                 const fareColor = isNoShow ? "#f87171" : "#4ade80"
 
@@ -4796,9 +4803,9 @@ function OfferScreen({
   const progressPct = hasExpiry ? Math.min(100, (secondsLeft / maxSeconds) * 100) : 100
 
   const pickupDate = offer.pickup_datetime
-    ? new Date(offer.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""
+    ? fmtPickupDate(offer.pickup_datetime) : ""
   const pickupTime = offer.pickup_datetime
-    ? new Date(offer.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+    ? fmtPickupTime(offer.pickup_datetime) : ""
 
   const isRepeat = (offer.bookings_count ?? 0) > 1
   const serviceBadge = getServiceBadge(offer.pickup_location, offer.dropoff_location, isRepeat)
@@ -5064,9 +5071,9 @@ function RideFlowScreen({
   const [showDetails, setShowDetails] = useState(false)
 
   const pickupDate = ride.pickup_datetime
-    ? new Date(ride.pickup_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""
+    ? fmtPickupDate(ride.pickup_datetime) : ""
   const pickupTime = ride.pickup_datetime
-    ? new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""
+    ? fmtPickupTime(ride.pickup_datetime) : ""
 
   const mapsPickupUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.pickup_location)}`
   const mapsDropoffUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(ride.dropoff_location)}`
@@ -5224,7 +5231,7 @@ function RideFlowScreen({
             {ride.pickup_datetime && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 text-xs text-zinc-300">
                 <span style={{ color: GOLD }}>🕐</span>
-                <span>{new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                <span>{fmtPickupTime(ride.pickup_datetime)}</span>
                 {minutesUntil !== null && minutesUntil > 0 && (
                   <span className="text-zinc-500">
                     ({minutesUntil > 60 ? `${Math.floor(minutesUntil/60)}h ${minutesUntil%60}m` : `${minutesUntil}m`})
@@ -5495,7 +5502,7 @@ function RideFlowScreen({
                 </div>
                 {ride.pickup_datetime && (
                   <div className="text-2xl font-bold mb-1" style={{ color: GOLD }}>
-                    {new Date(ride.pickup_datetime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    {fmtPickupTime(ride.pickup_datetime)}
                   </div>
                 )}
                 {ride.minutes_until_pickup !== null && ride.minutes_until_pickup !== undefined && (

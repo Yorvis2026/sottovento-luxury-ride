@@ -1,6 +1,7 @@
 "use client"
 import React, { useState, useEffect, useCallback } from "react"
 import { type Lang, type TranslationKey, getTranslation, saveLang, loadLang } from "@/lib/i18n"
+import { formatBookingPickupET } from "@/lib/format-pickup-et"
 
 // ============================================================
 // /admin — Sottovento Luxury Network (SLN) Admin Panel
@@ -53,7 +54,12 @@ const dispatchColor: Record<string, string> = { not_required: "#1a1a1a", awaitin
 const dispatchText: Record<string, string> = { not_required: "#444", awaiting_source_owner: "#60a5fa", awaiting_sln_member: "#a78bfa", manual_dispatch_required: "#f59e0b", assigned: "#4ade80", expired: "#f87171", cancelled: "#f87171" }
 
 function fmt(n: number) { return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
-function fmtDate(s: string) { try { return new Date(s).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) } catch { return s } }
+// BM20-D: fmtDate now routes through formatBookingPickupET for consistent ET display.
+// Handles both new bookings (with explicit offset) and legacy strings (without offset).
+function fmtDate(s: string) {
+  if (!s) return "—"
+  try { return formatBookingPickupET(s, "short") } catch { return s }
+}
 
 // ============================================================
 // COMPANIES FLEET DASHBOARD — Phase 2

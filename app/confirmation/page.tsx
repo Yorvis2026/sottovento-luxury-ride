@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
+import { formatBookingPickupET } from "@/lib/format-pickup-et"
 
 const GOLD = "#C9A84C"
 
@@ -66,14 +67,11 @@ function ConfirmationInner() {
     verify()
   }, [sessionId])
 
+  // BM20-D: Use formatBookingPickupET for consistent ET display across all panels
   const pickupFormatted = booking?.pickup_datetime
-    ? new Date(booking.pickup_datetime).toLocaleDateString("en-US", {
-        weekday: "long", month: "long", day: "numeric", year: "numeric",
-      }) + " at " + new Date(booking.pickup_datetime).toLocaleTimeString("en-US", {
-        hour: "numeric", minute: "2-digit",
-      })
+    ? formatBookingPickupET(booking.pickup_datetime, "full")
     : booking?.pickup_date && booking?.pickup_time
-    ? `${booking.pickup_date} at ${booking.pickup_time}`
+    ? `${booking.pickup_date} at ${booking.pickup_time} ET`
     : null
 
   const bookingRef = booking?.booking_id

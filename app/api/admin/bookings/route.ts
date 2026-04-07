@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic"
 import { NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { clientNameCoalesce } from "@/lib/resolve-client-name";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
           COALESCE(b.cancellation_reason, '') AS cancellation_reason,
           COALESCE(b.cancelled_by, '') AS cancelled_by,
           COALESCE(b.booking_origin, b.lead_source, 'manual_admin') AS booking_origin,
-          c.full_name AS client_name,
+          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone,
           c.email AS client_email,
           d.full_name AS driver_name,
@@ -84,7 +85,7 @@ export async function GET(req: Request) {
           COALESCE(b.cancellation_reason, '') AS cancellation_reason,
           COALESCE(b.cancelled_by, '') AS cancelled_by,
           COALESCE(b.booking_origin, b.lead_source, 'manual_admin') AS booking_origin,
-          c.full_name AS client_name,
+          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone,
           c.email AS client_email,
           d.full_name AS driver_name,
@@ -118,7 +119,7 @@ export async function GET(req: Request) {
           COALESCE(b.cancellation_reason, '') AS cancellation_reason,
           COALESCE(b.cancelled_by, '') AS cancelled_by,
           COALESCE(b.booking_origin, b.lead_source, 'manual_admin') AS booking_origin,
-          c.full_name AS client_name,
+          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone,
           c.email AS client_email,
           d.full_name AS driver_name,
@@ -152,7 +153,7 @@ export async function GET(req: Request) {
           COALESCE(b.cancellation_reason, '') AS cancellation_reason,
           COALESCE(b.cancelled_by, '') AS cancelled_by,
           COALESCE(b.booking_origin, b.lead_source, 'manual_admin') AS booking_origin,
-          c.full_name AS client_name,
+          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone,
           c.email AS client_email,
           d.full_name AS driver_name,
@@ -187,7 +188,7 @@ export async function GET(req: Request) {
           COALESCE(b.cancellation_reason, '') AS cancellation_reason,
           COALESCE(b.cancelled_by, '') AS cancelled_by,
           COALESCE(b.booking_origin, b.lead_source, 'manual_admin') AS booking_origin,
-          c.full_name AS client_name,
+          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone,
           c.email AS client_email,
           d.full_name AS driver_name,
@@ -229,7 +230,7 @@ export async function GET(req: Request) {
           '' AS cancellation_reason,
           '' AS cancelled_by,
           'manual_admin' AS booking_origin,
-          c.full_name AS client_name,
+          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone,
           c.email AS client_email,
           d.full_name AS driver_name,

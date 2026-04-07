@@ -138,7 +138,35 @@ export async function POST(req: NextRequest) {
 
     // Pre-create booking
     try {
-      const pickupAt = `${metadata.date}T${metadata.time}:00`
+      // BM20-D: Build pickup_at with explicit America/New_York offset.
+      // metadata.date = "YYYY-MM-DD", metadata.time = "HH:MM" (local ET, no tz info).
+      // Without an explicit offset, PostgreSQL timestamptz interprets the string as UTC,
+      // causing a 4-5 hour desfase. We calculate the ET offset dynamically to handle
+      // both EDT (-04:00) and EST (-05:00) correctly across DST boundaries.
+      function getEasternOffset(dateStr: string, timeStr: string): string {
+        // Build a Date using the naive local string and check what offset ET would be
+        // by comparing UTC output of Intl.DateTimeFormat for America/New_York.
+        const naive = new Date(`${dateStr}T${timeStr}:00Z`) // treat as UTC temporarily
+        const etParts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+          hour12: false,
+        }).formatToParts(naive)
+        const get = (t: string) => etParts.find(p => p.type === t)?.value ?? "00"
+        const etYear = get("year"), etMonth = get("month"), etDay = get("day")
+        const etHour = get("hour"), etMin = get("minute"), etSec = get("second")
+        // Reconstruct ET datetime as UTC to find the offset
+        const etAsUtc = new Date(`${etYear}-${etMonth}-${etDay}T${etHour}:${etMin}:${etSec}Z`)
+        const offsetMs = naive.getTime() - etAsUtc.getTime()
+        const offsetH = Math.round(offsetMs / 3600000)
+        // offsetH will be +4 (EDT) or +5 (EST) — we negate for the ISO offset
+        const sign = offsetH >= 0 ? "-" : "+"
+        const absH = Math.abs(offsetH).toString().padStart(2, "0")
+        return `${sign}${absH}:00`
+      }
+      const etOffset = getEasternOffset(metadata.date, metadata.time)
+      const pickupAt = `${metadata.date}T${metadata.time}:00${etOffset}`
       const newBooking = await sql`
         INSERT INTO bookings (
           status, payment_status, dispatch_status,
