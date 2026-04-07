@@ -140,7 +140,45 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const now = new Date().toISOString()
   const offerTimeoutSecs = 120
   const offerExpiresAt = new Date(Date.now() + offerTimeoutSecs * 1000).toISOString()
-  const pickupAt = pickupDate && pickupTime ? `${pickupDate}T${pickupTime}:00+00` : null
+
+  // BM20-F FIX: Compute correct ET offset dynamically (handles EDT -04:00 / EST -05:00).
+  // BUG: Previous code used +00 (UTC) which caused a 4-5h desfase in pickup_at.
+  // This path is the FALLBACK for bookings NOT pre-created via /api/checkout.
+  // For pre-created bookings (bookingId exists), pickup_at is already correct in DB.
+  function getEasternOffsetWebhook(ds: string, ts: string): string {
+    try {
+      const naive = new Date(`${ds}T${ts}:00Z`)
+      const etParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false,
+      }).formatToParts(naive)
+      const get = (t: string) => etParts.find((p: Intl.DateTimeFormatPart) => p.type === t)?.value ?? "00"
+      const etAsUtc = new Date(`${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}Z`)
+      const offsetMs = naive.getTime() - etAsUtc.getTime()
+      const offsetH = Math.round(offsetMs / 3600000)
+      const sign = offsetH >= 0 ? "-" : "+"
+      return `${sign}${Math.abs(offsetH).toString().padStart(2, "0")}:00`
+    } catch { return "-04:00" } // safe default: EDT
+  }
+  let pickupAt: string | null = null
+  if (pickupDate && pickupTime) {
+    const etOffset = getEasternOffsetWebhook(pickupDate, pickupTime)
+    pickupAt = `${pickupDate}T${pickupTime}:00${etOffset}`
+    console.log(`[BM20F] webhook pickup_at computed: ${pickupAt} (offset=${etOffset})`)
+    // BM20-F: Validate lead time in webhook fallback path (no pre-created booking)
+    if (!bookingId) {
+      const pickupMs = new Date(pickupAt).getTime()
+      const nowMs = Date.now()
+      if (pickupMs < nowMs) {
+        console.error(`[BM20F_INVALID_PICKUP_TIME] webhook fallback: pickup_at=${pickupAt} is in the past`)
+      } else if (pickupMs - nowMs < 2 * 60 * 60 * 1000) {
+        const mins = Math.floor((pickupMs - nowMs) / 60000)
+        console.error(`[BM20F_LEADTIME_BLOCKED] webhook fallback: pickup_at=${pickupAt} lead_time=${mins}min < 120min`)
+      }
+    }
+  }
 
   let finalBookingId = bookingId
 
@@ -223,11 +261,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         } else {
           // Status mismatch — booking in unexpected state, log and continue
           console.warn('[webhook] STEP2 WARNING: booking not updated, unexpected status:', currentState?.status, 'for booking:', bookingId)
+          console.error(`[BM20F_PAYMENT_WITHOUT_OPERATIONAL_BOOKING] booking_id=${bookingId} stripe_session=${stripeSessionId} status=${currentState?.status} payment=${currentState?.payment_status} — payment confirmed but booking NOT finalized operationally`)
           await auditLog(bookingId, 'webhook_step2_skipped', {
             pre_status: preUpdateStatus,
             current_status: currentState?.status,
             current_payment: currentState?.payment_status,
             stripe_session: stripeSessionId,
+            bm20f_tag: 'BM20F_PAYMENT_WITHOUT_OPERATIONAL_BOOKING',
           })
         }
       } else {

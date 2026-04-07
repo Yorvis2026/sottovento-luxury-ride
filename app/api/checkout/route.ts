@@ -50,6 +50,76 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // ── BM20-F: Server-side lead time validation (authoritative gate) ──────────────────────────
+    // Policy: minimum 2-hour advance notice from current server time (UTC).
+    // metadata.date = "YYYY-MM-DD", metadata.time = "HH:MM" (customer local ET input).
+    // We interpret the naive datetime as ET by computing the dynamic offset.
+    // This runs BEFORE any DB insert or Stripe session creation.
+    try {
+      const dateStr = metadata.date  // "YYYY-MM-DD"
+      const timeStr = metadata.time  // "HH:MM"
+      // Compute ET offset for this specific date (handles EDT/EST boundary)
+      function getEasternOffsetForValidation(ds: string, ts: string): string {
+        const naive = new Date(`${ds}T${ts}:00Z`)
+        const etParts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+          hour12: false,
+        }).formatToParts(naive)
+        const get = (t: string) => etParts.find((p: Intl.DateTimeFormatPart) => p.type === t)?.value ?? "00"
+        const etAsUtc = new Date(`${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}Z`)
+        const offsetMs = naive.getTime() - etAsUtc.getTime()
+        const offsetH = Math.round(offsetMs / 3600000)
+        const sign = offsetH >= 0 ? "-" : "+"
+        return `${sign}${Math.abs(offsetH).toString().padStart(2, "0")}:00`
+      }
+      const etOffset = getEasternOffsetForValidation(dateStr, timeStr)
+      const pickupAtISO = `${dateStr}T${timeStr}:00${etOffset}`
+      const pickupMs = new Date(pickupAtISO).getTime()
+      const nowMs = Date.now()
+      const minLeadMs = 2 * 60 * 60 * 1000 // 2 hours
+
+      if (isNaN(pickupMs)) {
+        console.error(`[BM20F_INVALID_PICKUP_TIME] date=${dateStr} time=${timeStr} offset=${etOffset} — could not parse pickup datetime`)
+        return NextResponse.json({
+          error: "invalid_pickup_datetime",
+          message: "Could not parse pickup date and time. Please re-enter.",
+          tag: "BM20F_INVALID_PICKUP_TIME",
+        }, { status: 400 })
+      }
+
+      if (pickupMs < nowMs) {
+        console.error(`[BM20F_INVALID_PICKUP_TIME] pickup_at=${pickupAtISO} is in the past (now=${new Date(nowMs).toISOString()})`)
+        return NextResponse.json({
+          error: "pickup_time_in_past",
+          message: "Pickup time is in the past. Please select a future date and time.",
+          tag: "BM20F_INVALID_PICKUP_TIME",
+          pickup_at: pickupAtISO,
+          server_time: new Date(nowMs).toISOString(),
+        }, { status: 400 })
+      }
+
+      if (pickupMs - nowMs < minLeadMs) {
+        const minutesRemaining = Math.floor((pickupMs - nowMs) / 60000)
+        console.error(`[BM20F_LEADTIME_BLOCKED] pickup_at=${pickupAtISO} lead_time=${minutesRemaining}min < 120min required`)
+        return NextResponse.json({
+          error: "insufficient_lead_time",
+          message: `Sottovento requires at least 2 hours advance notice. Your pickup is only ${minutesRemaining} minutes away.`,
+          tag: "BM20F_LEADTIME_BLOCKED",
+          pickup_at: pickupAtISO,
+          lead_time_minutes: minutesRemaining,
+          required_minutes: 120,
+          server_time: new Date(nowMs).toISOString(),
+        }, { status: 400 })
+      }
+
+      console.log(`[BM20F] lead time OK: pickup_at=${pickupAtISO} lead_time=${Math.floor((pickupMs - nowMs) / 60000)}min`)
+    } catch (validationErr: unknown) {
+      // Non-blocking: if validation throws unexpectedly, log but do not block
+      console.error("[BM20F] lead time validation error (non-blocking):", validationErr)
+    }
+
     // ── Resolve SLN lead origin ───────────────────────────────
     const origin = resolveLeadOrigin({
       ref_code:         metadata.ref || metadata.source_ref || null,

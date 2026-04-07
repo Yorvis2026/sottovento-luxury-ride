@@ -391,6 +391,26 @@ function BookingInner() {
       setPayError("Pickup date and time are required.")
       return
     }
+    // BM20-F: Hard-block validation — enforce 2-hour minimum lead time before payment.
+    // The warning UI (line ~940) is advisory only; this is the enforcement gate.
+    // We compare against current device time (client-side guard).
+    // The server-side guard in /api/checkout is the authoritative enforcement.
+    {
+      const pickupDT = new Date(`${formData.date}T${formData.time}:00`)
+      const minDT = new Date(Date.now() + 2 * 60 * 60 * 1000)
+      if (isNaN(pickupDT.getTime())) {
+        setPayError("Invalid pickup date or time. Please re-enter.")
+        return
+      }
+      if (pickupDT < new Date()) {
+        setPayError("Pickup time is in the past. Please select a future date and time.")
+        return
+      }
+      if (pickupDT < minDT) {
+        setPayError("Sottovento requires at least 2 hours advance notice. Please select a later time or contact us directly for urgent requests.")
+        return
+      }
+    }
     if (!formData.name || !formData.phone || !formData.email) {
       setPayError("Please complete your contact information.")
       return
