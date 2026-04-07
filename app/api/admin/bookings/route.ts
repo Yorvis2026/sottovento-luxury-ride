@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic"
 import { NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { clientNameCoalesce } from "@/lib/resolve-client-name";
+import { calcPreviewImpactAuto } from "@/lib/drs/calcPreviewImpact";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -224,10 +225,25 @@ export async function GET(req: Request) {
       `;
     }
 
+    // BM20-E3: Attach drs_preview_impact to each row (read-only, does NOT modify real DRS)
+    const enrichedRows = Array.isArray(rows) ? rows.map((r: any) => {
+      const drsPreview = calcPreviewImpactAuto({
+        assigned_driver_id: r.assigned_driver_id ?? null,
+        cancelled_by_type:  r.cancelled_by_type  ?? null,
+        dispatch_status:    r.dispatch_status    ?? null,
+        status:             r.status             ?? null,
+      });
+      return {
+        ...r,
+        drs_preview_impact: drsPreview?.impactPoints ?? null,
+        drs_preview_reason: drsPreview?.impactReason ?? null,
+      };
+    }) : [];
+
     return NextResponse.json({
-      bookings: Array.isArray(rows) ? rows : [],
+      bookings: enrichedRows,
       view: safeView,
-      total: Array.isArray(rows) ? rows.length : 0,
+      total: enrichedRows.length,
     });
 
   } catch (err: any) {

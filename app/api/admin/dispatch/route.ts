@@ -9,6 +9,7 @@ import {
   classifyOverdueState,
   getAdminActionsForOverdue,
 } from "@/lib/dispatch/overdue-engine";
+import { calcPreviewImpactAuto } from "@/lib/drs/calcPreviewImpact";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -202,6 +203,17 @@ export async function GET(req: NextRequest) {
       (r as any).missing_critical = missingCritical;
       (r as any).missing_optional = missingOptional;
       (r as any).missing_optional_info = missingOptional.length > 0;
+      // ── BM20-E3: DRS Impact Preview ───────────────────────────────────────────────────────────
+      // Read-only preview — does NOT modify real DRS, BM19, or BM4.
+      // Only computed when a driver is assigned (assigned_driver_id != null).
+      const drsPreview = calcPreviewImpactAuto({
+        assigned_driver_id: r.assigned_driver_id ?? null,
+        cancelled_by_type:  r.cancelled_by_type  ?? null,
+        dispatch_status:    r.dispatch_status    ?? null,
+        status:             r.status             ?? null,
+      });
+      (r as any).drs_preview_impact = drsPreview?.impactPoints ?? null;
+      (r as any).drs_preview_reason = drsPreview?.impactReason ?? null;
       // ── FASE 6: Overdue Detection (BM17 — uses overdue-engine) ──────────────────────────────
       // BM17: Use evaluateOverdue from overdue-engine for consistent detection.
       // INVARIANT: en_route, arrived, in_trip are NEVER overdue (live execution).
