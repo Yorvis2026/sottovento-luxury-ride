@@ -118,10 +118,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // BYPASS: driver-captured + paid + critical fields present → offer_pending, never needs_review
   const isDriverCapturedBypass = isDriverCaptured && hasDriverCapturedCriticalFields
 
+  // BM20-F FIX: public_site bookings with all required fields → 'pending_dispatch'
+  // Previously: 'ready_for_dispatch' — this status is NOT in the active bookings WHERE list
+  // AND is not in the driver fallback offer query, causing the booking to be invisible.
+  // 'pending_dispatch' IS in the active bookings WHERE list AND triggers the SLN pool dispatch.
   const initialBookingStatus = isDriverCapturedBypass
     ? 'offer_pending'   // driver-captured: go straight to offer_pending
     : hasRequiredFields
-      ? 'ready_for_dispatch'
+      ? 'pending_dispatch'  // BM20-F: was 'ready_for_dispatch' — changed to 'pending_dispatch' for operational visibility
       : 'needs_review'
 
   console.log('[webhook] booking classification:', JSON.stringify({
@@ -554,6 +558,82 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       dropoff_resolved: resolvedDropoffLocation || '(empty)',
       booking: finalBookingId,
     }))
+
+    // ── BM20-F FIX: SLN Pool Auto-Dispatch for public_site bookings ──────────
+    // When a public_site booking is paid and has all required fields,
+    // auto-dispatch it to the top-ranked SLN driver so it appears in the Driver Panel.
+    // This is the missing link: previously, public_site bookings sat in 'ready_for_dispatch'
+    // with no dispatch_offer row and no driver assigned — invisible to the Driver Panel.
+    if (
+      finalBookingId &&
+      hasRequiredFields &&
+      (!resolvedCapturedByCode || resolvedCapturedByCode === 'PUBLIC_SITE')
+    ) {
+      console.log('[BM20F] SLN pool auto-dispatch: attempting for public_site booking:', finalBookingId)
+      try {
+        // Fetch top-ranked active driver (highest reliability_score, active status)
+        const [topDriver] = await sql`
+          SELECT id, full_name, driver_code, driver_status, reliability_score
+          FROM drivers
+          WHERE driver_status = 'active'
+            AND is_eligible = true
+          ORDER BY COALESCE(reliability_score, 65) DESC, created_at ASC
+          LIMIT 1
+        `
+        if (!topDriver) {
+          console.warn('[BM20F] SLN pool auto-dispatch: no eligible driver found for booking:', finalBookingId)
+          await auditLog(finalBookingId, 'bm20f_pool_dispatch_no_driver', {
+            reason: 'no_eligible_driver_in_pool',
+          })
+        } else {
+          // Assign top driver and create dispatch_offer
+          const assignResult = await sql`
+            UPDATE bookings
+            SET
+              assigned_driver_id = ${topDriver.id}::uuid,
+              offered_driver_id  = ${topDriver.id}::uuid,
+              status             = 'assigned',
+              dispatch_status    = 'offer_pending',
+              updated_at         = NOW()
+            WHERE id = ${finalBookingId}::uuid
+              AND assigned_driver_id IS NULL
+            RETURNING id
+          `
+          if (assignResult.length > 0) {
+            await sql`
+              INSERT INTO dispatch_offers (
+                booking_id, driver_id, offer_round,
+                is_source_offer, response, sent_at, expires_at
+              ) VALUES (
+                ${finalBookingId}::uuid,
+                ${topDriver.id}::uuid,
+                1,
+                false,
+                'pending',
+                NOW(),
+                NOW() + interval '24 hours'
+              )
+              ON CONFLICT DO NOTHING
+            `
+            await auditLog(finalBookingId, 'bm20f_pool_dispatch_success', {
+              driver_id: topDriver.id,
+              driver_name: topDriver.full_name,
+              driver_code: topDriver.driver_code,
+              reliability_score: topDriver.reliability_score,
+            })
+            console.log('[BM20F] SLN pool auto-dispatch SUCCESS: driver', topDriver.full_name, '(', topDriver.driver_code, ') assigned to booking', finalBookingId)
+          } else {
+            console.warn('[BM20F] SLN pool auto-dispatch: booking already assigned, skipping:', finalBookingId)
+          }
+        }
+      } catch (poolErr: any) {
+        // Non-blocking — pool dispatch failure must not block booking confirmation
+        console.error('[BM20F] SLN pool auto-dispatch failed (non-blocking):', poolErr.message)
+        await auditLog(finalBookingId, 'bm20f_pool_dispatch_error', {
+          error: poolErr.message,
+        })
+      }
+    }
   }
 
   // AUDIT: Read final booking state after auto-assign to confirm persistence
