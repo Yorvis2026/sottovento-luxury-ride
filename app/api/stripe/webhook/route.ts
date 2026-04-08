@@ -99,7 +99,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // For driver-captured bookings, missing email or phone is acceptable — driver captured the lead.
   // For public_site bookings, all fields must be present for ready_for_dispatch.
   const capturedByRaw = (metadata.captured_by || metadata.source_code || '').trim().toUpperCase()
-  const isDriverCaptured = !!(capturedByRaw && capturedByRaw !== 'PUBLIC_SITE')
+  // BM20-G FIX: booking_origin='website' or 'driver_referral' means the booking came from the
+  // public web form. Even if a ?ref=DRIVER_CODE was in the URL (attribution tracking),
+  // these bookings must be dispatched via SLN pool — NOT treated as driver-captured operational.
+  // Only 'tablet' origin bookings are truly driver-captured (driver physically present at kiosk).
+  // 'driver_referral' origin = web form with referral code = SLN pool dispatch + commission tracking.
+  const bookingOriginMeta = (metadata.booking_origin || '').trim().toLowerCase()
+  const isWebsiteOrigin = bookingOriginMeta === 'website' || bookingOriginMeta === 'driver_referral' || bookingOriginMeta === ''
+  const isTabletOrigin = bookingOriginMeta === 'tablet' || !!(metadata.tablet_code)
+  // isDriverCaptured = true ONLY for tablet/QR bookings, NOT for website referral bookings
+  const isDriverCaptured = !!(capturedByRaw && capturedByRaw !== 'PUBLIC_SITE') && isTabletOrigin
+  console.log('[BM20G] booking origin classification:', JSON.stringify({
+    capturedByRaw,
+    bookingOriginMeta,
+    isWebsiteOrigin,
+    isTabletOrigin,
+    isDriverCaptured,
+  }))
 
   // Critical fields for public_site bookings (strict).
   // FIX: bookings pre-created via tablet use pickup_at stored in DB, not pickupDate/pickupTime in metadata.
@@ -383,24 +399,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     { stripe_session_id: stripeSessionId, fare, source_code: sourceCode }
   )
 
-  // ── AUTO-ASSIGN: Capturing driver (tablet/QR bookings) ──────
-  // Business rule: if booking was captured by a specific driver (tablet/QR/referral),
+  // ── AUTO-ASSIGN: Capturing driver (tablet/QR bookings ONLY) ──────
+  // Business rule: if booking was captured by a specific driver via TABLET/QR,
   // immediately assign it to that driver as an offer_pending without admin intervention.
   // Runs AFTER booking is finalized. Must NOT override an existing manual assignment.
   //
-  // FIXED: Use TRIM + UPPER for case-insensitive, whitespace-safe matching.
-  // FIXED: Removed pickupDate as a blocking gate — booking may have pickup_at in DB
-  //        even if pickupDate metadata is empty (pre-created booking path).
-  // FIXED: Fallback to reading captured_by_driver_code directly from DB to handle
-  //        cases where metadata.captured_by was not forwarded correctly by frontend.
+  // BM20-G FIX: Website bookings with ?ref=DRIVER_CODE are attribution-only (commission tracking).
+  // They must NOT be auto-assigned to the referring driver — they go to SLN pool dispatch.
+  // Only tablet/QR bookings (isTabletOrigin=true) trigger driver-captured auto-assign.
   const capturedByCode = (metadata.captured_by || metadata.source_code || '').trim()
   const capturedByCodeNormalized = capturedByCode.toUpperCase()
 
-  // Determine if this booking has a valid capturing driver code
-  // Also check the DB directly in case metadata was incomplete
-  let resolvedCapturedByCode = capturedByCodeNormalized
-  if (!resolvedCapturedByCode || resolvedCapturedByCode === 'PUBLIC_SITE') {
-    // Fallback: read captured_by_driver_code from the DB record
+  // BM20-G: For website bookings, force resolvedCapturedByCode to empty so the
+  // driver-captured auto-assign block is skipped and SLN pool dispatch fires instead.
+  let resolvedCapturedByCode = isTabletOrigin ? capturedByCodeNormalized : ''
+  if (isTabletOrigin && (!resolvedCapturedByCode || resolvedCapturedByCode === 'PUBLIC_SITE')) {
+    // Fallback: read captured_by_driver_code from the DB record (tablet path only)
     try {
       const [dbBooking] = await sql`
         SELECT captured_by_driver_code FROM bookings
@@ -409,10 +423,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       const dbCode = (dbBooking?.captured_by_driver_code || '').trim().toUpperCase()
       if (dbCode && dbCode !== 'PUBLIC_SITE') {
         resolvedCapturedByCode = dbCode
-        console.log('[webhook] auto-assign: resolved captured_by from DB:', resolvedCapturedByCode)
+        console.log('[webhook] auto-assign: resolved captured_by from DB (tablet):', resolvedCapturedByCode)
       }
     } catch { /* non-blocking */ }
   }
+  console.log('[BM20G] auto-assign gate:', JSON.stringify({
+    isTabletOrigin,
+    isWebsiteOrigin,
+    capturedByCodeNormalized,
+    resolvedCapturedByCode: resolvedCapturedByCode || '(cleared — website booking goes to SLN pool)',
+  }))
 
   // CRITICAL FIX: pickupLocation from metadata may be an empty string "" which evaluates
   // to false in JS, silently blocking auto-assign even when pickup_address is in the DB.
