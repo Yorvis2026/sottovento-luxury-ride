@@ -4818,10 +4818,17 @@ function OfferScreen({
     return () => clearInterval(id)
   }, [expired, responding])
 
+  // TASK 3: body scroll lock while offer is active
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
   return (
     <div className="fixed inset-0 flex flex-col"
       style={{
         backgroundColor: "#000",
+        zIndex: 9999,
         paddingTop: "calc(env(safe-area-inset-top, 0px) + 0px)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
         // Flashing border: alternates between gold and transparent
@@ -5013,12 +5020,12 @@ function OfferScreen({
           <button
             onClick={onAccept}
             disabled={responding || expired}
-            className="w-full rounded-2xl text-xl font-black tracking-wider transition-all active:scale-95 disabled:opacity-50"
+            className={`w-full rounded-2xl text-xl font-black tracking-wider transition-all active:scale-95 disabled:opacity-50${!expired && !responding ? ' animate-pulse' : ''}`}
             style={{
               backgroundColor: expired ? "#27272a" : GOLD,
               color: expired ? "#71717a" : "#000",
               padding: "20px 0",
-              boxShadow: !expired && !responding ? `0 0 24px ${GOLD}60` : "none",
+              boxShadow: !expired && !responding ? `0 0 32px ${GOLD}80, 0 0 8px ${GOLD}40` : "none",
               fontSize: 20,
               letterSpacing: "0.08em",
             }}>

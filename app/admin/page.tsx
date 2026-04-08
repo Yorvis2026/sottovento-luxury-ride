@@ -1413,17 +1413,15 @@ export default function AdminPanel() {
                     {(b.status === "cancelled" || b.cancellation_reason || b.cancel_reason_code) && (
                       <div style={{ marginBottom: 8, padding: "10px 12px", background: "#1a0000", border: "1px solid #3b0000", borderRadius: 8, fontSize: 12 }}>
                         <div style={{ color: "#f87171", fontWeight: 700, marginBottom: 6, fontSize: 11, letterSpacing: 1, textTransform: "uppercase" as const }}>Cancellation Audit</div>
-                        {/* Cancel Reason */}
-                        {(b.cancel_reason_code || b.cancellation_reason) && (
-                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
-                            <span style={{ color: "#888", minWidth: 110 }}>Reason:</span>
-                            <span style={{ color: "#fca5a5" }}>
-                              {b.cancel_reason_code
-                                ? b.cancel_reason_code.replace(/_/g, " ")
-                                : b.cancellation_reason}
-                            </span>
-                          </div>
-                        )}
+                        {/* Cancel Reason — always shown, fallback if null */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                          <span style={{ color: "#888", minWidth: 110 }}>Reason:</span>
+                          <span style={{ color: (b.cancel_reason_code || b.cancellation_reason) ? "#fca5a5" : "#4b5563" }}>
+                            {b.cancel_reason_code
+                              ? b.cancel_reason_code.replace(/_/g, " ")
+                              : b.cancellation_reason || "\u2014 not recorded \u2014"}
+                          </span>
+                        </div>
                         {/* Cancel Note */}
                         {b.cancel_reason_text && b.cancel_reason_text !== b.cancel_reason_code && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
@@ -1431,52 +1429,50 @@ export default function AdminPanel() {
                             <span style={{ color: "#e5e7eb" }}>{b.cancel_reason_text}</span>
                           </div>
                         )}
-                        {/* Cancelled By */}
+                        {/* Cancelled By — always shown */}
                         <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                           <span style={{ color: "#888", minWidth: 110 }}>Cancelled by:</span>
-                          <span style={{ color: "#fca5a5" }}>
-                            {b.cancelled_by_type ?? b.cancelled_by ?? "admin"}
+                          <span style={{ color: (b.cancelled_by_type || b.cancelled_by) ? "#fca5a5" : "#4b5563" }}>
+                            {b.cancelled_by_type ?? b.cancelled_by ?? "\u2014 not recorded \u2014"}
                           </span>
                         </div>
-                        {/* Cancelled At */}
-                        {(b.cancelled_at || b.updated_at) && (
-                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
-                            <span style={{ color: "#888", minWidth: 110 }}>Cancelled at:</span>
-                            <span style={{ color: "#9ca3af" }}>
-                              {new Date(b.cancelled_at ?? b.updated_at!).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                            </span>
-                          </div>
-                        )}
-                        {/* Refund Decision (BM20-E engine values: full/partial/none/manual_review) */}
-                        {b.refund_decision && (
-                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
-                            <span style={{ color: "#888", minWidth: 110 }}>Refund decision:</span>
-                            <span style={{
-                              color: b.refund_decision === "full" || b.refund_decision === "full_refund" ? "#4ade80"
-                                   : b.refund_decision === "partial" || b.refund_decision === "partial_refund" ? "#fbbf24"
-                                   : b.refund_decision === "none" || b.refund_decision === "no_refund" ? "#6b7280"
-                                   : "#60a5fa",
-                              fontWeight: 600,
-                            }}>
-                              {b.refund_decision.replace(/_/g, " ").toUpperCase()}
-                            </span>
-                          </div>
-                        )}
-                        {/* Refund Status */}
-                        {b.refund_status && (
-                          <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
-                            <span style={{ color: "#888", minWidth: 110 }}>Refund status:</span>
-                            <span style={{
-                              color: b.refund_status === "processed" ? "#4ade80"
-                                   : b.refund_status === "pending" ? "#fbbf24"
-                                   : b.refund_status === "failed" ? "#f87171"
-                                   : b.refund_status === "manual_review" ? "#60a5fa"
-                                   : "#6b7280",
-                            }}>
-                              {b.refund_status.replace(/_/g, " ").toUpperCase()}
-                            </span>
-                          </div>
-                        )}
+                        {/* Cancelled At — always shown */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                          <span style={{ color: "#888", minWidth: 110 }}>Cancelled at:</span>
+                          <span style={{ color: (b.cancelled_at || b.updated_at) ? "#9ca3af" : "#4b5563" }}>
+                            {(b.cancelled_at || b.updated_at)
+                              ? new Date(b.cancelled_at ?? b.updated_at!).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                              : "\u2014 not recorded \u2014"}
+                          </span>
+                        </div>
+                        {/* Refund Decision — always shown */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                          <span style={{ color: "#888", minWidth: 110 }}>Refund decision:</span>
+                          <span style={{
+                            color: !b.refund_decision ? "#4b5563"
+                                 : b.refund_decision === "full" || b.refund_decision === "full_refund" ? "#4ade80"
+                                 : b.refund_decision === "partial" || b.refund_decision === "partial_refund" ? "#fbbf24"
+                                 : b.refund_decision === "none" || b.refund_decision === "no_refund" ? "#6b7280"
+                                 : "#60a5fa",
+                            fontWeight: b.refund_decision ? 600 : 400,
+                          }}>
+                            {b.refund_decision ? b.refund_decision.replace(/_/g, " ").toUpperCase() : "\u2014 not recorded \u2014"}
+                          </span>
+                        </div>
+                        {/* Refund Status — always shown */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+                          <span style={{ color: "#888", minWidth: 110 }}>Refund status:</span>
+                          <span style={{
+                            color: !b.refund_status ? "#4b5563"
+                                 : b.refund_status === "processed" ? "#4ade80"
+                                 : b.refund_status === "pending" ? "#fbbf24"
+                                 : b.refund_status === "failed" ? "#f87171"
+                                 : b.refund_status === "manual_review" ? "#60a5fa"
+                                 : "#6b7280",
+                          }}>
+                            {b.refund_status ? b.refund_status.replace(/_/g, " ").toUpperCase() : "\u2014 not recorded \u2014"}
+                          </span>
+                        </div>
                         {/* Refund Reason Code (BM20-E) */}
                         {b.refund_reason_code && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
