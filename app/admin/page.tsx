@@ -34,7 +34,7 @@ type Driver = {
   complaint_count?: number;
   contribution_bonus_granted?: boolean;
 }
-type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; cancelled_by_type?: string; cancel_reason_code?: string; cancel_reason_text?: string; cancelled_at?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string }
+type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; cancelled_by_type?: string; cancel_reason_code?: string; cancel_reason_text?: string; cancelled_at?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string; refund_decision?: string; refund_status?: string; refund_reason_code?: string; refund_calculated_at?: string; drs_preview_impact?: number; drs_preview_reason?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; needsReview: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
@@ -1371,7 +1371,7 @@ export default function AdminPanel() {
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                         <span style={{ ...S.badge(statusColor[b.status] ?? "#1a1a1a"), color: statusText[b.status] ?? "#fff" }}>{b.status?.replace(/_/g, " ").toUpperCase()}</span>
                         {/* BM20-E2: Refund Preview Badge — only visible when cancelled */}
-                        <RefundBadge decision={(b as any).refund_decision} cancelledAt={(b as any).cancelled_at} compact />
+                        <RefundBadge decision={b.refund_decision} cancelledAt={(b as any).cancelled_at} compact />
                         {/* BM20-E3: DRS Impact Preview Badge — only visible when driver assigned */}
                         <DrsImpactBadge impact={(b as any).drs_preview_impact} driverAssigned={!!(b as any).assigned_driver_id} compact />
                         <span style={{ fontSize: 11, fontWeight: 600, color: paymentColor[b.payment_status] ?? "#888" }}>{b.payment_status?.toUpperCase()}</span>
@@ -1448,50 +1448,50 @@ export default function AdminPanel() {
                           </div>
                         )}
                         {/* Refund Decision (BM20-E engine values: full/partial/none/manual_review) */}
-                        {(b as any).refund_decision && (
+                        {b.refund_decision && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Refund decision:</span>
                             <span style={{
-                              color: (b as any).refund_decision === "full" || (b as any).refund_decision === "full_refund" ? "#4ade80"
-                                   : (b as any).refund_decision === "partial" || (b as any).refund_decision === "partial_refund" ? "#fbbf24"
-                                   : (b as any).refund_decision === "none" || (b as any).refund_decision === "no_refund" ? "#6b7280"
+                              color: b.refund_decision === "full" || b.refund_decision === "full_refund" ? "#4ade80"
+                                   : b.refund_decision === "partial" || b.refund_decision === "partial_refund" ? "#fbbf24"
+                                   : b.refund_decision === "none" || b.refund_decision === "no_refund" ? "#6b7280"
                                    : "#60a5fa",
                               fontWeight: 600,
                             }}>
-                              {(b as any).refund_decision.replace(/_/g, " ").toUpperCase()}
+                              {b.refund_decision.replace(/_/g, " ").toUpperCase()}
                             </span>
                           </div>
                         )}
                         {/* Refund Status */}
-                        {(b as any).refund_status && (
+                        {b.refund_status && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Refund status:</span>
                             <span style={{
-                              color: (b as any).refund_status === "processed" ? "#4ade80"
-                                   : (b as any).refund_status === "pending" ? "#fbbf24"
-                                   : (b as any).refund_status === "failed" ? "#f87171"
-                                   : (b as any).refund_status === "manual_review" ? "#60a5fa"
+                              color: b.refund_status === "processed" ? "#4ade80"
+                                   : b.refund_status === "pending" ? "#fbbf24"
+                                   : b.refund_status === "failed" ? "#f87171"
+                                   : b.refund_status === "manual_review" ? "#60a5fa"
                                    : "#6b7280",
                             }}>
-                              {(b as any).refund_status.replace(/_/g, " ").toUpperCase()}
+                              {b.refund_status.replace(/_/g, " ").toUpperCase()}
                             </span>
                           </div>
                         )}
                         {/* Refund Reason Code (BM20-E) */}
-                        {(b as any).refund_reason_code && (
+                        {b.refund_reason_code && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Refund reason:</span>
                             <span style={{ color: "#9ca3af", fontFamily: "monospace", fontSize: 11 }}>
-                              {(b as any).refund_reason_code}
+                              {b.refund_reason_code}
                             </span>
                           </div>
                         )}
                         {/* Refund Calculated At (BM20-E) */}
-                        {(b as any).refund_calculated_at && (
+                        {b.refund_calculated_at && (
                           <div style={{ display: "flex", gap: 6 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Refund calc at:</span>
                             <span style={{ color: "#6b7280", fontSize: 11 }}>
-                              {new Date((b as any).refund_calculated_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              {new Date(b.refund_calculated_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </span>
                           </div>
                         )}
