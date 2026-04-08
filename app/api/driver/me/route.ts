@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
           COALESCE(b.luggage_count, 0) AS luggage_count,
           b.notes,
           b.flight_number,
-          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
+          COALESCE(NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone
         FROM dispatch_offers dof
         JOIN bookings b ON b.id = dof.booking_id
@@ -301,7 +301,7 @@ export async function GET(req: NextRequest) {
             b.passengers,
             b.notes,
             b.flight_number,
-            COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
+            COALESCE(NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
             c.phone AS client_phone
           FROM dispatch_offers dof
           JOIN bookings b ON b.id = dof.booking_id
@@ -717,7 +717,7 @@ export async function GET(req: NextRequest) {
           b.passengers,
           b.luggage,
           b.notes,
-          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
+          COALESCE(NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone
         FROM bookings b
         LEFT JOIN clients c ON c.id = b.client_id
@@ -777,7 +777,7 @@ export async function GET(req: NextRequest) {
           b.notes,
           b.passengers,
           b.luggage,
-          COALESCE(cl.full_name, b.client_name_override) AS client_name,
+          COALESCE(cl.full_name, b.client_email) AS client_name,
           COALESCE(cl.phone, b.client_phone_override) AS client_phone,
           c.executor_amount,
           c.source_amount,
@@ -833,7 +833,7 @@ export async function GET(req: NextRequest) {
           COALESCE(b.affects_driver_metrics, FALSE) AS affects_driver_metrics,
           COALESCE(b.affects_payout, FALSE) AS affects_payout,
           COALESCE(b.cancellation_fee, 0)::numeric AS cancellation_fee,
-          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(cl.full_name), ''), b.client_email) AS client_name
+          COALESCE(NULLIF(TRIM(cl.full_name), ''), b.client_email) AS client_name
         FROM bookings b
         LEFT JOIN clients cl ON cl.id = b.client_id
         WHERE b.assigned_driver_id = ${driver.id}
@@ -935,7 +935,7 @@ export async function GET(req: NextRequest) {
           b.pickup_lng,
           b.dropoff_lat,
           b.dropoff_lng,
-          COALESCE(NULLIF(TRIM(b.passenger_name), ''), NULLIF(TRIM(b.client_name_override), ''), NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
+          COALESCE(NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
           c.phone AS client_phone
         FROM bookings b
         LEFT JOIN clients c ON c.id = b.client_id
