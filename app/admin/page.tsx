@@ -34,7 +34,7 @@ type Driver = {
   complaint_count?: number;
   contribution_bonus_granted?: boolean;
 }
-type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string }
+type Booking = { id: string; booking_ref?: string; pickup_zone: string; dropoff_zone: string; pickup_address: string; dropoff_address: string; pickup_at: string; vehicle_type: string; total_price: number; status: string; dispatch_status?: string; readiness_status?: string; payment_status: string; created_at: string; updated_at?: string; client_name?: string; client_phone?: string; client_email?: string; assigned_driver_id?: string; driver_name?: string; driver_code?: string; driver_phone?: string; flight_number?: string; notes?: string; passengers?: number; passenger_count?: number; luggage?: string; luggage_count?: number; lead_source?: string; captured_by_driver_code?: string; cancellation_reason?: string; cancelled_by?: string; cancelled_by_type?: string; cancel_reason_code?: string; cancel_reason_text?: string; cancelled_at?: string; booking_origin?: string; driver_reported?: boolean; driver_report_action?: string }
 type Lead = { id: string; lead_source: string; full_name: string; phone: string; email: string; interested_package: string; status: string; driver_code: string; tablet_code: string; created_at: string; driver_name?: string }
 type DashboardData = { today: { count: number; revenue: number }; week: { count: number; revenue: number }; month: { count: number; revenue: number }; activeDrivers: number; totalLeads: number; needsReview: number; leadsBySource: { lead_source: string; count: number }[]; bookingStatuses: { status: string; count: number }[]; recentBookings: Booking[] }
 type FinanceData = { totalRevenue: number; monthRevenue: number; commissions: { totalDriverEarnings: number; totalSourceEarnings: number; totalPlatformEarnings: number; totalCommissions: number; count: number }; topDrivers: { full_name: string; driver_code: string; executor_earnings: number; source_earnings: number; rides: number }[]; recentCommissions: { id: string; booking_id: string; executor_amount: number; source_amount: number; platform_amount: number; total_amount: number; status: string; created_at: string; executor_name: string }[] }
@@ -1410,40 +1410,40 @@ export default function AdminPanel() {
                     )}
 
                     {/* BM20-C: Cancellation Audit Block */}
-                    {(b.status === "cancelled" || b.cancellation_reason || (b as any).cancel_reason_code) && (
+                    {(b.status === "cancelled" || b.cancellation_reason || b.cancel_reason_code) && (
                       <div style={{ marginBottom: 8, padding: "10px 12px", background: "#1a0000", border: "1px solid #3b0000", borderRadius: 8, fontSize: 12 }}>
                         <div style={{ color: "#f87171", fontWeight: 700, marginBottom: 6, fontSize: 11, letterSpacing: 1, textTransform: "uppercase" as const }}>Cancellation Audit</div>
                         {/* Cancel Reason */}
-                        {((b as any).cancel_reason_code || b.cancellation_reason) && (
+                        {(b.cancel_reason_code || b.cancellation_reason) && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Reason:</span>
                             <span style={{ color: "#fca5a5" }}>
-                              {(b as any).cancel_reason_code
-                                ? (b as any).cancel_reason_code.replace(/_/g, " ")
+                              {b.cancel_reason_code
+                                ? b.cancel_reason_code.replace(/_/g, " ")
                                 : b.cancellation_reason}
                             </span>
                           </div>
                         )}
                         {/* Cancel Note */}
-                        {(b as any).cancel_reason_text && (b as any).cancel_reason_text !== (b as any).cancel_reason_code && (
+                        {b.cancel_reason_text && b.cancel_reason_text !== b.cancel_reason_code && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Note:</span>
-                            <span style={{ color: "#e5e7eb" }}>{(b as any).cancel_reason_text}</span>
+                            <span style={{ color: "#e5e7eb" }}>{b.cancel_reason_text}</span>
                           </div>
                         )}
                         {/* Cancelled By */}
                         <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                           <span style={{ color: "#888", minWidth: 110 }}>Cancelled by:</span>
                           <span style={{ color: "#fca5a5" }}>
-                            {(b as any).cancelled_by_type ?? b.cancelled_by ?? "admin"}
+                            {b.cancelled_by_type ?? b.cancelled_by ?? "admin"}
                           </span>
                         </div>
                         {/* Cancelled At */}
-                        {((b as any).cancelled_at || b.updated_at) && (
+                        {(b.cancelled_at || b.updated_at) && (
                           <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
                             <span style={{ color: "#888", minWidth: 110 }}>Cancelled at:</span>
                             <span style={{ color: "#9ca3af" }}>
-                              {new Date((b as any).cancelled_at ?? b.updated_at!).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              {new Date(b.cancelled_at ?? b.updated_at!).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </span>
                           </div>
                         )}
