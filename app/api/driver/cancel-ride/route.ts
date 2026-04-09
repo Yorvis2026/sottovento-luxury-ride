@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { dispatchToNetwork } from "@/lib/dispatch/dispatch-to-network";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -483,26 +484,32 @@ export async function POST(req: NextRequest) {
       // Audit log failure is non-blocking
     }
 
-    // ── BM20-I: Trigger fallback-pool-dispatch engine ─────────
-    // Fire-and-forget: call the existing fallback-pool-dispatch endpoint
-    // so the ride is immediately re-offered to the next eligible driver.
-    // The fallback engine already reads original_driver_id and excludes it.
+    // ── BM20-N5: Trigger same pipeline as driver-reject ─────────────
+    // Instead of fire-and-forget to fallback-pool-dispatch (async, 120s expiry),
+    // call dispatchToNetwork() — the same function used by respond-offer DECLINE.
+    // This ensures driver-cancel uses the SAME pipeline as driver-reject:
+    //   - same round counter (last offer_round + 1)
+    //   - same exclusion semantics (declined/timeout + original_driver_id)
+    //   - same 30-min offer window
+    //   - same BM5 priority ordering
+    //   - immediate (not async/cron-dependent)
     if (redispatch) {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-          || process.env.VERCEL_URL
-          || "https://www.sottoventoluxuryride.com";
-        const url = baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`;
-        fetch(`${url}/api/admin/fallback-pool-dispatch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ booking_id, triggered_by: "driver_cancel_bm20i" }),
-        }).catch(() => {
-          // Non-blocking: if the call fails, the fallback engine will pick it up
-          // on the next admin dispatch GET poll cycle (which runs every ~30s).
-        });
+        // Get the last offer_round for this booking to continue the round counter
+        const lastOfferRows = await sql`
+          SELECT COALESCE(MAX(offer_round), 0) as last_round
+          FROM dispatch_offers
+          WHERE booking_id = ${booking_id}::uuid
+        `;
+        const lastRound = lastOfferRows[0]?.last_round ?? 0;
+        const nextRound = lastRound + 1;
+
+        // Call the same dispatchToNetwork used by respond-offer DECLINE
+        // Pass driver_id as excludeDriverId so it is excluded from the pool
+        await dispatchToNetwork(booking_id, nextRound, driver_id);
       } catch {
-        // Non-blocking
+        // Non-blocking: if dispatchToNetwork fails, booking remains in
+        // ready_for_dispatch + reassignment_needed for the next admin poll cycle
       }
     }
 
