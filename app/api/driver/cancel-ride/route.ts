@@ -7,6 +7,8 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // ============================================================
 // POST /api/driver/cancel-ride
 //
+// BM20-I — Driver-initiated cancellation with automatic pool re-dispatch
+//
 // Handles structured ride cancellation with:
 //   - Mandatory cancel_reason selection
 //   - Automatic cancel_responsibility classification
@@ -14,12 +16,12 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 //   - Early/late cancel flags (Fases 4-5)
 //   - Financial impact determination (Fase 6)
 //   - SLN Network fee distribution (Auto Fee Logic V2)
-//     · executor_share_amount
-//     · source_driver_share_amount
-//     · platform_share_amount
-//     · fee_split_strategy
 //   - Incident registry in audit_logs (Fase 8)
-//   - Needs Review auto-trigger for non-passenger cancellations (Fase 10)
+//   - BM20-I: Automatic pool re-dispatch when driver/dispatch is responsible
+//     · Sets dispatch_status = 'reassignment_needed'
+//     · Sets original_driver_id = cancelling driver (excluded from re-dispatch pool)
+//     · Clears assigned_driver_id so the booking re-enters the dispatch queue
+//     · Does NOT mark booking as 'cancelled' when re-dispatch is possible
 //
 // Body:
 //   {
@@ -35,17 +37,26 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // ============================================================
 
 // ─── CANCEL REASON → RESPONSIBILITY MAPPING ──────────────────────────────────
+// Keys must match the CANCEL_REASONS array in the driver panel modal exactly.
 const CANCEL_RESPONSIBILITY: Record<string, "passenger" | "driver" | "dispatch" | "system"> = {
+  // Passenger-side reasons (driver gets payout)
   PASSENGER_NO_SHOW:                "passenger",
-  PASSENGER_CANCELLED:              "passenger",
+  PASSENGER_REQUESTED:              "passenger",   // ← aligned with driver panel modal
+  PASSENGER_CANCELLED:              "passenger",   // legacy alias
   PASSENGER_UNREACHABLE:            "passenger",
   PASSENGER_FLIGHT_DELAY:           "passenger",
   PASSENGER_TOOK_DIFFERENT_VEHICLE: "passenger",
   WRONG_PICKUP_LOCATION:            "passenger",
+  WRONG_ADDRESS:                    "passenger",   // ← aligned with driver panel modal
+  // Driver-side reasons (driver not eligible for payout, ride goes back to pool)
   SAFETY_CONCERN:                   "driver",
-  VEHICLE_ISSUE:                    "driver",
+  VEHICLE_BREAKDOWN:                "driver",      // ← aligned with driver panel modal
+  VEHICLE_ISSUE:                    "driver",      // legacy alias
   DRIVER_EMERGENCY:                 "driver",
-  DISPATCH_REQUEST:                 "dispatch",
+  // Dispatch-side reasons (ride goes back to pool, manual review)
+  DISPATCH_INSTRUCTION:             "dispatch",    // ← aligned with driver panel modal
+  DISPATCH_REQUEST:                 "dispatch",    // legacy alias
+  // System / catch-all
   OTHER:                            "system",
 };
 
@@ -62,41 +73,38 @@ function getPayoutStatus(responsibility: string): string {
   }
 }
 
+// ─── BM20-I: Determine whether the ride should go back to the dispatch pool ──
+// Returns true when the cancellation is NOT the passenger's fault and the
+// booking should be re-dispatched to another driver instead of being closed.
+function shouldRedispatch(responsibility: string): boolean {
+  // passenger cancellations close the booking (no re-dispatch needed)
+  // driver/dispatch cancellations release the ride back to the pool
+  return responsibility === "driver" || responsibility === "dispatch";
+}
+
 // ─── BOOKING STATUS BASED ON RESPONSIBILITY ──────────────────────────────────
 function getBookingStatus(responsibility: string): string {
+  if (shouldRedispatch(responsibility)) {
+    // BM20-I: ride goes back to pool — keep as ready_for_dispatch, not cancelled
+    return "ready_for_dispatch";
+  }
   switch (responsibility) {
     case "passenger": return "cancelled";       // standard cancel
-    case "driver":    return "cancelled";       // driver cancelled
-    case "dispatch":  return "needs_review";    // needs admin review
     case "system":    return "needs_review";    // needs admin review
     default:          return "cancelled";
   }
 }
 
+// ─── DISPATCH STATUS BASED ON RESPONSIBILITY ─────────────────────────────────
+function getDispatchStatus(responsibility: string): string {
+  if (shouldRedispatch(responsibility)) {
+    // BM20-I: trigger fallback-pool-dispatch engine (Case A: sequential)
+    return "reassignment_needed";
+  }
+  return "cancelled";
+}
+
 // ─── SLN NETWORK FEE DISTRIBUTION (Auto Fee Logic V2) ────────────────────────
-//
-// Determines how the cancellation_fee is split across:
-//   executor (the driver who held the ride)
-//   source_driver (the driver who originally captured/referred the booking)
-//   platform (SLN Network)
-//
-// Three strategies based on attribution:
-//
-//   "same_driver"  — source_driver_id == executor_driver_id
-//     executor:      80%
-//     source_driver: 0%
-//     platform:      20%
-//
-//   "split_network" — source_driver_id != executor_driver_id (both present)
-//     executor:      65%
-//     source_driver: 15%
-//     platform:      20%
-//
-//   "platform_origin" — source_type == 'platform' (no source driver)
-//     executor:      75%
-//     source_driver: 0%
-//     platform:      25%
-//
 interface FeeSplit {
   executor_share_amount:      number;
   source_driver_share_amount: number;
@@ -112,7 +120,6 @@ function computeFeeSplit(
 ): FeeSplit {
   const fee = cancellationFee ?? 0;
 
-  // Rule 3: source_type === 'platform' takes precedence over driver IDs
   if (sourceType === "platform" || (!sourceDriverId && !executorDriverId)) {
     return {
       executor_share_amount:      parseFloat((fee * 0.75).toFixed(2)),
@@ -122,7 +129,6 @@ function computeFeeSplit(
     };
   }
 
-  // Rule 1: same driver captured and executed
   if (sourceDriverId && executorDriverId && sourceDriverId === executorDriverId) {
     return {
       executor_share_amount:      parseFloat((fee * 0.80).toFixed(2)),
@@ -132,7 +138,6 @@ function computeFeeSplit(
     };
   }
 
-  // Rule 2: different source driver and executor driver
   if (sourceDriverId && executorDriverId && sourceDriverId !== executorDriverId) {
     return {
       executor_share_amount:      parseFloat((fee * 0.65).toFixed(2)),
@@ -142,7 +147,6 @@ function computeFeeSplit(
     };
   }
 
-  // Fallback: executor present but no source driver → treat as platform_origin
   return {
     executor_share_amount:      parseFloat((fee * 0.75).toFixed(2)),
     source_driver_share_amount: 0,
@@ -188,7 +192,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Load booking ──────────────────────────────────────────
-    // Also fetch source_driver_id, source_type, cancellation_fee for fee split
     const bookingRows = await sql`
       SELECT
         id,
@@ -247,18 +250,20 @@ export async function POST(req: NextRequest) {
     const passengerNoShow = cancel_reason === "PASSENGER_NO_SHOW" &&
       passenger_no_show_confirmed === true;
 
-    // ── Responsibility and payout status ──────────────────────
-    const responsibility  = CANCEL_RESPONSIBILITY[cancel_reason] ?? "system";
-    const newPayoutStatus = getPayoutStatus(responsibility);
+    // ── Responsibility, payout and booking status ─────────────
+    const responsibility   = CANCEL_RESPONSIBILITY[cancel_reason] ?? "system";
+    const newPayoutStatus  = getPayoutStatus(responsibility);
     const newBookingStatus = getBookingStatus(responsibility);
+    const newDispatchStatus = getDispatchStatus(responsibility);
+    const redispatch = shouldRedispatch(responsibility);
 
     // ── SLN Network fee distribution (Auto Fee Logic V2) ─────
     const cancellationFee = parseFloat(booking.cancellation_fee) || 0;
     const feeSplit = computeFeeSplit(
       cancellationFee,
-      booking.assigned_driver_id ?? null,   // executor = assigned driver
-      booking.source_driver_id   ?? null,   // source driver (who captured the booking)
-      booking.source_type        ?? null,   // 'platform' | 'driver' | 'network' | etc.
+      booking.assigned_driver_id ?? null,
+      booking.source_driver_id   ?? null,
+      booking.source_type        ?? null,
     );
 
     // ── Ensure all required columns exist ─────────────────────
@@ -278,52 +283,95 @@ export async function POST(req: NextRequest) {
           ADD COLUMN IF NOT EXISTS executor_share_amount      NUMERIC(10,2) DEFAULT 0,
           ADD COLUMN IF NOT EXISTS source_driver_share_amount NUMERIC(10,2) DEFAULT 0,
           ADD COLUMN IF NOT EXISTS platform_share_amount      NUMERIC(10,2) DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS fee_split_strategy         TEXT
+          ADD COLUMN IF NOT EXISTS fee_split_strategy         TEXT,
+          ADD COLUMN IF NOT EXISTS original_driver_id         UUID
       `;
     } catch {
       // Columns may already exist — safe to ignore
     }
 
-    // ── Bloque Maestro — Cancellation Metrics Sync: attribution fields ────────────────────────────────────────────
-    // cancel_stage: when in the ride lifecycle was the cancellation made
+    // ── Cancellation stage (Bloque Maestro — Cancellation Metrics Sync) ──────
     const cancelStage = booking.status === 'offer_pending' ? 'pre_accept'
       : booking.status === 'accepted' || booking.status === 'assigned' ? 'post_accept_pre_dispatch'
       : booking.status === 'en_route' ? 'en_route'
       : booking.status === 'arrived' ? 'arrived'
       : 'unknown';
 
-    // affects_driver_metrics: true if driver is responsible
     const affectsDriverMetrics = responsibility === 'driver';
-    // affects_payout: true if driver is NOT responsible (driver gets paid on passenger cancel)
     const affectsPayout = responsibility === 'passenger';
 
-    // ── Update booking ────────────────────────────────────────────
-    await sql`
-      UPDATE bookings
-      SET
-        status                      = ${newBookingStatus},
-        dispatch_status             = 'cancelled',
-        cancel_reason               = ${cancel_reason},
-        cancel_responsibility       = ${responsibility},
-        cancellation_notes          = ${cancellation_notes ?? null},
-        passenger_no_show           = ${passengerNoShow},
-        early_cancel                = ${earlyCancel},
-        late_cancel                 = ${lateCancel},
-        cancelled_at                = ${nowIso}::timestamptz,
-        no_show_at                  = ${passengerNoShow ? nowIso : null}::timestamptz,
-        payout_status               = ${newPayoutStatus},
-        executor_share_amount       = ${feeSplit.executor_share_amount},
-        source_driver_share_amount  = ${feeSplit.source_driver_share_amount},
-        platform_share_amount       = ${feeSplit.platform_share_amount},
-        fee_split_strategy          = ${feeSplit.fee_split_strategy},
-        cancelled_by_type           = 'driver',
-        cancelled_by_id             = ${driver_id}::uuid,
-        cancel_stage                = ${cancelStage},
-        affects_driver_metrics      = ${affectsDriverMetrics},
-        affects_payout              = ${affectsPayout},
-        updated_at                  = NOW()
-      WHERE id = ${booking_id}::uuid
-    `;  // ── Incident Registry: write to audit_logs (Fase 8) ──────
+    // ── BM20-I: Update booking ────────────────────────────────
+    // When redispatch=true:
+    //   - status = 'ready_for_dispatch' (NOT 'cancelled')
+    //   - dispatch_status = 'reassignment_needed' (triggers fallback-pool-dispatch engine)
+    //   - assigned_driver_id = NULL (releases the driver lock)
+    //   - original_driver_id = driver_id (fallback engine excludes this driver from pool)
+    //   - cancelled_at is still recorded for audit purposes
+    //
+    // When redispatch=false (passenger cancel):
+    //   - status = 'cancelled'
+    //   - dispatch_status = 'cancelled'
+    //   - assigned_driver_id = NULL
+    if (redispatch) {
+      await sql`
+        UPDATE bookings
+        SET
+          status                      = 'ready_for_dispatch',
+          dispatch_status             = 'reassignment_needed',
+          assigned_driver_id          = NULL,
+          original_driver_id          = ${driver_id}::uuid,
+          cancel_reason               = ${cancel_reason},
+          cancel_responsibility       = ${responsibility},
+          cancellation_notes          = ${cancellation_notes ?? null},
+          passenger_no_show           = ${passengerNoShow},
+          early_cancel                = ${earlyCancel},
+          late_cancel                 = ${lateCancel},
+          cancelled_at                = ${nowIso}::timestamptz,
+          no_show_at                  = NULL,
+          payout_status               = ${newPayoutStatus},
+          executor_share_amount       = ${feeSplit.executor_share_amount},
+          source_driver_share_amount  = ${feeSplit.source_driver_share_amount},
+          platform_share_amount       = ${feeSplit.platform_share_amount},
+          fee_split_strategy          = ${feeSplit.fee_split_strategy},
+          cancelled_by_type           = 'driver',
+          cancelled_by_id             = ${driver_id}::uuid,
+          cancel_stage                = ${cancelStage},
+          affects_driver_metrics      = ${affectsDriverMetrics},
+          affects_payout              = ${affectsPayout},
+          updated_at                  = NOW()
+        WHERE id = ${booking_id}::uuid
+      `;
+    } else {
+      await sql`
+        UPDATE bookings
+        SET
+          status                      = ${newBookingStatus},
+          dispatch_status             = ${newDispatchStatus},
+          assigned_driver_id          = NULL,
+          cancel_reason               = ${cancel_reason},
+          cancel_responsibility       = ${responsibility},
+          cancellation_notes          = ${cancellation_notes ?? null},
+          passenger_no_show           = ${passengerNoShow},
+          early_cancel                = ${earlyCancel},
+          late_cancel                 = ${lateCancel},
+          cancelled_at                = ${nowIso}::timestamptz,
+          no_show_at                  = ${passengerNoShow ? nowIso : null}::timestamptz,
+          payout_status               = ${newPayoutStatus},
+          executor_share_amount       = ${feeSplit.executor_share_amount},
+          source_driver_share_amount  = ${feeSplit.source_driver_share_amount},
+          platform_share_amount       = ${feeSplit.platform_share_amount},
+          fee_split_strategy          = ${feeSplit.fee_split_strategy},
+          cancelled_by_type           = 'driver',
+          cancelled_by_id             = ${driver_id}::uuid,
+          cancel_stage                = ${cancelStage},
+          affects_driver_metrics      = ${affectsDriverMetrics},
+          affects_payout              = ${affectsPayout},
+          updated_at                  = NOW()
+        WHERE id = ${booking_id}::uuid
+      `;
+    }
+
+    // ── Incident Registry: write to audit_logs (Fase 8) ──────
     const incidentData = {
       cancel_reason,
       cancel_responsibility:       responsibility,
@@ -336,7 +384,12 @@ export async function POST(req: NextRequest) {
       optional_evidence_url:       evidence_url ?? null,
       timestamp:                   nowIso,
       payout_status:               newPayoutStatus,
-         // ── Auto Fee Logic V2 — fee split audit ──────────────
+      // BM20-I: re-dispatch metadata
+      redispatched_to_pool:        redispatch,
+      new_booking_status:          redispatch ? 'ready_for_dispatch' : newBookingStatus,
+      new_dispatch_status:         redispatch ? 'reassignment_needed' : newDispatchStatus,
+      original_driver_id_set:      redispatch ? driver_id : null,
+      // Auto Fee Logic V2 — fee split audit
       cancellation_fee: cancellationFee,
       fee_split_strategy:          feeSplit.fee_split_strategy,
       executor_share_amount:       feeSplit.executor_share_amount,
@@ -364,6 +417,29 @@ export async function POST(req: NextRequest) {
       // Audit log failure is non-blocking
     }
 
+    // ── BM20-I: Trigger fallback-pool-dispatch engine ─────────
+    // Fire-and-forget: call the existing fallback-pool-dispatch endpoint
+    // so the ride is immediately re-offered to the next eligible driver.
+    // The fallback engine already reads original_driver_id and excludes it.
+    if (redispatch) {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+          || process.env.VERCEL_URL
+          || "https://www.sottoventoluxuryride.com";
+        const url = baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`;
+        fetch(`${url}/api/admin/fallback-pool-dispatch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ booking_id, triggered_by: "driver_cancel_bm20i" }),
+        }).catch(() => {
+          // Non-blocking: if the call fails, the fallback engine will pick it up
+          // on the next admin dispatch GET poll cycle (which runs every ~30s).
+        });
+      } catch {
+        // Non-blocking
+      }
+    }
+
     // ── Response ──────────────────────────────────────────────
     return NextResponse.json({
       success:                     true,
@@ -374,9 +450,11 @@ export async function POST(req: NextRequest) {
       early_cancel:                earlyCancel,
       late_cancel:                 lateCancel,
       payout_status:               newPayoutStatus,
-      new_booking_status:          newBookingStatus,
+      new_booking_status:          redispatch ? 'ready_for_dispatch' : newBookingStatus,
+      new_dispatch_status:         redispatch ? 'reassignment_needed' : newDispatchStatus,
+      redispatched_to_pool:        redispatch,
       pickup_time_delta_minutes:   pickupTimeDeltaMinutes,
-        // ── Auto Fee Logic V2 ─────────────────────────────
+      // Auto Fee Logic V2
       cancellation_fee: cancellationFee,
       fee_split_strategy:          feeSplit.fee_split_strategy,
       executor_share_amount:       feeSplit.executor_share_amount,
