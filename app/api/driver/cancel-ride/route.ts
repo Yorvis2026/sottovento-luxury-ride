@@ -35,8 +35,7 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 //     evidence_url?:                string,    // optional photo evidence URL
 //   }
 // ============================================================
-
-// ─── CANCEL REASON → RESPONSIBILITY MAPPING ──────────────────────────────────
+// ─── CANCEL REASON → RESPONSIBILITY MAPPING ──────────────────────────────────────────────
 // Keys must match the CANCEL_REASONS array in the driver panel modal exactly.
 const CANCEL_RESPONSIBILITY: Record<string, "passenger" | "driver" | "dispatch" | "system"> = {
   // Passenger-side reasons (driver gets payout)
@@ -53,12 +52,32 @@ const CANCEL_RESPONSIBILITY: Record<string, "passenger" | "driver" | "dispatch" 
   VEHICLE_BREAKDOWN:                "driver",      // ← aligned with driver panel modal
   VEHICLE_ISSUE:                    "driver",      // legacy alias
   DRIVER_EMERGENCY:                 "driver",
+  // BM20-L: Justified driver reasons (ride goes back to pool, score NOT affected)
+  AIRPORT_DELAY:                    "driver",      // ← BM20-L justified
+  TRAFFIC_DELAY_CRITICAL:           "driver",      // ← BM20-L justified
+  CLIENT_DELAY_EXTENDED:            "driver",      // ← BM20-L justified
   // Dispatch-side reasons (ride goes back to pool, manual review)
   DISPATCH_INSTRUCTION:             "dispatch",    // ← aligned with driver panel modal
   DISPATCH_REQUEST:                 "dispatch",    // legacy alias
   // System / catch-all
   OTHER:                            "system",
 };
+
+// ─── BM20-L: JUSTIFIED CANCEL REASONS (no score penalty) ───────────────────────────
+// When a driver cancels with a justified reason, affects_driver_metrics = false.
+// This prevents score degradation for circumstances outside the driver's control.
+const JUSTIFIED_CANCEL_REASONS = new Set([
+  // BM20-L Part 3 — justified reasons
+  "AIRPORT_DELAY",
+  "TRAFFIC_DELAY_CRITICAL",
+  "VEHICLE_BREAKDOWN",
+  "SAFETY_CONCERN",
+  "CLIENT_DELAY_EXTENDED",
+  "DISPATCH_INSTRUCTION",
+  // Legacy aliases also justified
+  "DISPATCH_REQUEST",
+  "VEHICLE_ISSUE",
+]);
 
 const VALID_CANCEL_REASONS = Object.keys(CANCEL_RESPONSIBILITY);
 
@@ -297,7 +316,9 @@ export async function POST(req: NextRequest) {
       : booking.status === 'arrived' ? 'arrived'
       : 'unknown';
 
-    const affectsDriverMetrics = responsibility === 'driver';
+    // BM20-L: justified cancellations do NOT affect driver score/metrics
+    const isJustifiedCancel = JUSTIFIED_CANCEL_REASONS.has(cancel_reason);
+    const affectsDriverMetrics = responsibility === 'driver' && !isJustifiedCancel;
     const affectsPayout = responsibility === 'passenger';
 
     // ── BM20-I: Update booking ────────────────────────────────

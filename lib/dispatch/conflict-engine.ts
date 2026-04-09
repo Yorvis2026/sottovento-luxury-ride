@@ -39,6 +39,84 @@ import {
   type ScheduledRide,
 } from "@/lib/dispatch/schedule-conflict";
 
+// ── BM20-L: Orlando Recovery Buffer Configuration ───────────────────────────
+/**
+ * BM20-L — DRIVER AVAILABILITY WINDOW GUARD (ORLANDO LOGIC)
+ *
+ * Recovery buffers (minutes) applied AFTER a ride ends before the driver
+ * can accept the next ride. Based on previous ride destination zone.
+ *
+ * Hierarchy (first match wins):
+ *   1. Port Canaveral  → 150 min
+ *   2. Disney area     → 120 min
+ *   3. Convention Center / I-Drive → 120 min
+ *   4. Universal area  → 110 min
+ *   5. Airport (MCO/SFB) → 90 min  (replaces old AIRPORT_BUFFER=45)
+ *   6. Standard / fallback → 90 min
+ */
+export const BM20L_RECOVERY_BUFFERS = {
+  PORT_CANAVERAL_MINUTES: 150,
+  DISNEY_MINUTES: 120,
+  CONVENTION_MINUTES: 120,
+  UNIVERSAL_MINUTES: 110,
+  AIRPORT_MINUTES: 90,
+  DEFAULT_MINUTES: 90,
+} as const;
+
+/** Keywords for each Orlando zone (case-insensitive) */
+const ZONE_KEYWORDS = {
+  PORT_CANAVERAL: ["port canaveral", "canaveral", "cape canaveral"],
+  DISNEY: ["disney", "magic kingdom", "epcot", "hollywood studios", "animal kingdom", "disney springs", "lake buena vista", "celebration"],
+  CONVENTION: ["convention center", "orange county convention", "i-drive", "international drive", "pointe orlando"],
+  UNIVERSAL: ["universal", "citywalk", "universal studios", "universal orlando"],
+  AIRPORT: ["mco", "airport", "orlando international", "sfb", "sanford"],
+} as const;
+
+/**
+ * getOrlandoRecoveryBufferMinutes()
+ *
+ * Returns the recovery buffer (minutes) based on the previous ride's
+ * destination address. First match wins.
+ *
+ * @param previousDestinationAddress  dropoff_address of the completed/active ride
+ * @returns recovery buffer in minutes
+ */
+export function getOrlandoRecoveryBufferMinutes(previousDestinationAddress: string | null | undefined): number {
+  if (!previousDestinationAddress) return BM20L_RECOVERY_BUFFERS.DEFAULT_MINUTES;
+  const lower = previousDestinationAddress.toLowerCase();
+  if (ZONE_KEYWORDS.PORT_CANAVERAL.some(k => lower.includes(k))) return BM20L_RECOVERY_BUFFERS.PORT_CANAVERAL_MINUTES;
+  if (ZONE_KEYWORDS.DISNEY.some(k => lower.includes(k)))          return BM20L_RECOVERY_BUFFERS.DISNEY_MINUTES;
+  if (ZONE_KEYWORDS.CONVENTION.some(k => lower.includes(k)))      return BM20L_RECOVERY_BUFFERS.CONVENTION_MINUTES;
+  if (ZONE_KEYWORDS.UNIVERSAL.some(k => lower.includes(k)))       return BM20L_RECOVERY_BUFFERS.UNIVERSAL_MINUTES;
+  if (ZONE_KEYWORDS.AIRPORT.some(k => lower.includes(k)))         return BM20L_RECOVERY_BUFFERS.AIRPORT_MINUTES;
+  return BM20L_RECOVERY_BUFFERS.DEFAULT_MINUTES;
+}
+
+/**
+ * getDriverAvailableAt()
+ *
+ * Calculates the earliest datetime a driver will be available after
+ * their most recent active ride:
+ *
+ *   driver_available_at = previous_pickup_at
+ *                       + estimated_trip_duration
+ *                       + recovery_buffer (Orlando zone-aware)
+ *
+ * @param previousPickupAt              pickup_at of the driver's current/last ride
+ * @param estimatedDurationMinutes      estimated_duration_minutes (null → default 60 min)
+ * @param previousDestinationAddress    dropoff_address of the driver's current/last ride
+ * @returns                             Date — earliest available timestamp
+ */
+export function getDriverAvailableAt(
+  previousPickupAt: Date,
+  estimatedDurationMinutes: number | null,
+  previousDestinationAddress: string | null | undefined
+): Date {
+  const duration = estimatedDurationMinutes ?? BM18_CONFIG.DEFAULT_RIDE_DURATION_MINUTES;
+  const recovery = getOrlandoRecoveryBufferMinutes(previousDestinationAddress);
+  return new Date(previousPickupAt.getTime() + (duration + recovery) * 60 * 1000);
+}
+
 // ── BM18 Configuration ────────────────────────────────────────────────────
 export const BM18_CONFIG = {
   /**
@@ -174,19 +252,21 @@ function isAirportAddress(address: string | null | undefined): boolean {
   );
 }
 
-/** Determine the required buffer (minutes) based on ride addresses */
+/** Determine the required buffer (minutes) based on ride addresses.
+ *  BM20-L: Uses Orlando zone-aware recovery buffer for the earlier ride's destination.
+ *  Falls back to BM18 airport buffer if no zone match and airport detected.
+ */
 function requiredBufferMinutes(
   existingDropoffAddress: string | null | undefined,
   candidatePickupAddress: string | null | undefined
 ): number {
-  // If either end is an airport, apply the stricter airport buffer
-  if (
-    isAirportAddress(existingDropoffAddress) ||
-    isAirportAddress(candidatePickupAddress)
-  ) {
-    return BM18_CONFIG.AIRPORT_BUFFER_MINUTES;
+  // BM20-L: Use Orlando zone-aware recovery buffer based on previous destination
+  const orlandoBuffer = getOrlandoRecoveryBufferMinutes(existingDropoffAddress);
+  // If the candidate pickup is an airport, ensure we use at least the airport buffer
+  if (isAirportAddress(candidatePickupAddress)) {
+    return Math.max(orlandoBuffer, BM20L_RECOVERY_BUFFERS.AIRPORT_MINUTES);
   }
-  return BM18_CONFIG.STANDARD_BUFFER_MINUTES;
+  return orlandoBuffer;
 }
 
 // ── Main exported function ────────────────────────────────────────────────
