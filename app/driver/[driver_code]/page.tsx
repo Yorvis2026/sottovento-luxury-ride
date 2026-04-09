@@ -898,6 +898,8 @@ export default function DriverDashboardByCode() {
   const [cancelNotes, setCancelNotes] = useState<string>("")
   const [cancelStep, setCancelStep] = useState<"reason" | "no_show_confirm" | "submitting" | "done">("reason")
   const [cancelResult, setCancelResult] = useState<{ success: boolean; responsibility?: string; payout_status?: string; message?: string } | null>(null)
+  // BM20-K: which booking_id is being cancelled (null = use assigned_ride, set = upcoming ride)
+  const [cancelTargetBookingId, setCancelTargetBookingId] = useState<string | null>(null)
   // ── BM17: Overdue Incident Report Modal ─────────────────────────────────────
   const [showOverdueIncidentModal, setShowOverdueIncidentModal] = useState(false)
   const [overdueIncidentRideId, setOverdueIncidentRideId] = useState<string | null>(null)
@@ -1009,6 +1011,7 @@ export default function DriverDashboardByCode() {
       setShowDriverExitModal(false)
       setShowCancelModal(false)
       setCancelStep("reason")
+      setCancelTargetBookingId(null)
       setShowCompleted(false)
       // Note: showFallbackOfferModal is NOT dismissed — fallback offers have their own
       // priority and should not be interrupted by a new primary offer.
@@ -1974,7 +1977,9 @@ export default function DriverDashboardByCode() {
   // Calls POST /api/driver/cancel-ride with the structured cancellation data.
   // This replaces the old executeTransition('cancelled') path.
   const submitCancelRide = async (noShowConfirmed?: boolean) => {
-    if (!summary?.assigned_ride || !cancelReason) return
+    // BM20-K: support cancellation of upcoming rides (not just assigned_ride)
+    const targetBookingId = cancelTargetBookingId ?? summary?.assigned_ride?.booking_id ?? null
+    if (!targetBookingId || !cancelReason) return
     setCancelStep("submitting")
     const coords = await getGPS()
     try {
@@ -1982,8 +1987,8 @@ export default function DriverDashboardByCode() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          booking_id: summary.assigned_ride.booking_id,
-          driver_id: summary.driver_id,
+          booking_id: targetBookingId,
+          driver_id: summary?.driver_id,
           cancel_reason: cancelReason,
           cancellation_notes: cancelNotes || null,
           passenger_no_show_confirmed: cancelReason === "PASSENGER_NO_SHOW" ? (noShowConfirmed ?? false) : undefined,
@@ -2006,6 +2011,7 @@ export default function DriverDashboardByCode() {
           setCancelNotes("")
           setCancelStep("reason")
           setCancelResult(null)
+          setCancelTargetBookingId(null)  // BM20-K: reset upcoming ride target
           loadData()
         }, 3000)
       } else {
@@ -3163,6 +3169,7 @@ export default function DriverDashboardByCode() {
               setCancelNotes("")
               setCancelStep("reason")
               setCancelResult(null)
+              setCancelTargetBookingId(null)  // BM20-K: reset upcoming ride target
             }}
             className="text-zinc-400 text-xl leading-none active:scale-95 transition-transform">
             ←
@@ -4119,6 +4126,24 @@ export default function DriverDashboardByCode() {
                             <span className="text-xs font-mono text-zinc-400">{ride.booking_id.slice(0, 8).toUpperCase()}</span>
                           </div>
                         </div>
+                        {/* BM20-K: Cancel button for upcoming rides */}
+                        {['offer_pending', 'accepted', 'assigned'].includes(ride.status as string) && (
+                          <div className="mt-4 pt-3 border-t border-zinc-800">
+                            <button
+                              onClick={() => {
+                                setCancelTargetBookingId(ride.booking_id)
+                                setCancelReason("")
+                                setCancelNotes("")
+                                setCancelStep("reason")
+                                setCancelResult(null)
+                                setShowCancelModal(true)
+                              }}
+                              className="w-full py-2.5 rounded-lg text-sm font-medium border border-red-800 text-red-400 active:scale-95 transition-transform"
+                              style={{ backgroundColor: 'rgba(239,68,68,0.08)' }}>
+                              {lang === "es" ? "Cancelar viaje" : lang === "ht" ? "Anile vwayaj" : "Cancel ride"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
