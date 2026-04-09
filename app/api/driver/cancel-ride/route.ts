@@ -81,24 +81,33 @@ const JUSTIFIED_CANCEL_REASONS = new Set([
 
 const VALID_CANCEL_REASONS = Object.keys(CANCEL_RESPONSIBILITY);
 
-// ─── PAYOUT STATUS BASED ON RESPONSIBILITY ───────────────────────────────────
+// ─── PAYOUT STATUS BASED ON RESPONSIBILITY ────────────────────────────────────────────
+// BM20-N2 FIX: dispatch and system are now 'cancelled' (not 'needs_review').
+// The ride goes back to the pool; the audit log captures the reason for human review.
+// 'needs_review' as payout_status was causing the admin to see the booking in the
+// wrong bucket and confusing the driver success screen.
 function getPayoutStatus(responsibility: string): string {
   switch (responsibility) {
-    case "passenger": return "pending";         // driver eligible for payout
-    case "driver":    return "cancelled";       // driver not eligible
-    case "dispatch":  return "needs_review";    // manual review required
-    case "system":    return "needs_review";    // manual review required
-    default:          return "needs_review";
+    case "passenger": return "pending";     // driver eligible for payout
+    case "driver":    return "cancelled";   // driver not eligible, ride goes to pool
+    case "dispatch":  return "cancelled";   // BM20-N2: ride goes to pool, not needs_review
+    case "system":    return "cancelled";   // BM20-N2: OTHER → ride goes to pool, not needs_review
+    default:          return "cancelled";
   }
 }
 
-// ─── BM20-I: Determine whether the ride should go back to the dispatch pool ──
+// ─── BM20-I + BM20-N2: Determine whether the ride should go back to the dispatch pool ──
 // Returns true when the cancellation is NOT the passenger's fault and the
 // booking should be re-dispatched to another driver instead of being closed.
+//
+// BM20-N2 FIX: 'system' (OTHER) is now also redispatchable.
+// When a driver cancels with OTHER, the ride must still be available for dispatch
+// (the audit log already captures the reason for human review).
+// Only passenger-side cancellations close the booking permanently.
 function shouldRedispatch(responsibility: string): boolean {
   // passenger cancellations close the booking (no re-dispatch needed)
-  // driver/dispatch cancellations release the ride back to the pool
-  return responsibility === "driver" || responsibility === "dispatch";
+  // driver/dispatch/system cancellations release the ride back to the pool
+  return responsibility === "driver" || responsibility === "dispatch" || responsibility === "system";
 }
 
 // ─── BOOKING STATUS BASED ON RESPONSIBILITY ──────────────────────────────────
