@@ -265,6 +265,20 @@ export async function POST(req: NextRequest) {
       ? Math.round((now.getTime() - pickupAt.getTime()) / 60000)
       : null;
 
+    // ── BM20-M: Cancellation time window classification ───────
+    // >7 days  : early window — no penalty, reason optional
+    // 48h–7d   : mid window  — reason required, penalty evaluated
+    // <48h     : late window — reason required, penalty applied
+    const hoursUntilPickup = pickupAt
+      ? (pickupAt.getTime() - now.getTime()) / (1000 * 60 * 60)
+      : null;
+    const cancelWindow: "early" | "mid" | "late" | "post" =
+      hoursUntilPickup === null   ? "post"
+      : hoursUntilPickup > 168    ? "early"   // >7 days
+      : hoursUntilPickup >= 48    ? "mid"     // 48h–7d
+      : hoursUntilPickup >= 0     ? "late"    // <48h
+      : "post";                               // already past pickup
+
     // ── Passenger no-show flag ────────────────────────────────
     const passengerNoShow = cancel_reason === "PASSENGER_NO_SHOW" &&
       passenger_no_show_confirmed === true;
@@ -286,6 +300,9 @@ export async function POST(req: NextRequest) {
     );
 
     // ── Ensure all required columns exist ─────────────────────
+    // BM20-M FIX: added 5 missing columns that caused UPDATE to fail with 500:
+    //   cancelled_by_type, cancelled_by_id, cancel_stage,
+    //   affects_driver_metrics, affects_payout
     try {
       await sql`
         ALTER TABLE bookings
@@ -303,7 +320,12 @@ export async function POST(req: NextRequest) {
           ADD COLUMN IF NOT EXISTS source_driver_share_amount NUMERIC(10,2) DEFAULT 0,
           ADD COLUMN IF NOT EXISTS platform_share_amount      NUMERIC(10,2) DEFAULT 0,
           ADD COLUMN IF NOT EXISTS fee_split_strategy         TEXT,
-          ADD COLUMN IF NOT EXISTS original_driver_id         UUID
+          ADD COLUMN IF NOT EXISTS original_driver_id         UUID,
+          ADD COLUMN IF NOT EXISTS cancelled_by_type          TEXT,
+          ADD COLUMN IF NOT EXISTS cancelled_by_id            UUID,
+          ADD COLUMN IF NOT EXISTS cancel_stage               TEXT,
+          ADD COLUMN IF NOT EXISTS affects_driver_metrics     BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS affects_payout             BOOLEAN DEFAULT FALSE
       `;
     } catch {
       // Columns may already exist — safe to ignore
@@ -316,9 +338,13 @@ export async function POST(req: NextRequest) {
       : booking.status === 'arrived' ? 'arrived'
       : 'unknown';
 
-    // BM20-L: justified cancellations do NOT affect driver score/metrics
+    // BM20-L + BM20-M: justified cancellations and early-window cancellations
+    // do NOT affect driver score/metrics.
+    // Early window (>7 days): no penalty regardless of reason.
+    // Justified reason (VEHICLE_BREAKDOWN, SAFETY_CONCERN, etc.): no penalty.
     const isJustifiedCancel = JUSTIFIED_CANCEL_REASONS.has(cancel_reason);
-    const affectsDriverMetrics = responsibility === 'driver' && !isJustifiedCancel;
+    const isEarlyWindow = cancelWindow === "early";
+    const affectsDriverMetrics = responsibility === 'driver' && !isJustifiedCancel && !isEarlyWindow;
     const affectsPayout = responsibility === 'passenger';
 
     // ── BM20-I: Update booking ────────────────────────────────
@@ -419,6 +445,11 @@ export async function POST(req: NextRequest) {
       executor_driver_id:          booking.assigned_driver_id ?? null,
       source_driver_id:            booking.source_driver_id   ?? null,
       source_type:                 booking.source_type        ?? null,
+      // BM20-M: time window classification
+      cancel_window:               cancelWindow,
+      hours_until_pickup:          hoursUntilPickup !== null ? Math.round(hoursUntilPickup) : null,
+      is_justified_cancel:         isJustifiedCancel,
+      is_early_window:             isEarlyWindow,
     };
 
     try {
@@ -475,8 +506,12 @@ export async function POST(req: NextRequest) {
       new_dispatch_status:         redispatch ? 'reassignment_needed' : newDispatchStatus,
       redispatched_to_pool:        redispatch,
       pickup_time_delta_minutes:   pickupTimeDeltaMinutes,
+      // BM20-M: time window
+      cancel_window:               cancelWindow,
+      hours_until_pickup:          hoursUntilPickup !== null ? Math.round(hoursUntilPickup) : null,
+      affects_driver_metrics:      affectsDriverMetrics,
       // Auto Fee Logic V2
-      cancellation_fee: cancellationFee,
+      cancellation_fee:            cancellationFee,
       fee_split_strategy:          feeSplit.fee_split_strategy,
       executor_share_amount:       feeSplit.executor_share_amount,
       source_driver_share_amount:  feeSplit.source_driver_share_amount,
