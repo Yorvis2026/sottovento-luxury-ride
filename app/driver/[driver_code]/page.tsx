@@ -981,6 +981,41 @@ export default function DriverDashboardByCode() {
     } catch {}
   }, [])
 
+  // ── BM20-OFFER-PRIORITY: Force OfferScreen to the front when active_offer arrives ──
+  // ROOT CAUSE: When the driver has any early-return overlay open (showNewRideAlert,
+  // showReferralModal, showGeoModal, showEarlyStartModal, showOverdueModal,
+  // showReleaseRideModal, showDriverExitModal, showCancelModal, showCompleted,
+  // showFallbackOfferModal) the render tree short-circuits BEFORE reaching
+  // PRIORITY 1 (OfferScreen). The new offer exists in summary.active_offer and
+  // the polling loop fires correctly, but the early return prevents OfferScreen
+  // from mounting. Fix: when active_offer becomes truthy (null → offer_id),
+  // immediately dismiss all non-critical overlays so the render tree reaches
+  // PRIORITY 1 and OfferScreen mounts fullscreen without manual refresh.
+  const prevActiveOfferIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const currentOfferId = summary?.active_offer?.offer_id ?? null
+    const hadNoOffer = prevActiveOfferIdRef.current === null
+    const hasNewOffer = currentOfferId !== null && currentOfferId !== prevActiveOfferIdRef.current
+    if (hasNewOffer && hadNoOffer) {
+      // New offer just arrived — dismiss all overlays that would block OfferScreen
+      setShowNewRideAlert(false)
+      setNewRideAlertData(null)
+      setShowReferralModal(false)
+      setShowGeoModal(false)
+      setGeoModalData(null)
+      setShowEarlyStartModal(false)
+      setShowOverdueModal(false)
+      setShowReleaseRideModal(false)
+      setShowDriverExitModal(false)
+      setShowCancelModal(false)
+      setCancelStep("reason")
+      setShowCompleted(false)
+      // Note: showFallbackOfferModal is NOT dismissed — fallback offers have their own
+      // priority and should not be interrupted by a new primary offer.
+    }
+    prevActiveOfferIdRef.current = currentOfferId
+  }, [summary?.active_offer?.offer_id])
+
   // ── Dashboard banner: repeat audio + vibration every 5s while banner is active ──
   // This fires when the driver is on the DASHBOARD (not on OfferScreen) and has a pending offer.
   // The OfferScreen has its own independent alert loop (playOfferBeep).
