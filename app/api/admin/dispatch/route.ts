@@ -11,6 +11,7 @@ import {
 } from "@/lib/dispatch/overdue-engine";
 import { calcPreviewImpactAuto } from "@/lib/drs/calcPreviewImpact";
 import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
+import { dispatchToNetwork } from "@/lib/dispatch/dispatch-to-network";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -754,7 +755,58 @@ export async function GET(req: NextRequest) {
           if (!resolvedDriver) continue; // All candidates conflicted — leave in readyForDispatch
           // ── END BM20-H ────────────────────────────────────────────────────────
 
-          // Assign resolved (conflict-free) driver
+          // ── BM20-N6B: QR source driver conflict → purple pool pipeline ────────
+          // If the source driver (captured_by QR) was skipped due to a schedule
+          // conflict, the booking must enter the SAME purple fallback pipeline
+          // used by driver-reject (dispatchToNetwork), NOT the inline offer path.
+          // This ensures: is_fallback_offer=true, offer_round=next, ttl=30min,
+          // source driver excluded, dispatch_status=offer_pending (not manual).
+          const sourceDriverWasSkipped =
+            sourceDriverId !== null &&
+            topDriver.id !== resolvedDriver.id;
+
+          if (sourceDriverWasSkipped) {
+            // Prepare booking for pool pipeline: status=ready_for_dispatch,
+            // original_driver_id=sourceDriverId so dispatchToNetwork excludes them.
+            await sql`
+              UPDATE bookings
+              SET
+                status = 'ready_for_dispatch',
+                dispatch_status = 'reassignment_needed',
+                original_driver_id = ${sourceDriverId}::uuid,
+                assigned_driver_id = NULL,
+                updated_at = NOW()
+              WHERE id = ${candidate.id}::uuid
+                AND assigned_driver_id IS NULL
+            `;
+            // Log the QR-conflict fallback for audit trail
+            sql`
+              INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+              VALUES ('booking', ${candidate.id}::uuid, 'bm20n6b_qr_conflict_pool_fallback', 'system',
+                ${JSON.stringify({
+                  source_driver_id: sourceDriverId,
+                  source_driver_code: candidate.captured_by_driver_code,
+                  resolved_driver_id: resolvedDriver.id,
+                  resolved_driver_code: resolvedDriver.driver_code,
+                  booking_id: candidate.id,
+                  timestamp: new Date().toISOString(),
+                })}::jsonb)
+            `.catch(() => {});
+            // Enter the same purple pipeline as driver-reject
+            await dispatchToNetwork(candidate.id, 1, sourceDriverId ?? undefined);
+            // Update local state
+            const idx2 = readyForDispatch.indexOf(candidate);
+            if (idx2 !== -1) readyForDispatch.splice(idx2, 1);
+            candidate.status = 'ready_for_dispatch';
+            candidate.dispatch_status = 'offer_pending';
+            candidate.auto_assigned = true;
+            candidate.bm20n6b_pool_fallback = true;
+            assigned.push(candidate);
+            continue;
+          }
+          // ── END BM20-N6B ─────────────────────────────────────────────────────
+
+          // Normal path: source driver available (or no source driver) — assign directly
           await sql`
             UPDATE bookings
             SET
