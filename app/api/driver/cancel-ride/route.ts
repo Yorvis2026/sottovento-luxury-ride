@@ -96,37 +96,36 @@ function getPayoutStatus(responsibility: string): string {
   }
 }
 
-// ─── BM20-I + BM20-N2: Determine whether the ride should go back to the dispatch pool ──
-// Returns true when the cancellation is NOT the passenger's fault and the
-// booking should be re-dispatched to another driver instead of being closed.
+// ─── BM20-N4: DECISIÓN 1 — ¿El actor es driver? → SIEMPRE al pool ─────────────────────
+// This endpoint is ONLY called by drivers (cancelled_by_type = 'driver').
+// Rule: if the actor is a driver, the ride ALWAYS returns to the pool.
+// This is independent of the cancel_reason or responsibility classification.
 //
-// BM20-N2 FIX: 'system' (OTHER) is now also redispatchable.
-// When a driver cancels with OTHER, the ride must still be available for dispatch
-// (the audit log already captures the reason for human review).
-// Only passenger-side cancellations close the booking permanently.
-function shouldRedispatch(responsibility: string): boolean {
-  // passenger cancellations close the booking (no re-dispatch needed)
-  // driver/dispatch/system cancellations release the ride back to the pool
-  return responsibility === "driver" || responsibility === "dispatch" || responsibility === "system";
+// The cancel_reason/responsibility only affects DECISIÓN 2 (score/penalty),
+// NOT the redispatch decision.
+//
+// Admin cancellations use a different endpoint and do NOT call this function.
+function shouldRedispatch(_responsibility: string): boolean {
+  // BM20-N4: In this endpoint, cancelled_by_type is ALWAYS 'driver'.
+  // Driver cancellations ALWAYS return the ride to the pool.
+  // No exceptions based on reason or time window.
+  return true;
 }
 
-// ─── BOOKING STATUS BASED ON RESPONSIBILITY ──────────────────────────────────
-function getBookingStatus(responsibility: string): string {
-  if (shouldRedispatch(responsibility)) {
-    // BM20-I: ride goes back to pool — keep as ready_for_dispatch, not cancelled
-    return "ready_for_dispatch";
-  }
-  switch (responsibility) {
-    case "passenger": return "cancelled";       // standard cancel
-    case "system":    return "needs_review";    // needs admin review
-    default:          return "cancelled";
-  }
+// ─── BOOKING STATUS BASED ON ACTOR (BM20-N4) ────────────────────────────────
+// DECISIÓN 1: actor = driver → ALWAYS ready_for_dispatch (back to pool)
+// This function always returns 'ready_for_dispatch' because this endpoint
+// is only called by drivers.
+function getBookingStatus(_responsibility: string): string {
+  // BM20-N4: driver cancel → ride ALWAYS goes back to pool
+  return "ready_for_dispatch";
 }
 
-// ─── DISPATCH STATUS BASED ON RESPONSIBILITY ─────────────────────────────────
-function getDispatchStatus(responsibility: string): string {
-  if (shouldRedispatch(responsibility)) {
-    // BM20-I: trigger fallback-pool-dispatch engine (Case A: sequential)
+// ─── DISPATCH STATUS BASED ON ACTOR (BM20-N4) ───────────────────────────────
+// DECISIÓN 1: actor = driver → ALWAYS reassignment_needed
+function getDispatchStatus(_responsibility: string): string {
+  if (shouldRedispatch(_responsibility)) {
+    // BM20-N4: driver cancel → ALWAYS trigger fallback-pool-dispatch engine
     return "reassignment_needed";
   }
   return "cancelled";
@@ -288,16 +287,18 @@ export async function POST(req: NextRequest) {
       : hoursUntilPickup >= 0     ? "late"    // <48h
       : "post";                               // already past pickup
 
-    // ── Passenger no-show flag ────────────────────────────────
+    // ── Passenger no-show flag ────────────────────────────────────────────
     const passengerNoShow = cancel_reason === "PASSENGER_NO_SHOW" &&
       passenger_no_show_confirmed === true;
 
-    // ── Responsibility, payout and booking status ─────────────
-    const responsibility   = CANCEL_RESPONSIBILITY[cancel_reason] ?? "system";
-    const newPayoutStatus  = getPayoutStatus(responsibility);
-    const newBookingStatus = getBookingStatus(responsibility);
-    const newDispatchStatus = getDispatchStatus(responsibility);
-    const redispatch = shouldRedispatch(responsibility);
+    // ── DECISIÓN 1: Actor = driver → ALWAYS redispatch to pool (BM20-N4) ──────
+    // The cancel_reason/responsibility ONLY affects DECISIÓN 2 (score/penalty).
+    // Redispatch is unconditional for all driver-initiated cancellations.
+    const responsibility    = CANCEL_RESPONSIBILITY[cancel_reason] ?? "system";
+    const newPayoutStatus   = getPayoutStatus(responsibility);
+    const newBookingStatus  = getBookingStatus(responsibility);   // always 'ready_for_dispatch'
+    const newDispatchStatus = getDispatchStatus(responsibility);  // always 'reassignment_needed'
+    const redispatch        = true; // BM20-N4: driver cancel ALWAYS returns to pool
 
     // ── SLN Network fee distribution (Auto Fee Logic V2) ─────
     const cancellationFee = parseFloat(booking.cancellation_fee) || 0;
