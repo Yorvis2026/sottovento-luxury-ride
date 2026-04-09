@@ -761,9 +761,16 @@ export async function GET(req: NextRequest) {
           // used by driver-reject (dispatchToNetwork), NOT the inline offer path.
           // This ensures: is_fallback_offer=true, offer_round=next, ttl=30min,
           // source driver excluded, dispatch_status=offer_pending (not manual).
+          //
+          // FIX (BM20-QR-CONFLICT-V2): Detect specifically when the SOURCE DRIVER
+          // was skipped — not just when any driver was skipped. The previous
+          // condition (topDriver.id !== resolvedDriver.id) missed the case where
+          // sourceDriverId is NOT the topDriver (e.g. ranking: Driver2 > Driver1)
+          // but Driver1 (source) still has a conflict and must be excluded.
+          // Correct check: resolvedDriver.id !== sourceDriverId
           const sourceDriverWasSkipped =
             sourceDriverId !== null &&
-            topDriver.id !== resolvedDriver.id;
+            resolvedDriver.id !== sourceDriverId;
 
           if (sourceDriverWasSkipped) {
             // Prepare booking for pool pipeline: status=ready_for_dispatch,
