@@ -332,11 +332,15 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Cancellation stage (Bloque Maestro — Cancellation Metrics Sync) ──────
-    const cancelStage = booking.status === 'offer_pending' ? 'pre_accept'
-      : booking.status === 'accepted' || booking.status === 'assigned' ? 'post_accept_pre_dispatch'
-      : booking.status === 'en_route' ? 'en_route'
-      : booking.status === 'arrived' ? 'arrived'
-      : 'unknown';
+    // BM20-N FIX: align cancelStage values with DB CHECK CONSTRAINT
+    // bookings_cancel_stage_check allows ONLY:
+    //   'before_assignment' | 'assigned' | 'in_progress' | 'post_driver_issue'
+    // Previous values ('pre_accept', 'post_accept_pre_dispatch', 'en_route', 'arrived', 'unknown')
+    // all violated the constraint and caused the 500.
+    const cancelStage = booking.status === 'offer_pending' ? 'before_assignment'
+      : booking.status === 'accepted' || booking.status === 'assigned' ? 'assigned'
+      : booking.status === 'en_route' || booking.status === 'arrived' ? 'in_progress'
+      : 'post_driver_issue';  // fallback for any other active status
 
     // BM20-L + BM20-M: justified cancellations and early-window cancellations
     // do NOT affect driver score/metrics.
