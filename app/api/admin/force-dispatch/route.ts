@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server"
 import { neon } from "@neondatabase/serverless"
+import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine"
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
 
@@ -113,7 +114,52 @@ export async function POST(req: NextRequest) {
       const offerExpiresAt = new Date(Date.now() + 120 * 1000).toISOString()
 
       // Case 1: Captured driver is known, active, and eligible → assign as offer_pending
+      // BM20-J: Guard — verify no schedule conflict before assigning
       if (driverDbId && driverStatus === "active" && driverEligible) {
+        const conflictCheck = await checkDriverAvailabilityForBooking(sql, driverDbId, bookingId)
+        if (!conflictCheck.available) {
+          // Driver has a conflicting ride at the same pickup_datetime — escalate to pool
+          try {
+            await sql`
+              INSERT INTO audit_logs (entity_id, entity_type, action, notes, created_at)
+              VALUES (
+                ${bookingId}::uuid,
+                'booking',
+                'bm20j_conflict_skip',
+                ${JSON.stringify({
+                  reason: 'force_dispatch_conflict_guard',
+                  driver_code: capturedBy,
+                  driver_id: driverDbId,
+                  conflict_reason: conflictCheck.reason,
+                  conflict_explanation: conflictCheck.explanation,
+                  conflicting_booking_id: conflictCheck.conflicting_booking_id,
+                })},
+                NOW()
+              )
+            `
+          } catch { /* non-blocking */ }
+          results.push({
+            booking_id: bookingId.slice(0, 8),
+            action: 'escalated_to_pool',
+            new_status: 'ready_for_dispatch',
+            reason: `bm20j_conflict_${conflictCheck.reason?.toLowerCase() ?? 'overlap'}_driver_${capturedBy}`,
+          })
+          // Fall through to Case 2 (pool escalation) by updating status
+          await sql`
+            UPDATE bookings
+            SET
+              status = 'ready_for_dispatch',
+              dispatch_status = 'reassignment_needed',
+              offer_status = 'pending',
+              offer_stage = 'sln_member',
+              offer_expires_at = ${offerExpiresAt}::timestamptz,
+              updated_at = NOW()
+            WHERE id = ${bookingId}::uuid
+              AND payment_status = 'paid'
+              AND status NOT IN ('completed', 'cancelled', 'archived', 'in_trip', 'en_route', 'accepted')
+          `
+          continue
+        }
         const updated = await sql`
           UPDATE bookings
           SET
