@@ -10,6 +10,7 @@ import {
   getAdminActionsForOverdue,
 } from "@/lib/dispatch/overdue-engine";
 import { calcPreviewImpactAuto } from "@/lib/drs/calcPreviewImpact";
+import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -700,11 +701,64 @@ export async function GET(req: NextRequest) {
           const topDriver = engineResult.ranked[0];
           if (!topDriver) continue; // No eligible driver found
 
-          // Assign top-ranked driver
+          // ── BM20-H: Schedule conflict guard — prevent double-booking ─────────
+          // Before creating dispatch_offer, verify the top-ranked driver has no
+          // operationally active ride that overlaps this booking's pickup window.
+          // Uses BM18 conflict-engine (already wired in fallback/reassign paths).
+          // Blocking statuses (inside checkDriverAvailabilityForBooking):
+          //   accepted | assigned | en_route | arrived | in_trip
+          // Buffer rules: 45 min airport, 25 min standard (BM18_CONFIG)
+          // If conflict detected: skip this driver, try next ranked candidate.
+          // If all candidates conflict: leave booking in readyForDispatch for
+          // the next polling cycle / manual dispatch — no ride is lost.
+          let resolvedDriver = topDriver;
+          {
+            const ranked = engineResult.ranked;
+            let conflictSkipCount = 0;
+            for (const candidate_driver of ranked) {
+              const availability = await checkDriverAvailabilityForBooking(
+                sql,
+                candidate_driver.id,
+                candidate.id
+              );
+              if (availability.available) {
+                resolvedDriver = candidate_driver;
+                break;
+              }
+              // Log the skip for audit trail
+              conflictSkipCount++;
+              sql`
+                INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+                VALUES ('booking', ${candidate.id}::uuid, 'bm20h_conflict_skip', 'system',
+                  ${JSON.stringify({
+                    skipped_driver_id: candidate_driver.id,
+                    skipped_driver_code: candidate_driver.driver_code,
+                    conflict_reason: availability.reason,
+                    explanation: availability.explanation,
+                    conflicting_booking_id: availability.conflicting_booking_id,
+                    booking_id: candidate.id,
+                    timestamp: new Date().toISOString(),
+                  })}::jsonb)
+              `.catch(() => {});
+              if (conflictSkipCount >= ranked.length) {
+                // All ranked candidates have a conflict — leave in readyForDispatch
+                sql`
+                  INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, new_data)
+                  VALUES ('booking', ${candidate.id}::uuid, 'bm20h_all_candidates_conflicted', 'system',
+                    ${JSON.stringify({ skipped_count: conflictSkipCount, booking_id: candidate.id, timestamp: new Date().toISOString() })}::jsonb)
+                `.catch(() => {});
+                resolvedDriver = null as any;
+              }
+            }
+          }
+          if (!resolvedDriver) continue; // All candidates conflicted — leave in readyForDispatch
+          // ── END BM20-H ────────────────────────────────────────────────────────
+
+          // Assign resolved (conflict-free) driver
           await sql`
             UPDATE bookings
             SET
-              assigned_driver_id = ${topDriver.id}::uuid,
+              assigned_driver_id = ${resolvedDriver.id}::uuid,
               status = 'assigned',
               dispatch_status = 'offer_pending',
               updated_at = NOW()
@@ -718,7 +772,7 @@ export async function GET(req: NextRequest) {
               is_source_offer, response, sent_at, expires_at
             ) VALUES (
               ${candidate.id}::uuid,
-              ${topDriver.id}::uuid,
+              ${resolvedDriver.id}::uuid,
               1,
               ${engineResult.source_driver_override},
               'pending',
@@ -731,13 +785,13 @@ export async function GET(req: NextRequest) {
           // Move from readyForDispatch to assigned in this response
           const idx = readyForDispatch.indexOf(candidate);
           if (idx !== -1) readyForDispatch.splice(idx, 1);
-          candidate.assigned_driver_id = topDriver.id;
+          candidate.assigned_driver_id = resolvedDriver.id;
           candidate.status = 'assigned';
           candidate.dispatch_status = 'offer_pending';
           candidate.auto_assigned = true;
-          candidate.dispatch_priority_rank = topDriver.dispatch_priority_rank;
-          candidate.dispatch_priority_score = topDriver.dispatch_priority_score;
-          candidate.priority_reason = topDriver.priority_reason;
+          candidate.dispatch_priority_rank = resolvedDriver.dispatch_priority_rank;
+          candidate.dispatch_priority_score = resolvedDriver.dispatch_priority_score;
+          candidate.priority_reason = resolvedDriver.priority_reason;
           candidate.source_driver_override = engineResult.source_driver_override;
           assigned.push(candidate);
         } catch {
