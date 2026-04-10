@@ -46,13 +46,17 @@ export async function POST(req: Request) {
   try {
     // Load the offer
     const offerRows = await sql`
+      -- BM22: also load 'timeout' offers so the TTL guard can execute and return
+      -- the correct { status: 'offer_expired', allow_retry: false } response.
+      -- Without this, the cron marking response='timeout' causes a 404 before
+      -- the guard runs, allowing ghost-accept attempts to go undetected.
       SELECT o.*, d.id AS driver_id_resolved, d.driver_code AS driver_code_resolved
       FROM dispatch_offers o
       JOIN drivers d ON d.id = o.driver_id
       WHERE o.id = ${offer_id}::uuid
         AND d.driver_code = ${driver_code}
         AND o.is_fallback_offer = true
-        AND o.response = 'pending'
+        AND o.response IN ('pending', 'timeout', 'expired')
       LIMIT 1
     `;
 
