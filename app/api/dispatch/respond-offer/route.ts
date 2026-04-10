@@ -110,22 +110,49 @@ export async function POST(req: NextRequest) {
 
     // Check if offer expired
     const now = new Date();
-    const expiresAt = new Date(offer.expires_at);
-    // CRITICAL FIX: Do NOT block acceptance on expiry when using booking_id lookup.
-    // If the driver taps Accept after the 15-min window, we still allow it
-    // (the offer row may be 'timeout' or the window just passed).
-    // Only block if using offer_id (broadcast flow) and strictly expired.
-    if (body.offer_id && now > expiresAt && body.response === "accepted" && !offerMissing) {
+    const expiresAt = offer.expires_at ? new Date(offer.expires_at) : null;
+
+    // BM22 — TTL ENFORCEMENT INTEGRITY FIX
+    // Ghost-accept prevention: reject any acceptance attempt after expires_at.
+    //
+    // Two paths are covered:
+    // PATH A (offer_id): broadcast/pool offers — always enforce TTL strictly.
+    // PATH B (booking_id + is_fallback_offer): fallback/pool offers via booking_id lookup.
+    //   The previous "CRITICAL FIX" comment only applied to 15-min direct-assign offers
+    //   (is_source_offer=true). Pool/fallback offers (is_fallback_offer=true) have a hard
+    //   30-min TTL and MUST be rejected after expiry — no grace period.
+    //
+    // Response: { status: 'offer_expired', allow_retry: false } with HTTP 410.
+    // DB: offer marked response='expired', booking dispatch_status='expired'.
+    const isPoolOffer = offer.is_fallback_offer === true;
+    const isTTLExpired = expiresAt !== null && now > expiresAt;
+    const isAcceptAttempt = body.response === "accepted" && !offerMissing;
+
+    if (isAcceptAttempt && isTTLExpired && (body.offer_id || isPoolOffer)) {
+      // Mark offer as expired in DB
       if (offer.id) {
         await sql`
           UPDATE dispatch_offers
-          SET response = 'timeout', responded_at = NOW()
+          SET response = 'expired', responded_at = NOW()
           WHERE id = ${offer.id}
         `;
       }
-      await dispatchToNetwork(offer.booking_id, offer.offer_round + 1);
+      // Mark booking dispatch_status = 'expired' (BM22 requirement)
+      await sql`
+        UPDATE bookings
+        SET dispatch_status = 'expired', updated_at = NOW()
+        WHERE id = ${offer.booking_id}::uuid
+          AND dispatch_status NOT IN ('completed', 'cancelled', 'assigned', 'reassigned')
+      `;
+      // Trigger next dispatch round for pool offers
+      if (isPoolOffer) {
+        try { await dispatchToNetwork(offer.booking_id, (offer.offer_round ?? 1) + 1); } catch {}
+      } else {
+        await dispatchToNetwork(offer.booking_id, offer.offer_round + 1);
+      }
       return NextResponse.json(
-        { error: "Offer has expired. Booking dispatched to network." },
+        { status: "offer_expired", allow_retry: false,
+          message: "Offer TTL has expired. Cannot accept after expiration." },
         { status: 410 }
       );
     }

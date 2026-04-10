@@ -65,17 +65,30 @@ export async function POST(req: Request) {
     const driverId = offer.driver_id_resolved;
 
     // Check offer expiry
+    // BM22 — TTL ENFORCEMENT INTEGRITY FIX
+    // Fallback offers have a hard 30-min TTL. Any acceptance attempt after expiry
+    // is rejected with { status: 'offer_expired', allow_retry: false }.
+    // DB: offer response='expired', booking dispatch_status='expired'.
     if (new Date(offer.expires_at) < new Date()) {
+      // Mark offer as expired (not just timeout)
       await sql`
         UPDATE dispatch_offers
-        SET response = 'timeout', responded_at = NOW()
+        SET response = 'expired', responded_at = NOW()
         WHERE id = ${offer_id}::uuid
       `;
+      // BM22: mark booking dispatch_status = 'expired'
+      await sql`
+        UPDATE bookings
+        SET dispatch_status = 'expired', updated_at = NOW()
+        WHERE id = ${bookingId}::uuid
+          AND dispatch_status NOT IN ('completed', 'cancelled', 'assigned', 'reassigned')
+      `;
 
-      await logEvent(bookingId, driverId, 'fallback_offer_timeout', {
+      await logEvent(bookingId, driverId, 'fallback_offer_expired_bm22', {
         offer_id,
         driver_code,
         case: offer.fallback_case_level,
+        ttl_enforced: true,
       });
 
       // BM10: If this was the last pending fallback offer, immediately dispatch next driver
@@ -93,7 +106,12 @@ export async function POST(req: Request) {
         await dispatchNextDriver(bookingId, driverId, (offer.offer_round ?? 1) + 1);
       }
 
-      return NextResponse.json({ error: 'Offer has expired' }, { status: 410 });
+      // BM22: return standard offer_expired response
+      return NextResponse.json(
+        { status: 'offer_expired', allow_retry: false,
+          message: 'Offer TTL has expired. Cannot accept after expiration.' },
+        { status: 410 }
+      );
     }
 
     if (response === 'accepted') {
