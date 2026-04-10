@@ -169,7 +169,12 @@ export async function GET(req: NextRequest) {
           -- manual-reassign creates offers with is_fallback_offer=true.
           -- Filtering them out caused the driver panel to never show manually
           -- assigned offers. We now accept both standard and fallback/manual offers.
-        ORDER BY dof.created_at DESC
+          -- BM21: ORDER BY priority — pending first, then lowest round (most urgent),
+          -- then newest created_at. Ensures the most urgent offer surfaces immediately.
+        ORDER BY
+          (dof.response = 'pending') DESC,
+          dof.offer_round ASC,
+          dof.created_at DESC
         LIMIT 1
       `;
 
@@ -311,7 +316,11 @@ export async function GET(req: NextRequest) {
             AND dof.is_fallback_offer = true
             AND (dof.expires_at IS NULL OR dof.expires_at > NOW())
             AND b.status NOT IN ('completed', 'cancelled', 'archived', 'no_show')
-          ORDER BY dof.created_at DESC
+          -- BM21: Same priority ordering as active_offer
+          ORDER BY
+            (dof.response = 'pending') DESC,
+            dof.offer_round ASC,
+            dof.created_at DESC
           LIMIT 1
         `;
         if (fbOfferRows.length > 0) {
@@ -731,7 +740,11 @@ export async function GET(req: NextRequest) {
           -- UPCOMING: only rides with pickup_at BEYOND the 120-min operational window
           -- Rides within 120min are handled by assigned_ride (operational controls)
           AND b.pickup_at > NOW() + INTERVAL '120 minutes'
-        ORDER BY b.pickup_at ASC
+        -- BM21: offer_pending rides surface at the top (driver must act on them first),
+        -- then chronological by pickup_at. Server-side ordering — no client-side sort needed.
+        ORDER BY
+          CASE WHEN b.dispatch_status = 'offer_pending' OR b.status = 'offer_pending' THEN 0 ELSE 1 END ASC,
+          b.pickup_at ASC
         LIMIT 10
       `;
       upcoming_rides = upcomingRows.map((r) => {
