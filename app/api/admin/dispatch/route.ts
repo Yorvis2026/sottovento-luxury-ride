@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
         COALESCE(b.luggage_count, b.luggage::integer, 0) AS luggage_count,
         COALESCE(b.notes, '') AS notes,
         COALESCE(b.lead_source, 'unknown') AS lead_source,
-        COALESCE(b.captured_by_driver_code, b.source_code, '') AS captured_by_driver_code,
+        COALESCE(NULLIF(TRIM(b.captured_by_driver_code), ''), NULLIF(TRIM(b.source_code), ''), '') AS captured_by_driver_code,
         COALESCE(b.booking_origin, b.lead_source, 'manual_admin') AS booking_origin,
         COALESCE(NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
         c.phone AS client_phone,
