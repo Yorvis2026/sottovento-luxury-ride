@@ -2327,9 +2327,37 @@ export default function DriverDashboardByCode() {
         const data = await res.json()
         if (res.ok && data.ok) {
           if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
+          // BM23-FIX: Optimistic update — clear fallback offer state immediately so the
+          // panel does not re-show the modal on the next poll cycle.
           setShowFallbackOfferModal(false)
           setFallbackOfferData(null)
-          prevFallbackOfferIdRef.current = null
+          prevFallbackOfferIdRef.current = fo.offer_id  // guard: block re-render of this offer
+          setShowOfferBanner(false)
+          setOfferAlertCount(0)
+          setShowOfferAlertModal(false)
+          // Optimistic summary update: mark booking as assigned so the dashboard
+          // transitions immediately without waiting for the next poll.
+          setSummary((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              fallback_offer: null,
+              active_offer: null,
+              assigned_ride: prev.assigned_ride ?? ({
+                booking_id: fo.booking_id ?? data.booking_id,
+                status: 'accepted',
+                dispatch_status: 'assigned',
+                pickup_location: fo.pickup_location,
+                dropoff_location: fo.dropoff_location,
+                pickup_datetime: fo.pickup_datetime,
+                vehicle_type: fo.vehicle_type,
+                total_price: fo.total_price,
+                ride_mode: 'upcoming',
+                client_name: null,
+                updated_at: new Date().toISOString(),
+              } as any),
+            }
+          })
           setNewRideAlertData({
             pickup: fo.pickup_location,
             dropoff: fo.dropoff_location,
@@ -2337,6 +2365,8 @@ export default function DriverDashboardByCode() {
             pickup_time: fo.pickup_datetime,
           })
           setShowNewRideAlert(true)
+          // Reload from server after 2s to reconcile with real DB state
+          setTimeout(() => loadData(), 2000)
         } else {
           alert(data.error ?? (lang === "es" ? "Error al aceptar la oferta" : "Error accepting offer"))
         }
