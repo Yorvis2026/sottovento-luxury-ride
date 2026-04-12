@@ -379,7 +379,7 @@ export async function GET(request: Request) {
           );
         }
 
-        // ── STEP 3: Release driver lock ────────────────────
+        // ── STEP 3: Release driver lock ──────────────────
         // Clear assigned_driver_id. NEVER changes booking.status.
         await sql`
           UPDATE bookings
@@ -393,6 +393,22 @@ export async function GET(request: Request) {
               'accepted', 'en_route', 'arrived', 'in_trip'
             )
         `;
+
+        // BM22-FIX-C: Reset expired driver to 'available' (cron TTL expiry path).
+        // The cron processes offers that expired while the driver didn't respond.
+        // Without this reset, the driver stays 'busy' and is excluded from the
+        // next selectNextEligibleDriver() call (which filters availability='available').
+        // Guard: only reset if not 'offline' (respect manual offline toggle).
+        if (expiredDriverId) {
+          try {
+            await sql`
+              UPDATE drivers
+              SET availability_status = 'available', updated_at = NOW()
+              WHERE id = ${expiredDriverId}::uuid
+                AND availability_status != 'offline'
+            `;
+          } catch { /* non-blocking */ }
+        }
 
         // ── STEP 4 + 5: Increment round, advance dispatch_state ──
         const nextState = NEXT_DISPATCH_STATE[offer.dispatch_state] ?? "ADMIN_ATTENTION_REQUIRED";

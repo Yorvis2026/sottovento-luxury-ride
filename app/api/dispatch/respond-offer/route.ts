@@ -279,6 +279,23 @@ export async function POST(req: NextRequest) {
         WHERE id = ${booking.id}
       `;
 
+      // BM22-FIX-A: Reset declining driver to 'available' immediately.
+      // When a driver declines an offer, they were NEVER assigned to the ride
+      // (offer was still pending — not accepted). The ACCEPT path sets availability='busy',
+      // but the DECLINE path was missing the inverse reset, leaving the driver stuck
+      // as 'busy' (or whatever state they were in) and INVISIBLE to the next dispatchToNetwork
+      // candidate query (which filters COALESCE(availability_status,'available')='available').
+      // This is the root cause of: (1) driver appearing "En viaje" after decline, and
+      // (2) next driver never receiving a real offer (candidateRows.length === 0).
+      try {
+        await sql`
+          UPDATE drivers
+          SET availability_status = 'available', updated_at = NOW()
+          WHERE id = ${body.driver_id}::uuid
+            AND availability_status != 'offline'
+        `;
+      } catch { /* non-blocking */ }
+
       // Dispatch to network (next round) — exclude the driver who just declined
       await dispatchToNetwork(booking.id, offer.offer_round + 1, body.driver_id);
 
@@ -377,6 +394,21 @@ export async function PUT(req: NextRequest) {
       WHERE id = ${offer.booking_id}::uuid
         AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
     `;
+
+    // BM22-FIX-B: Reset expired driver to 'available' immediately (TTL expiry path).
+    // When an offer expires (driver didn't respond within TTL), the driver was NEVER
+    // assigned to the ride. The ACCEPT path sets availability='busy', but the TTL
+    // expiry path was missing the inverse reset. Without this, the driver stays 'busy'
+    // and is INVISIBLE to the next dispatchToNetwork candidate query.
+    // Guard: only reset if not 'offline' (driver manually went offline — respect that).
+    try {
+      await sql`
+        UPDATE drivers
+        SET availability_status = 'available', updated_at = NOW()
+        WHERE id = ${offer.driver_id}::uuid
+          AND availability_status != 'offline'
+      `;
+    } catch { /* non-blocking */ }
 
     await dispatchToNetwork(offer.booking_id, offer.offer_round + 1);
 
