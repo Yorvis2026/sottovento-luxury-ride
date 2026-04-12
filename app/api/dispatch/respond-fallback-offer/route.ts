@@ -421,15 +421,16 @@ async function dispatchNextDriver(
     `;
 
     if (candidates.length === 0) {
-      // No drivers available — release to manual pool
+      // BM-CANCEL-STATE-SLN-02 Section 4: pool exhausted → system_reassignment_required
       await sql`
         UPDATE bookings
         SET
+          status             = 'system_reassignment_required',
           dispatch_status    = 'pending_dispatch',
           assigned_driver_id = NULL,
           updated_at         = NOW()
         WHERE id = ${bookingId}::uuid
-          AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+          AND status NOT IN ('completed', 'cancelled', 'cancelled_by_passenger', 'cancelled_by_admin', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       `;
       await logEvent(bookingId, null, 'fallback_pool_exhausted', {
         trigger: 'fallback_offer_timeout_or_decline',
@@ -446,14 +447,14 @@ async function dispatchNextDriver(
             ${bookingId}::uuid,
             NULL,
             NULL,
-            ${'fallback_pool'},
+            ${'system_reassignment_required'},
             ${'pool_exhausted'},
             NULL,
             NOW()
           )
         `;
       } catch { /* non-blocking */ }
-      console.log(`[bm10-fallback] no_drivers — booking ${bookingId} released to manual pool`);
+      console.log(`[bm10-fallback] no_drivers — booking ${bookingId} — system_reassignment_required`);
       return;
     }
 

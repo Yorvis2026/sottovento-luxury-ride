@@ -65,7 +65,7 @@ export async function dispatchToNetwork(
       SELECT id, vehicle_type, service_type, service_location_type, status
       FROM bookings
       WHERE id = ${bookingId}::uuid
-        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+        AND status NOT IN ('completed', 'cancelled', 'cancelled_by_passenger', 'cancelled_by_admin', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       LIMIT 1
     `;
     const booking = bookingRows[0];
@@ -188,19 +188,22 @@ export async function dispatchToNetwork(
     `;
 
     if (candidateRows.length === 0) {
-      // No eligible drivers — release to manual pool
+      // BM-CANCEL-STATE-SLN-02 Section 4: pool exhausted → system_reassignment_required
+      // Sets booking_status = 'system_reassignment_required' (redispatchable, not terminal)
+      // dispatch_status = 'pending_dispatch' preserved for admin visibility
       await sql`
         UPDATE bookings
         SET
           assigned_driver_id = NULL,
+          status             = 'system_reassignment_required',
           dispatch_status    = 'pending_dispatch',
           updated_at         = NOW()
         WHERE id = ${bookingId}::uuid
-          AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+          AND status NOT IN ('completed', 'cancelled', 'cancelled_by_passenger', 'cancelled_by_admin', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       `;
       // BM-LOG-ELIGIBILITY-SLN-01: log pool exhaustion
       await logCandidate(bookingId, null, null, currentBookingStatus, 'pool_exhausted', null);
-      console.log(`[dispatchToNetwork] no_eligible_drivers — Booking ${bookingId} — released to manual pool`);
+      console.log(`[dispatchToNetwork] no_eligible_drivers — Booking ${bookingId} — system_reassignment_required`);
       return;
     }
 
@@ -234,10 +237,10 @@ export async function dispatchToNetwork(
         offer_expires_at   = ${expiresAt}::timestamptz,
         updated_at         = NOW()
       WHERE id = ${bookingId}::uuid
-        AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
+          AND status NOT IN ('completed', 'cancelled', 'cancelled_by_passenger', 'cancelled_by_admin', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
     `;
 
-    console.log(`[dispatchToNetwork] bm10_next_offer — Booking ${bookingId} — Round ${round} — Driver ${nextDriver.driver_code}`);
+    console.log(`[dispatchToNetwork] bm10_next_offer Booking ${bookingId} — Round ${round} — Driver ${nextDriver.driver_code}`);
   } catch (err: any) {
     console.error(`[dispatchToNetwork] error — Booking ${bookingId}:`, err?.message);
     // Last resort: release to pool
