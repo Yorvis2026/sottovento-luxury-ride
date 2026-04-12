@@ -589,7 +589,13 @@ interface DriverSummary {
   driver_name: string
   driver_code: string
   driver_status: string
-  availability_status: 'offline' | 'available' | 'busy'
+  // BM23: expanded availability_status model
+  // offline = manual switch off
+  // available = ready to receive offers
+  // reserved = accepted a ride, not yet started
+  // in_trip = actively executing a ride
+  // busy = legacy (treated as reserved/in_trip)
+  availability_status: 'offline' | 'available' | 'busy' | 'reserved' | 'in_trip'
   total_clients: number
   month_earnings: number
   lifetime_earnings: number
@@ -757,7 +763,8 @@ export default function DriverDashboardByCode() {
       if (!raw) return null
       const parsed = JSON.parse(raw)
       // Only use cache if it's an operational state (not completed/cancelled)
-      const OPERATIONAL = ['accepted', 'assigned', 'en_route', 'arrived', 'in_trip', 'offer_pending']
+      // BM23: include assigned_not_started in operational states
+      const OPERATIONAL = ['accepted', 'assigned', 'assigned_not_started', 'en_route', 'arrived', 'in_trip', 'offer_pending']
       if (OPERATIONAL.includes(parsed.status)) return parsed
       return null
     } catch { return null }
@@ -1262,7 +1269,7 @@ export default function DriverDashboardByCode() {
         driver_name: d.full_name,
         driver_code: d.driver_code,
         driver_status: d.driver_status,
-        availability_status: (d.availability_status ?? 'offline') as 'offline' | 'available' | 'busy',
+        availability_status: (d.availability_status ?? 'offline') as 'offline' | 'available' | 'busy' | 'reserved' | 'in_trip',
         total_clients: d.stats?.total_clients ?? 0,
         month_earnings: d.stats?.month_earnings ?? 0,
         lifetime_earnings: d.stats?.lifetime_earnings ?? 0,
@@ -1490,8 +1497,8 @@ export default function DriverDashboardByCode() {
   // Cannot toggle to offline while a ride is in progress (busy state).
   const toggleAvailability = async () => {
     if (!summary || availabilityToggling) return
-    // Cannot manually toggle if busy (ride in progress)
-    if (summary.availability_status === 'busy') return
+    // BM23: Cannot manually toggle if reserved/in_trip/busy (ride in progress or confirmed)
+    if (['busy', 'reserved', 'in_trip'].includes(summary.availability_status)) return
     const newStatus = summary.availability_status === 'available' ? 'offline' : 'available'
     setAvailabilityToggling(true)
     setAvailabilityError(null)
@@ -3381,9 +3388,10 @@ export default function DriverDashboardByCode() {
           t={t}
         />
       )
-    } else if (["accepted", "assigned", "en_route", "arrived", "in_trip"].includes(summary.assigned_ride.status)) {
+    } else if (["accepted", "assigned", "assigned_not_started", "en_route", "arrived", "in_trip"].includes(summary.assigned_ride.status)) {
       // RESUMABLE: only these statuses may enter RideFlowScreen
-      // 'accepted' and 'assigned' enter in pre-trip view (no live flow buttons active)
+      // 'accepted', 'assigned', 'assigned_not_started' enter in pre-trip view (no live flow buttons active)
+      // BM23: assigned_not_started = driver confirmed via offer, has NOT yet started
       // 'en_route', 'arrived', 'in_trip' enter in live flow view
       return (
         <RideFlowScreen
@@ -3429,7 +3437,9 @@ export default function DriverDashboardByCode() {
   // If the assigned_ride was accepted/assigned and in 'upcoming' ride_mode, it was NOT
   // counted in the badge, causing the Upcoming tab to show 0 even though a ride existed.
   const assignedRideIsUpcoming = summary.assigned_ride?.ride_mode === 'upcoming' ||
-    (summary.assigned_ride?.status === 'accepted' && !['en_route','arrived','in_trip'].includes(summary.assigned_ride?.status ?? ''))
+    // BM23: include assigned_not_started in upcoming count
+    (['accepted', 'assigned', 'assigned_not_started'].includes(summary.assigned_ride?.status ?? '') &&
+      !['en_route','arrived','in_trip'].includes(summary.assigned_ride?.status ?? ''))
   const upcomingCount = (summary.upcoming_rides?.length ?? 0) + (assignedRideIsUpcoming ? 1 : 0)
   const completedCount = summary.completed_rides?.length ?? 0
   // BUG B FIX: activeOfferCount is the reactive badge for the Overview tab.
@@ -3623,34 +3633,44 @@ export default function DriverDashboardByCode() {
             {/* States: available (green), offline (red), busy (amber — system-controlled) */}
             <button
               onClick={toggleAvailability}
-              disabled={availabilityToggling || summary.availability_status === 'busy'}
+              disabled={availabilityToggling || ['busy','reserved','in_trip'].includes(summary.availability_status)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-full transition-all"
               style={{
+                // BM23: reserved = amber (confirmed, not started), in_trip = purple (executing)
                 backgroundColor:
                   summary.availability_status === 'available' ? '#14532d' :
-                  summary.availability_status === 'busy'      ? '#78350f' :
+                  summary.availability_status === 'in_trip'   ? '#2e1065' :
+                  ['busy','reserved'].includes(summary.availability_status) ? '#78350f' :
                   '#1c1c1e',
                 border: '1px solid',
                 borderColor:
                   summary.availability_status === 'available' ? '#16a34a' :
-                  summary.availability_status === 'busy'      ? '#d97706' :
+                  summary.availability_status === 'in_trip'   ? '#a78bfa' :
+                  ['busy','reserved'].includes(summary.availability_status) ? '#d97706' :
                   '#3f3f46',
                 opacity: availabilityToggling ? 0.6 : 1,
-                cursor: summary.availability_status === 'busy' ? 'not-allowed' : 'pointer',
+                cursor: ['busy','reserved','in_trip'].includes(summary.availability_status) ? 'not-allowed' : 'pointer',
               }}
-              title={summary.availability_status === 'busy' ? 'Busy — complete your ride first' : 'Toggle availability'}
+              title={
+                summary.availability_status === 'in_trip'   ? 'In Trip — complete your ride first' :
+                summary.availability_status === 'reserved'  ? 'Reserved — you have a confirmed ride' :
+                summary.availability_status === 'busy'      ? 'Busy — complete your ride first' :
+                'Toggle availability'
+              }
             >
               {/* Toggle pill */}
               <div className="relative w-8 h-4 rounded-full transition-all"
                 style={{
                   backgroundColor:
                     summary.availability_status === 'available' ? '#22c55e' :
-                    summary.availability_status === 'busy'      ? '#f59e0b' :
+                    summary.availability_status === 'in_trip'   ? '#a78bfa' :
+                    ['busy','reserved'].includes(summary.availability_status) ? '#f59e0b' :
                     '#52525b',
                 }}>
                 <div className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
                   style={{
-                    left: summary.availability_status === 'available' || summary.availability_status === 'busy' ? '17px' : '2px',
+                    // BM23: pill on right for available/reserved/in_trip/busy (all 'active' states)
+                    left: ['available', 'busy', 'reserved', 'in_trip'].includes(summary.availability_status) ? '17px' : '2px',
                   }} />
               </div>
               {/* Label */}
@@ -3658,11 +3678,14 @@ export default function DriverDashboardByCode() {
                 style={{
                   color:
                     summary.availability_status === 'available' ? '#4ade80' :
-                    summary.availability_status === 'busy'      ? '#fbbf24' :
+                    summary.availability_status === 'in_trip'   ? '#c4b5fd' :
+                    ['busy','reserved'].includes(summary.availability_status) ? '#fbbf24' :
                     '#71717a',
                 }}>
                 {availabilityToggling ? '...' :
                   summary.availability_status === 'available' ? (lang === 'es' ? 'Disponible' : 'Available') :
+                  summary.availability_status === 'in_trip'   ? (lang === 'es' ? 'En Viaje' : 'In Trip') :
+                  summary.availability_status === 'reserved'  ? (lang === 'es' ? 'Reservado' : 'Reserved') :
                   summary.availability_status === 'busy'      ? (lang === 'es' ? 'En Viaje' : 'On Ride') :
                   (lang === 'es' ? 'Inactivo' : 'Offline')}
               </span>

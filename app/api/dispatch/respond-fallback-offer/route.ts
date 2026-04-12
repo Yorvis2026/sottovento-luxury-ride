@@ -154,11 +154,12 @@ export async function POST(req: Request) {
       const responseTime = Math.round((Date.now() - startTime.getTime()) / 1000);
 
       // Accept: assign driver to booking
+      // BM23-FIX-A: status='assigned_not_started' (NOT 'assigned') — driver confirmed but not started.
       await sql`
         UPDATE bookings
         SET
           assigned_driver_id = ${driverId}::uuid,
-          status = 'assigned',
+          status = 'assigned_not_started',
           dispatch_status = 'reassigned',
           reassigned_at = NOW(),
           fallback_driver_id = ${driverId}::uuid,
@@ -186,11 +187,13 @@ export async function POST(req: Request) {
           AND is_fallback_offer = true
       `;
 
-      // Set driver as busy
+      // BM23-FIX-A: Set driver as 'reserved' (NOT 'busy').
+      // 'reserved' = accepted but not yet started. Respect manual offline switch.
       await sql`
         UPDATE drivers
-        SET availability_status = 'busy', updated_at = NOW()
+        SET availability_status = 'reserved', updated_at = NOW()
         WHERE id = ${driverId}::uuid
+          AND availability_status != 'offline'
       `;
 
       // Log assignment in fallback_assignment_log

@@ -114,13 +114,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Guard: cannot manually set offline if driver has an active ride in progress
-    // (busy state must be cleared by ride completion)
-    if (status === "offline" && driver.availability_status === "busy") {
+    // BM23: check 'reserved', 'in_trip', and legacy 'busy' states
+    if (status === "offline" && ["busy", "reserved", "in_trip"].includes(driver.availability_status)) {
       // Check if there's actually an active ride in progress
       const activeRideRows = await sql`
         SELECT id, status FROM bookings
         WHERE assigned_driver_id = ${driver.id}::uuid
-          AND status IN ('en_route', 'arrived', 'in_trip', 'accepted')
+          AND status IN ('en_route', 'arrived', 'in_trip', 'accepted', 'assigned_not_started', 'assigned')
         LIMIT 1
       `;
       if (activeRideRows.length > 0) {

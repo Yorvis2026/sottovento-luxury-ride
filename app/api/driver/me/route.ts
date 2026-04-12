@@ -483,9 +483,6 @@ export async function GET(req: NextRequest) {
               status = 'accepted'
               AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled', 'system_cleanup_legacy')
               -- BM15 FIX A: Extend ACTIVE_WINDOW for accepted rides to 48h future.
-              -- A ride accepted for tomorrow must appear in the driver panel.
-              -- Previously capped at 120min future, which caused accepted rides
-              -- to disappear from the panel until 2h before pickup.
               AND (
                 pickup_at IS NULL
                 OR (
@@ -507,15 +504,29 @@ export async function GET(req: NextRequest) {
                 )
               )
             )
+            OR
+            -- BM23: new canonical status after accept offer
+            (
+              status = 'assigned_not_started'
+              AND dispatch_status NOT IN ('offer_pending', 'completed', 'cancelled', 'system_cleanup_legacy')
+              AND (
+                pickup_at IS NULL
+                OR (
+                  pickup_at >= NOW() - INTERVAL '6 hours'
+                  AND pickup_at <= NOW() + INTERVAL '48 hours'
+                )
+              )
+            )
           )
         ORDER BY
           CASE status
-            WHEN 'in_trip'       THEN 1
-            WHEN 'arrived'       THEN 2
-            WHEN 'en_route'      THEN 3
-            WHEN 'offer_pending' THEN 4
-            WHEN 'accepted'      THEN 5
-            WHEN 'assigned'      THEN 6
+            WHEN 'in_trip'              THEN 1
+            WHEN 'arrived'              THEN 2
+            WHEN 'en_route'             THEN 3
+            WHEN 'offer_pending'        THEN 4
+            WHEN 'accepted'             THEN 5
+            WHEN 'assigned'             THEN 6
+            WHEN 'assigned_not_started' THEN 6
             ELSE 7
           END,
           pickup_at ASC
@@ -601,6 +612,16 @@ export async function GET(req: NextRequest) {
             ride_mode = "operational_window_open";
           } else {
             ride_mode = "active_window"; // scheduled, not yet actionable
+          }
+        } else if (r.status === "assigned_not_started") {
+          // BM23: driver confirmed the ride (accepted offer) but has NOT started it yet.
+          // Same 2h operational window rule as 'accepted'/'assigned'.
+          const OPERATIONAL_THRESHOLD_MINUTES = 120; // 2 hours
+          const minutesUntil = minutesUntilPickup;
+          if (minutesUntil !== null && minutesUntil <= OPERATIONAL_THRESHOLD_MINUTES) {
+            ride_mode = "operational_window_open";
+          } else {
+            ride_mode = "active_window"; // confirmed, not yet in operational window
           }
         }
 

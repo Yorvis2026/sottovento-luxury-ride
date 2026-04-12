@@ -28,12 +28,14 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 // ============================================================
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  offer_pending: ["accepted", "cancelled"],  // driver must accept before ride becomes active
-  accepted:      ["en_route", "cancelled"],  // admin-assigned or accepted rides
-  assigned:      ["en_route", "cancelled"],  // legacy: direct assignment without offer stage
-  en_route:      ["arrived", "cancelled"],
-  arrived:       ["in_trip", "no_show", "cancelled"],
-  in_trip:       ["completed", "cancelled"],
+  offer_pending:         ["accepted", "cancelled"],  // driver must accept before ride becomes active
+  accepted:              ["en_route", "cancelled"],  // legacy: admin-assigned or accepted rides
+  assigned:              ["en_route", "cancelled"],  // legacy: direct assignment without offer stage
+  // BM23: new canonical status after accept offer
+  assigned_not_started:  ["en_route", "cancelled"],  // driver confirmed, not yet started
+  en_route:              ["arrived", "cancelled"],
+  arrived:               ["in_trip", "no_show", "cancelled"],
+  in_trip:               ["completed", "cancelled"],
 };
 
 const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
@@ -144,6 +146,17 @@ export async function POST(req: NextRequest) {
             updated_at = NOW()
         WHERE id = ${booking_id}::uuid
       `;
+      // BM23-FIX-B: When driver starts the ride (en_route), set driver=in_trip.
+      // This is the ONLY moment the driver transitions to 'in_trip' status.
+      // Respect manual offline switch: do NOT change if driver is 'offline'.
+      try {
+        await sql`
+          UPDATE drivers
+          SET availability_status = 'in_trip', updated_at = NOW()
+          WHERE id = ${driver_id}::uuid
+            AND availability_status != 'offline'
+        `;
+      } catch { /* non-blocking */ }
     } else if (new_status === "arrived") {
       await sql`
         UPDATE bookings
@@ -172,14 +185,68 @@ export async function POST(req: NextRequest) {
         WHERE id = ${booking_id}::uuid
       `;
     } else if (new_status === "cancelled") {
-      await sql`
-        UPDATE bookings
-        SET status = 'cancelled',
-            dispatch_status = 'cancelled',
-            cancelled_at = ${now}::timestamptz,
-            updated_at = NOW()
-        WHERE id = ${booking_id}::uuid
-      `;
+      // BM23-FIX-B: Determine cancel actor and stage.
+      // If booking was 'assigned_not_started' (driver confirmed but not started),
+      // this is a 'before-start' cancel by driver — must trigger automatic redispatch.
+      // If booking was 'in_trip' or later, this is a different flow (handled separately).
+      const cancelActor = body.cancel_actor ?? 'driver'; // 'driver' | 'admin'
+      const wasBeforeStart = ['assigned_not_started', 'accepted', 'assigned'].includes(currentStatus);
+
+      if (cancelActor === 'admin') {
+        // Admin cancel: terminal, no redispatch
+        await sql`
+          UPDATE bookings
+          SET status = 'cancelled',
+              dispatch_status = 'cancelled',
+              cancelled_at = ${now}::timestamptz,
+              cancelled_by_type = 'admin',
+              cancel_stage = 'assigned',
+              updated_at = NOW()
+          WHERE id = ${booking_id}::uuid
+        `;
+      } else if (wasBeforeStart) {
+        // Driver cancel before start: redispatch to pool
+        // BM23 RULE: do NOT modify availability_status (preserve manual offline switch)
+        await sql`
+          UPDATE bookings
+          SET status = 'ready_for_dispatch',
+              dispatch_status = 'reassignment_needed',
+              assigned_driver_id = NULL,
+              cancelled_at = ${now}::timestamptz,
+              cancelled_by_type = 'driver',
+              cancel_stage = 'assigned',
+              updated_at = NOW()
+          WHERE id = ${booking_id}::uuid
+        `;
+        // Trigger automatic redispatch (next round, exclude cancelling driver)
+        try {
+          const baseUrl = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000');
+          await fetch(`${baseUrl}/api/dispatch/respond-offer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              booking_id: booking_id,
+              driver_id: driver_id,
+              response: 'declined',
+              _internal_redispatch: true,
+            }),
+          });
+        } catch { /* non-blocking: redispatch failure should not block cancel response */ }
+      } else {
+        // In-trip or later cancel: standard terminal cancel
+        await sql`
+          UPDATE bookings
+          SET status = 'cancelled',
+              dispatch_status = 'cancelled',
+              cancelled_at = ${now}::timestamptz,
+              cancelled_by_type = 'driver',
+              cancel_stage = 'in_progress',
+              updated_at = NOW()
+          WHERE id = ${booking_id}::uuid
+        `;
+      }
     } else if (new_status === "no_show") {
       await sql`
         UPDATE bookings
@@ -323,16 +390,34 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Availability Engine: update driver availability on terminal states ──
-    // completed / cancelled / no_show → driver goes back to available
-    // (they are no longer executing a ride, so they can receive new offers)
-    if (["completed", "cancelled", "no_show"].includes(new_status)) {
+    // BM23-FIX-B: Differentiated reset logic:
+    //   completed / no_show → driver goes back to 'available' (ride fully done)
+    //   cancelled from in_trip → driver goes back to 'available' (was executing, now free)
+    //   cancelled from assigned_not_started → do NOT touch availability_status
+    //     (BM23 RULE: before-start cancel must NOT force available/offline — preserve manual switch)
+    if (new_status === "completed" || new_status === "no_show") {
       try {
         await sql`
           UPDATE drivers
           SET availability_status = 'available', updated_at = NOW()
           WHERE id = ${driver_id}::uuid
+            AND availability_status != 'offline'
         `;
-      } catch { /* non-blocking — column may not exist yet on first deploy */ }
+      } catch { /* non-blocking */ }
+    } else if (new_status === "cancelled") {
+      const wasInTrip = ['in_trip', 'en_route', 'arrived'].includes(currentStatus);
+      if (wasInTrip) {
+        // Was actively executing — reset to available
+        try {
+          await sql`
+            UPDATE drivers
+            SET availability_status = 'available', updated_at = NOW()
+            WHERE id = ${driver_id}::uuid
+              AND availability_status != 'offline'
+          `;
+        } catch { /* non-blocking */ }
+      }
+      // else: before-start cancel — do NOT touch availability_status (BM23 rule)
     }
 
     return NextResponse.json({

@@ -194,6 +194,12 @@ export async function POST(req: NextRequest) {
       // The admin bucket classifier (admin/dispatch/route.ts line 224) requires
       // dispatch_state IN ('ASSIGNED', 'IN_PROGRESS', 'NEW', null) to push to the assigned bucket.
       // Without this fix, accepted rides were falling into readyForDispatch instead of assigned.
+      //
+      // BM23-FIX-A: Accept offer MUST produce booking.status='assigned_not_started' (NOT 'accepted').
+      // 'accepted' was incorrectly triggering the in_trip flow in driver/me ride_mode logic.
+      // The new canonical status 'assigned_not_started' means: driver confirmed the ride but
+      // has NOT yet started it. Only an explicit 'Start Ride' action by the driver transitions
+      // assigned_not_started → en_route → arrived → in_trip.
       await sql`
         UPDATE bookings
         SET
@@ -204,7 +210,7 @@ export async function POST(req: NextRequest) {
           offer_accepted        = true,
           offer_accepted_at     = ${respondedAt}::timestamptz,
           accepted_at           = ${respondedAt}::timestamptz,
-          status                = 'accepted',
+          status                = 'assigned_not_started',
           dispatch_status       = 'assigned',
           dispatch_state        = 'ASSIGNED',
           manual_dispatch_required = false,
@@ -239,14 +245,19 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // ── Availability Engine: driver is now busy ──────────────────────
-      // Set availability_status = 'busy' so no new dispatch offers are sent
-      // while this driver is executing an active ride.
+      // ── Availability Engine: driver is now reserved ─────────────────────────
+      // BM23-FIX-A: Set availability_status = 'reserved' (NOT 'busy').
+      // 'reserved' = driver has accepted a ride but has NOT yet started it.
+      // 'busy'/'in_trip' = driver is actively executing a ride (set by ride-status en_route/in_trip).
+      // CRITICAL: do NOT modify if driver is 'offline' — respect manual switch.
+      // A driver who is 'offline' and somehow gets an offer accepted stays 'offline';
+      // the dispatch system should not force them online.
       try {
         await sql`
           UPDATE drivers
-          SET availability_status = 'busy', updated_at = NOW()
+          SET availability_status = 'reserved', updated_at = NOW()
           WHERE id = ${body.driver_id}::uuid
+            AND availability_status != 'offline'
         `;
       } catch { /* non-blocking — column may not exist yet on first deploy */ }
 
