@@ -31,12 +31,13 @@ import { neon } from "@neondatabase/serverless";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 // Offer window per round (minutes)
+// BM-TTL-SEQUENTIAL-POOL-01: reduced TTLs for production-grade sequential routing
 const OFFER_WINDOW: Record<number, number> = {
-  1: 30,  // ROUND_1: captor priority — 30 min
-  2: 20,  // ROUND_2: premium network — 20 min
-  3: 15,  // ROUND_3: open pool — 15 min
+  1: 10,  // ROUND_1: captor priority — 10 min (was 30)
+  2:  5,  // ROUND_2: premium network —  5 min (was 20)
+  3:  3,  // ROUND_3: open pool —        3 min (was 15)
 };
-const DEFAULT_OFFER_WINDOW = 20;
+const DEFAULT_OFFER_WINDOW = 3; // was 20
 
 // dispatch_state progression map
 const NEXT_DISPATCH_STATE: Record<string, string> = {

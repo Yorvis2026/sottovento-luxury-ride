@@ -205,7 +205,7 @@ export async function dispatchToNetwork(
     }
 
     const nextDriver = candidateRows[0];
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min window
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // BM-TTL-SEQUENTIAL-POOL-01: 10 min window (captador priority layer)
 
     // Create dispatch_offer for next driver
     await sql`

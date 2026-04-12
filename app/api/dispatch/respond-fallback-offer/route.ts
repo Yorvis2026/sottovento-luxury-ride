@@ -70,7 +70,7 @@ export async function POST(req: Request) {
 
     // Check offer expiry
     // BM22 — TTL ENFORCEMENT INTEGRITY FIX
-    // Fallback offers have a hard 30-min TTL. Any acceptance attempt after expiry
+    // Fallback offers have a hard 3-min TTL (BM-TTL-SEQUENTIAL-POOL-01). Any acceptance attempt after expiry
     // is rejected with { status: 'offer_expired', allow_retry: false }.
     // DB: offer response='expired', booking dispatch_status='expired'.
     if (new Date(offer.expires_at) < new Date()) {
@@ -311,7 +311,7 @@ async function dispatchNextDriver(
   previousDriverId: string | null,
   nextRound: number
 ): Promise<void> {
-  const OFFER_WINDOW_MINUTES = 30;
+  const OFFER_WINDOW_MINUTES = 3; // BM-TTL-SEQUENTIAL-POOL-01: reduced from 30 to 3 min for faster sequential rotation
 
   try {
     // Guard: skip terminal bookings
