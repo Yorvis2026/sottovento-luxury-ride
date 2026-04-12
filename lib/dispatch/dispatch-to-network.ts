@@ -11,11 +11,48 @@
  * This ensures driver-cancel redispatch uses the SAME pipeline as
  * driver-reject: same round counter, same exclusion semantics,
  * same 30-min offer window, same BM5 priority ordering.
+ *
+ * BM-LOG-ELIGIBILITY-SLN-01:
+ * Logs candidate evaluation results to dispatch_candidate_log for
+ * observability. Non-blocking — never interrupts dispatch flow.
  */
 
 import { neon } from "@neondatabase/serverless";
 
 const sql = neon(process.env.DATABASE_URL!);
+
+// ── BM-LOG-ELIGIBILITY-SLN-01: log helper ────────────────────────────────────
+// Non-blocking: failures are silently swallowed so logging never interrupts dispatch.
+async function logCandidate(
+  bookingId: string,
+  driverId: string | null,
+  availabilityStatus: string | null,
+  bookingStatus: string | null,
+  eligibilityResult: string,
+  exclusionReason: string | null
+): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO dispatch_candidate_log (
+        booking_id,
+        driver_id,
+        availability_status,
+        booking_status,
+        eligibility_result,
+        exclusion_reason,
+        evaluated_at
+      ) VALUES (
+        ${bookingId}::uuid,
+        ${driverId ? `${driverId}` : null}::uuid,
+        ${availabilityStatus},
+        ${bookingStatus},
+        ${eligibilityResult},
+        ${exclusionReason},
+        NOW()
+      )
+    `;
+  } catch { /* non-blocking — logging failure must never interrupt dispatch */ }
+}
 
 export async function dispatchToNetwork(
   bookingId: string,
@@ -25,7 +62,7 @@ export async function dispatchToNetwork(
   try {
     // Guard: skip terminal bookings
     const bookingRows = await sql`
-      SELECT id, vehicle_type, service_type, service_location_type
+      SELECT id, vehicle_type, service_type, service_location_type, status
       FROM bookings
       WHERE id = ${bookingId}::uuid
         AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
@@ -36,6 +73,8 @@ export async function dispatchToNetwork(
       console.log(`[dispatchToNetwork] booking not found or terminal state — ${bookingId}`);
       return;
     }
+
+    const currentBookingStatus: string = booking.status ?? null;
 
     // Collect all drivers who already declined or timed out for this booking
     const declinedRows = await sql`
@@ -62,8 +101,70 @@ export async function dispatchToNetwork(
       ? declinedIds
       : ['00000000-0000-0000-0000-000000000000'];
 
+    // ── BM-LOG-ELIGIBILITY-SLN-01: evaluate ALL active drivers for this booking ──
+    // We query a broader set (no availability filter) to log exclusion reasons,
+    // then the actual dispatch uses the standard filtered query (LIMIT 1, available only).
+    // This is a separate read — does NOT change dispatch logic.
+    try {
+      const allCandidates = await sql`
+        SELECT
+          id::text,
+          driver_code,
+          COALESCE(availability_status, 'available') AS availability_status,
+          driver_status,
+          is_eligible,
+          license_expires_at,
+          insurance_expires_at
+        FROM drivers
+        WHERE driver_status = 'active'
+          AND is_eligible = true
+          AND (license_expires_at IS NULL OR license_expires_at > NOW())
+          AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
+        ORDER BY
+          CASE COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
+            WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
+            WHEN 'PARTNER_LEGAL_FLEET'    THEN 2
+            ELSE 3
+          END ASC,
+          COALESCE(reliability_score, 65) DESC,
+          created_at ASC
+        LIMIT 50
+      `;
+
+      for (const d of allCandidates) {
+        const isDeclined = excludeList.includes(d.id);
+        const isAvailable = d.availability_status === 'available';
+
+        let eligibilityResult: string;
+        let exclusionReason: string | null;
+
+        if (isDeclined) {
+          eligibilityResult = 'excluded';
+          exclusionReason = declinedIds.includes(d.id)
+            ? (d.id === originalDriverId ? 'already_assigned' : 'declined_excluded')
+            : 'manual_exclusion';
+        } else if (!isAvailable) {
+          eligibilityResult = 'excluded';
+          exclusionReason = 'availability_not_available';
+        } else {
+          eligibilityResult = 'eligible';
+          exclusionReason = null;
+        }
+
+        await logCandidate(
+          bookingId,
+          d.id,
+          d.availability_status,
+          currentBookingStatus,
+          eligibilityResult,
+          exclusionReason
+        );
+      }
+    } catch { /* non-blocking — eligibility logging must never interrupt dispatch */ }
+
     // BM5 priority ordering: SOTTOVENTO_LEGAL_FLEET > PARTNER_LEGAL_FLEET > GENERAL
     // Within tier: reliability_score DESC
+    // ── THIS QUERY IS UNCHANGED — no modifications to dispatch logic ──
     const candidateRows = await sql`
       SELECT id::text, driver_code, full_name
       FROM drivers
@@ -97,6 +198,8 @@ export async function dispatchToNetwork(
         WHERE id = ${bookingId}::uuid
           AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       `;
+      // BM-LOG-ELIGIBILITY-SLN-01: log pool exhaustion
+      await logCandidate(bookingId, null, null, currentBookingStatus, 'pool_exhausted', null);
       console.log(`[dispatchToNetwork] no_eligible_drivers — Booking ${bookingId} — released to manual pool`);
       return;
     }

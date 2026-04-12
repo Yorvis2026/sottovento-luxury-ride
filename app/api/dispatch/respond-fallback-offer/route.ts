@@ -340,6 +340,63 @@ async function dispatchNextDriver(
       ? declinedIds
       : ['00000000-0000-0000-0000-000000000000'];
 
+    // BM-LOG-ELIGIBILITY-SLN-01: evaluate all active drivers and log eligibility
+    // Non-blocking — never interrupts dispatch flow
+    try {
+      const allCandidates = await sql`
+        SELECT
+          id::text,
+          driver_code,
+          COALESCE(availability_status, 'available') AS availability_status
+        FROM drivers
+        WHERE driver_status = 'active'
+          AND is_eligible = true
+          AND (license_expires_at IS NULL OR license_expires_at > NOW())
+          AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
+        ORDER BY
+          CASE COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
+            WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
+            WHEN 'PARTNER_LEGAL_FLEET'    THEN 2
+            ELSE 3
+          END ASC,
+          COALESCE(reliability_score, 65) DESC,
+          created_at ASC
+        LIMIT 50
+      `;
+      for (const d of allCandidates) {
+        const isDeclined = excludeList.includes(d.id);
+        const isAvailable = d.availability_status === 'available';
+        let eligibilityResult: string;
+        let exclusionReason: string | null;
+        if (isDeclined) {
+          eligibilityResult = 'excluded';
+          exclusionReason = declinedIds.includes(d.id) ? 'declined_excluded' : 'manual_exclusion';
+        } else if (!isAvailable) {
+          eligibilityResult = 'excluded';
+          exclusionReason = 'availability_not_available';
+        } else {
+          eligibilityResult = 'eligible';
+          exclusionReason = null;
+        }
+        try {
+          await sql`
+            INSERT INTO dispatch_candidate_log (
+              booking_id, driver_id, availability_status,
+              booking_status, eligibility_result, exclusion_reason, evaluated_at
+            ) VALUES (
+              ${bookingId}::uuid,
+              ${d.id}::uuid,
+              ${d.availability_status},
+              ${'fallback_pool'},
+              ${eligibilityResult},
+              ${exclusionReason},
+              NOW()
+            )
+          `;
+        } catch { /* non-blocking */ }
+      }
+    } catch { /* non-blocking — eligibility logging must never interrupt dispatch */ }
+
     // BM5 priority ordering
     const candidates = await sql`
       SELECT id::text, driver_code, full_name
@@ -379,6 +436,23 @@ async function dispatchNextDriver(
         round: nextRound,
         result: 'no_eligible_drivers',
       });
+      // BM-LOG-ELIGIBILITY-SLN-01: log pool exhaustion
+      try {
+        await sql`
+          INSERT INTO dispatch_candidate_log (
+            booking_id, driver_id, availability_status,
+            booking_status, eligibility_result, exclusion_reason, evaluated_at
+          ) VALUES (
+            ${bookingId}::uuid,
+            NULL,
+            NULL,
+            ${'fallback_pool'},
+            ${'pool_exhausted'},
+            NULL,
+            NOW()
+          )
+        `;
+      } catch { /* non-blocking */ }
       console.log(`[bm10-fallback] no_drivers — booking ${bookingId} released to manual pool`);
       return;
     }
