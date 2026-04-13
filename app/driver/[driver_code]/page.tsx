@@ -2002,18 +2002,33 @@ export default function DriverDashboardByCode() {
     setCancelStep("submitting")
     const coords = await getGPS()
     try {
-      const res = await fetch("/api/driver/cancel-ride", {
+      // BM-CANCEL-SCHEMA-SLN-03: PASSENGER_REQUESTED is terminal (cancelled_by_passenger)
+      // Route to dedicated passenger-cancel endpoint instead of driver cancel-ride.
+      // driver-exit hint: SAFETY_CONCERN should use driver-exit modal, but if submitted here
+      // it still goes to cancel-ride (driver responsibility) as a safe fallback.
+      const isPassengerTerminal = cancelReason === "PASSENGER_REQUESTED"
+      const endpoint = isPassengerTerminal ? "/api/client/passenger-cancel" : "/api/driver/cancel-ride"
+      const body = isPassengerTerminal
+        ? JSON.stringify({
+            booking_id: targetBookingId,
+            reported_by: 'driver',
+            reported_by_id: summary?.driver_id,
+            cancel_reason: 'passenger_requested_via_driver',
+            cancel_note: cancelNotes || 'Passenger requested cancellation (reported by driver)',
+          })
+        : JSON.stringify({
+            booking_id: targetBookingId,
+            driver_id: summary?.driver_id,
+            cancel_reason: cancelReason,
+            cancellation_notes: cancelNotes || null,
+            passenger_no_show_confirmed: cancelReason === "PASSENGER_NO_SHOW" ? (noShowConfirmed ?? false) : undefined,
+            gps_lat: coords?.lat ?? null,
+            gps_lng: coords?.lng ?? null,
+          })
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          booking_id: targetBookingId,
-          driver_id: summary?.driver_id,
-          cancel_reason: cancelReason,
-          cancellation_notes: cancelNotes || null,
-          passenger_no_show_confirmed: cancelReason === "PASSENGER_NO_SHOW" ? (noShowConfirmed ?? false) : undefined,
-          gps_lat: coords?.lat ?? null,
-          gps_lng: coords?.lng ?? null,
-        }),
+        body,
       })
       const data = await res.json()
       if (data.success) {
@@ -3089,14 +3104,26 @@ export default function DriverDashboardByCode() {
 
   // ── CANCEL REASON MODAL ────────────────────────────────────────────
   if (showCancelModal) {
+    // BM-CANCEL-SCHEMA-SLN-03: canonical cancel reasons
+    // Group A (redispatchable → ready_for_dispatch): driver-side operational reasons
+    // Group B (driver_issue → driver_issue): safety/incapacity — goes to driver-exit flow instead
+    // Group C (terminal passenger): PASSENGER_REQUESTED → cancelled_by_passenger (NOT back to pool)
+    // NOTE: SAFETY_CONCERN and PASSENGER_REQUESTED are redirected to driver-exit flow via UI hint
     const CANCEL_REASONS = [
-      { key: "PASSENGER_NO_SHOW",  label: lang === "es" ? "Pasajero no se presentó"   : lang === "ht" ? "Pasaje pa parèt"        : "Passenger No-Show",      icon: "🚶" },
-      { key: "PASSENGER_REQUESTED",label: lang === "es" ? "Pasajero solicitó cancelar" : lang === "ht" ? "Pasaje mande kanselasyon" : "Passenger Requested",    icon: "📞" },
-      { key: "VEHICLE_BREAKDOWN",  label: lang === "es" ? "Falla mecánica del vehículo": lang === "ht" ? "Machin kraze"            : "Vehicle Breakdown",       icon: "🔧" },
-      { key: "SAFETY_CONCERN",     label: lang === "es" ? "Preocupación de seguridad"  : lang === "ht" ? "Pwoblèm sekirite"        : "Safety Concern",          icon: "🛡️" },
-      { key: "WRONG_ADDRESS",      label: lang === "es" ? "Dirección incorrecta"       : lang === "ht" ? "Adrès mal"               : "Wrong Address",           icon: "📍" },
-      { key: "DISPATCH_INSTRUCTION",label: lang === "es" ? "Instrucción de despacho"   : lang === "ht" ? "Enstriksyon dispach"     : "Dispatch Instruction",    icon: "📻" },
-      { key: "OTHER",              label: lang === "es" ? "Otro motivo"                : lang === "ht" ? "Lòt rezon"               : "Other",                   icon: "💬" },
+      // ── Group A: Redispatchable (ready_for_dispatch) ──────────────────────────────
+      { key: "VEHICLE_BREAKDOWN",   group: "redispatch", label: lang === "es" ? "Falla mecánica del vehículo" : lang === "ht" ? "Machin kraze"             : "Vehicle Breakdown",      icon: "🔧" },
+      { key: "WRONG_ADDRESS",       group: "redispatch", label: lang === "es" ? "Dirección incorrecta"        : lang === "ht" ? "Adrès mal"                : "Wrong Address",          icon: "📍" },
+      { key: "DISPATCH_INSTRUCTION",group: "redispatch", label: lang === "es" ? "Instrucción de despacho"    : lang === "ht" ? "Enstriksyon dispach"      : "Dispatch Instruction",   icon: "📻" },
+      { key: "OTHER",               group: "redispatch", label: lang === "es" ? "Otro motivo (antes de iniciar)" : lang === "ht" ? "Lòt rezon"            : "Other (before start)",   icon: "💬" },
+      // ── Group B: Passenger-side (redispatch — driver gets payout credit) ─────────
+      { key: "PASSENGER_NO_SHOW",   group: "redispatch", label: lang === "es" ? "Pasajero no se presentó"    : lang === "ht" ? "Pasaje pa parèt"          : "Passenger No-Show",      icon: "🚶" },
+      // ── Group C: Passenger requested cancel (terminal → cancelled_by_passenger) ──
+      // BM-CANCEL-SCHEMA-SLN-03: PASSENGER_REQUESTED is terminal — NOT back to pool
+      // Use this only when the passenger explicitly requested cancellation.
+      // This calls /api/client/passenger-cancel instead of /api/driver/cancel-ride.
+      { key: "PASSENGER_REQUESTED", group: "passenger_terminal", label: lang === "es" ? "Pasajero solicitó cancelar" : lang === "ht" ? "Pasaje mande kanselasyon" : "Passenger Requested Cancel", icon: "📞" },
+      // ── Group D: Safety/incapacity → use 'No puedo realizar este viaje' instead ──
+      { key: "SAFETY_CONCERN",      group: "driver_exit_hint", label: lang === "es" ? "Preocupación de seguridad (usa Salida de Conductor)" : lang === "ht" ? "Pwoblèm sekirite" : "Safety Concern (use Driver Exit)", icon: "🛡️" },
     ]
 
     // ── STEP: no_show_confirm ──────────────────────────────────────────────────
