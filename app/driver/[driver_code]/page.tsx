@@ -589,12 +589,12 @@ interface DriverSummary {
   driver_name: string
   driver_code: string
   driver_status: string
-  // BM23: expanded availability_status model
-  // offline = manual switch off
-  // available = ready to receive offers
-  // reserved = accepted a ride, not yet started
-  // in_trip = actively executing a ride
-  // busy = legacy (treated as reserved/in_trip)
+  // BM-DISPATCH-ELIGIBILITY-01: DIVORCED state model
+  // manual_online_status = ONLY 'offline' | 'available' (manual switch — never system-modified)
+  // ride_state = 'reserved' | 'en_route' | 'in_trip' | 'arrived' (system-controlled — shown in badge)
+  // availability_status = raw DB value (kept for legacy compatibility)
+  manual_online_status: 'offline' | 'available'
+  ride_state: 'reserved' | 'en_route' | 'in_trip' | 'arrived' | 'busy' | null
   availability_status: 'offline' | 'available' | 'busy' | 'reserved' | 'in_trip'
   total_clients: number
   month_earnings: number
@@ -1270,6 +1270,13 @@ export default function DriverDashboardByCode() {
         driver_code: d.driver_code,
         driver_status: d.driver_status,
         availability_status: (d.availability_status ?? 'offline') as 'offline' | 'available' | 'busy' | 'reserved' | 'in_trip',
+        // BM-DISPATCH-ELIGIBILITY-01: divorce manual switch from ride state
+        manual_online_status: (['offline', 'available'].includes(d.availability_status ?? 'offline')
+          ? (d.availability_status ?? 'offline')
+          : 'available') as 'offline' | 'available',
+        ride_state: (['reserved', 'en_route', 'in_trip', 'arrived', 'busy'].includes(d.availability_status ?? '')
+          ? d.availability_status
+          : null) as 'reserved' | 'en_route' | 'in_trip' | 'arrived' | 'busy' | null,
         total_clients: d.stats?.total_clients ?? 0,
         month_earnings: d.stats?.month_earnings ?? 0,
         lifetime_earnings: d.stats?.lifetime_earnings ?? 0,
@@ -1497,9 +1504,10 @@ export default function DriverDashboardByCode() {
   // Cannot toggle to offline while a ride is in progress (busy state).
   const toggleAvailability = async () => {
     if (!summary || availabilityToggling) return
-    // BM23: Cannot manually toggle if reserved/in_trip/busy (ride in progress or confirmed)
-    if (['busy', 'reserved', 'in_trip'].includes(summary.availability_status)) return
-    const newStatus = summary.availability_status === 'available' ? 'offline' : 'available'
+    // BM-DISPATCH-ELIGIBILITY-01: toggle only affects manual_online_status (offline/available)
+    // ride_state (reserved/in_trip/en_route) is system-controlled and does NOT block the manual switch
+    // The switch purely controls whether the driver receives NEW offers when no ride is active
+    const newStatus = summary.manual_online_status === 'available' ? 'offline' : 'available'
     setAvailabilityToggling(true)
     setAvailabilityError(null)
     try {
@@ -1514,7 +1522,11 @@ export default function DriverDashboardByCode() {
         setTimeout(() => setAvailabilityError(null), 4000)
       } else {
         // Optimistically update local state
-        setSummary((prev) => prev ? { ...prev, availability_status: newStatus as 'offline' | 'available' | 'busy' } : prev)
+        setSummary((prev) => prev ? {
+          ...prev,
+          manual_online_status: newStatus as 'offline' | 'available',
+          availability_status: newStatus as 'offline' | 'available',
+        } : prev)
       }
     } catch {
       setAvailabilityError('Failed to update availability')
@@ -3629,67 +3641,83 @@ export default function DriverDashboardByCode() {
           <LangToggle lang={lang} onLang={setLangAndSave} />
           <div className="flex flex-col items-end gap-1.5">
             <div className="text-sm font-medium" style={{ color: GOLD }}>{summary.driver_name}</div>
-            {/* ── Availability Toggle (Uber-style) ────────────────────────────────────────── */}
-            {/* States: available (green), offline (red), busy (amber — system-controlled) */}
+            {/* ── BM-DISPATCH-ELIGIBILITY-01: Manual Online/Offline Switch ────────────────── */}
+            {/* This switch ONLY controls manual_online_status: 'available' | 'offline'       */}
+            {/* It is NEVER blocked by ride_state (reserved/in_trip/en_route)                 */}
+            {/* ride_state is shown in a SEPARATE badge below                                  */}
             <button
               onClick={toggleAvailability}
-              disabled={availabilityToggling || ['busy','reserved','in_trip'].includes(summary.availability_status)}
+              disabled={availabilityToggling}
               className="flex items-center gap-2 px-3 py-1.5 rounded-full transition-all"
               style={{
-                // BM23: reserved = amber (confirmed, not started), in_trip = purple (executing)
-                backgroundColor:
-                  summary.availability_status === 'available' ? '#14532d' :
-                  summary.availability_status === 'in_trip'   ? '#2e1065' :
-                  ['busy','reserved'].includes(summary.availability_status) ? '#78350f' :
-                  '#1c1c1e',
+                backgroundColor: summary.manual_online_status === 'available' ? '#14532d' : '#1c1c1e',
                 border: '1px solid',
-                borderColor:
-                  summary.availability_status === 'available' ? '#16a34a' :
-                  summary.availability_status === 'in_trip'   ? '#a78bfa' :
-                  ['busy','reserved'].includes(summary.availability_status) ? '#d97706' :
-                  '#3f3f46',
+                borderColor: summary.manual_online_status === 'available' ? '#16a34a' : '#3f3f46',
                 opacity: availabilityToggling ? 0.6 : 1,
-                cursor: ['busy','reserved','in_trip'].includes(summary.availability_status) ? 'not-allowed' : 'pointer',
+                cursor: availabilityToggling ? 'not-allowed' : 'pointer',
               }}
-              title={
-                summary.availability_status === 'in_trip'   ? 'In Trip — complete your ride first' :
-                summary.availability_status === 'reserved'  ? 'Reserved — you have a confirmed ride' :
-                summary.availability_status === 'busy'      ? 'Busy — complete your ride first' :
-                'Toggle availability'
-              }
+              title={'Toggle online / offline'}
             >
               {/* Toggle pill */}
               <div className="relative w-8 h-4 rounded-full transition-all"
-                style={{
-                  backgroundColor:
-                    summary.availability_status === 'available' ? '#22c55e' :
-                    summary.availability_status === 'in_trip'   ? '#a78bfa' :
-                    ['busy','reserved'].includes(summary.availability_status) ? '#f59e0b' :
-                    '#52525b',
-                }}>
+                style={{ backgroundColor: summary.manual_online_status === 'available' ? '#22c55e' : '#52525b' }}>
                 <div className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
-                  style={{
-                    // BM23: pill on right for available/reserved/in_trip/busy (all 'active' states)
-                    left: ['available', 'busy', 'reserved', 'in_trip'].includes(summary.availability_status) ? '17px' : '2px',
-                  }} />
+                  style={{ left: summary.manual_online_status === 'available' ? '17px' : '2px' }} />
               </div>
-              {/* Label */}
+              {/* Label — only online/offline */}
               <span className="text-xs font-semibold tracking-wide"
-                style={{
-                  color:
-                    summary.availability_status === 'available' ? '#4ade80' :
-                    summary.availability_status === 'in_trip'   ? '#c4b5fd' :
-                    ['busy','reserved'].includes(summary.availability_status) ? '#fbbf24' :
-                    '#71717a',
-                }}>
+                style={{ color: summary.manual_online_status === 'available' ? '#4ade80' : '#71717a' }}>
                 {availabilityToggling ? '...' :
-                  summary.availability_status === 'available' ? (lang === 'es' ? 'Disponible' : 'Available') :
-                  summary.availability_status === 'in_trip'   ? (lang === 'es' ? 'En Viaje' : 'In Trip') :
-                  summary.availability_status === 'reserved'  ? (lang === 'es' ? 'Reservado' : 'Reserved') :
-                  summary.availability_status === 'busy'      ? (lang === 'es' ? 'En Viaje' : 'On Ride') :
-                  (lang === 'es' ? 'Inactivo' : 'Offline')}
+                  summary.manual_online_status === 'available'
+                    ? (lang === 'es' ? 'En línea' : 'Online')
+                    : (lang === 'es' ? 'Inactivo' : 'Offline')}
               </span>
             </button>
+            {/* ── BM-DISPATCH-ELIGIBILITY-01: Ride State Badge (independent from switch) ─── */}
+            {/* Shows system-controlled ride state: reserved / en_route / in_trip / arrived   */}
+            {/* This badge is SEPARATE from the manual switch and does NOT affect it           */}
+            {summary.ride_state && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                style={{
+                  backgroundColor:
+                    summary.ride_state === 'in_trip'  ? '#2e1065' :
+                    summary.ride_state === 'en_route' ? '#1c1400' :
+                    summary.ride_state === 'arrived'  ? '#001a0a' :
+                    ['reserved','busy'].includes(summary.ride_state) ? '#78350f' :
+                    '#1c1c1e',
+                  border: '1px solid',
+                  borderColor:
+                    summary.ride_state === 'in_trip'  ? '#a78bfa' :
+                    summary.ride_state === 'en_route' ? '#f59e0b' :
+                    summary.ride_state === 'arrived'  ? '#4ade80' :
+                    ['reserved','busy'].includes(summary.ride_state) ? '#d97706' :
+                    '#3f3f46',
+                }}>
+                <div className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    backgroundColor:
+                      summary.ride_state === 'in_trip'  ? '#a78bfa' :
+                      summary.ride_state === 'en_route' ? '#fbbf24' :
+                      summary.ride_state === 'arrived'  ? '#4ade80' :
+                      '#f59e0b',
+                  }} />
+                <span className="text-xs font-semibold"
+                  style={{
+                    color:
+                      summary.ride_state === 'in_trip'  ? '#c4b5fd' :
+                      summary.ride_state === 'en_route' ? '#fbbf24' :
+                      summary.ride_state === 'arrived'  ? '#4ade80' :
+                      '#fbbf24',
+                  }}>
+                  {summary.ride_state === 'reserved'  ? (lang === 'es' ? 'Reservado' : 'Reserved') :
+                   summary.ride_state === 'en_route'  ? (lang === 'es' ? 'En camino' : 'En Route') :
+                   summary.ride_state === 'arrived'   ? (lang === 'es' ? 'Llegó' : 'Arrived') :
+                   summary.ride_state === 'in_trip'   ? (lang === 'es' ? 'En Viaje' : 'In Trip') :
+                   summary.ride_state === 'busy'      ? (lang === 'es' ? 'En Viaje' : 'On Ride') :
+                   summary.ride_state}
+                </span>
+              </div>
+            )}
             {/* Error toast */}
             {availabilityError && (
               <div className="text-xs text-red-400 mt-0.5 max-w-32 text-right">{availabilityError}</div>

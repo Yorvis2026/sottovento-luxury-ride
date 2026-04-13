@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import {
+  isDriverEligibleForBooking,
+  logEligibility,
+  type DriverEligibilityInput,
+} from '@/lib/dispatch/is-driver-eligible';
 const sql = neon(process.env.DATABASE_URL_UNPOOLED as string);
 
 // POST /api/dispatch/respond-fallback-offer
@@ -345,7 +350,7 @@ async function dispatchNextDriver(
   try {
     // Guard: skip terminal bookings
     const bookingRows = await sql`
-      SELECT id FROM bookings
+      SELECT id, pickup_at, estimated_duration_minutes FROM bookings
       WHERE id = ${bookingId}::uuid
         AND status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'accepted', 'en_route', 'arrived', 'in_trip')
       LIMIT 1
@@ -354,6 +359,9 @@ async function dispatchNextDriver(
       console.log(`[bm10-fallback] skipped terminal booking ${bookingId}`);
       return;
     }
+
+    const newBookingPickupAt: string | null = bookingRows[0]?.pickup_at ?? null;
+    const newBookingDuration: number | undefined = bookingRows[0]?.estimated_duration_minutes ?? undefined;
 
     // Collect all drivers who already declined or timed out
     const declinedRows = await sql`
@@ -369,75 +377,22 @@ async function dispatchNextDriver(
       ? declinedIds
       : ['00000000-0000-0000-0000-000000000000'];
 
-    // BM-LOG-ELIGIBILITY-SLN-01: evaluate all active drivers and log eligibility
-    // Non-blocking — never interrupts dispatch flow
-    try {
-      const allCandidates = await sql`
-        SELECT
-          id::text,
-          driver_code,
-          COALESCE(availability_status, 'available') AS availability_status
-        FROM drivers
-        WHERE driver_status = 'active'
-          AND is_eligible = true
-          AND (license_expires_at IS NULL OR license_expires_at > NOW())
-          AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
-        ORDER BY
-          CASE COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
-            WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
-            WHEN 'PARTNER_LEGAL_FLEET'    THEN 2
-            ELSE 3
-          END ASC,
-          COALESCE(reliability_score, 65) DESC,
-          created_at ASC
-        LIMIT 50
-      `;
-      for (const d of allCandidates) {
-        const isDeclined = excludeList.includes(d.id);
-        const isAvailable = d.availability_status === 'available';
-        let eligibilityResult: string;
-        let exclusionReason: string | null;
-        if (isDeclined) {
-          eligibilityResult = 'excluded';
-          exclusionReason = declinedIds.includes(d.id) ? 'declined_excluded' : 'manual_exclusion';
-        } else if (!isAvailable) {
-          eligibilityResult = 'excluded';
-          exclusionReason = 'availability_not_available';
-        } else {
-          eligibilityResult = 'eligible';
-          exclusionReason = null;
-        }
-        try {
-          await sql`
-            INSERT INTO dispatch_candidate_log (
-              booking_id, driver_id, availability_status,
-              booking_status, eligibility_result, exclusion_reason, evaluated_at
-            ) VALUES (
-              ${bookingId}::uuid,
-              ${d.id}::uuid,
-              ${d.availability_status},
-              ${'fallback_pool'},
-              ${eligibilityResult},
-              ${exclusionReason},
-              NOW()
-            )
-          `;
-        } catch { /* non-blocking */ }
-      }
-    } catch { /* non-blocking — eligibility logging must never interrupt dispatch */ }
-
-    // BM5 priority ordering
-    const candidates = await sql`
-      SELECT id::text, driver_code, full_name
+    // BM-DISPATCH-ELIGIBILITY-01: Load all active candidates (no availability filter)
+    const allCandidates = await sql`
+      SELECT
+        id::text,
+        driver_code,
+        full_name,
+        COALESCE(availability_status, 'available') AS availability_status,
+        driver_status,
+        is_eligible,
+        CASE WHEN license_expires_at IS NULL OR license_expires_at > NOW() THEN true ELSE false END AS license_valid,
+        CASE WHEN insurance_expires_at IS NULL OR insurance_expires_at > NOW() THEN true ELSE false END AS insurance_valid
       FROM drivers
       WHERE driver_status = 'active'
         AND is_eligible = true
         AND (license_expires_at IS NULL OR license_expires_at > NOW())
         AND (insurance_expires_at IS NULL OR insurance_expires_at > NOW())
-        AND COALESCE(availability_status, 'available') = 'available'
-        AND id NOT IN (
-          SELECT unnest(${excludeList}::uuid[])
-        )
       ORDER BY
         CASE COALESCE(legal_affiliation_type, 'GENERAL_NETWORK_DRIVER')
           WHEN 'SOTTOVENTO_LEGAL_FLEET' THEN 1
@@ -446,10 +401,54 @@ async function dispatchNextDriver(
         END ASC,
         COALESCE(reliability_score, 65) DESC,
         created_at ASC
-      LIMIT 1
+      LIMIT 50
     `;
 
-    if (candidates.length === 0) {
+    // BM-DISPATCH-ELIGIBILITY-01: Evaluate each candidate with temporal conflict matrix
+    const MANUAL_STATES = ['offline', 'available'];
+    const RIDE_STATES = ['reserved', 'en_route', 'in_trip', 'arrived', 'busy'];
+    let nextDriver: { id: string; driver_code: string; full_name: string } | null = null;
+
+    for (const d of allCandidates) {
+      const rawStatus: string = d.availability_status;
+      const manualOnlineStatus = MANUAL_STATES.includes(rawStatus) ? rawStatus : 'available';
+      const rideState: string | null = RIDE_STATES.includes(rawStatus) ? rawStatus : null;
+
+      const driverInput: DriverEligibilityInput = {
+        driver_id: d.id,
+        manual_online_status: manualOnlineStatus,
+        ride_state: rideState,
+        is_excluded: excludeList.includes(d.id),
+        license_valid: d.license_valid,
+        insurance_valid: d.insurance_valid,
+        is_eligible_flag: d.is_eligible,
+        driver_status: d.driver_status,
+      };
+
+      let futureBookingCount = 0;
+      try {
+        const fbRows = await sql`SELECT COUNT(*)::int AS cnt FROM bookings WHERE assigned_driver_id = ${d.id}::uuid AND status IN ('assigned_not_started','reserved','accepted','assigned') AND pickup_at > NOW()`;
+        futureBookingCount = fbRows[0]?.cnt ?? 0;
+      } catch { /* non-blocking */ }
+
+      const result = await isDriverEligibleForBooking(driverInput, newBookingPickupAt, newBookingDuration);
+
+      await logEligibility({
+        booking_id: bookingId,
+        driver_id: d.id,
+        manual_online_status: manualOnlineStatus,
+        ride_state: rideState,
+        future_booking_count: futureBookingCount,
+        conflict_reason: result.reason,
+        eligible: result.eligible,
+      });
+
+      if (result.eligible && !nextDriver) {
+        nextDriver = { id: d.id, driver_code: d.driver_code, full_name: d.full_name };
+      }
+    }
+
+    if (!nextDriver) {
       // BM-CANCEL-STATE-SLN-02 Section 4: pool exhausted → system_reassignment_required
       await sql`
         UPDATE bookings
@@ -487,7 +486,6 @@ async function dispatchNextDriver(
       return;
     }
 
-    const nextDriver = candidates[0];
     const expiresAt = new Date(Date.now() + OFFER_WINDOW_MINUTES * 60 * 1000).toISOString();
 
     // Create new dispatch_offer for next driver
