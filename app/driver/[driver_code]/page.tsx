@@ -926,6 +926,13 @@ export default function DriverDashboardByCode() {
     message?: string
   } | null>(null)
 
+  // ── SLN-PUSH-TRIGGER-FIX-01: Push permission state ─────────────────────────────────────────────────────
+  // Tracks Notification.permission so the "Enable Notifications" button
+  // renders reactively. Initialized from the live browser API (client-only).
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  )
+
   const t = T[lang]
   const tabletUrl = driverCode ? `${BASE_URL}/tablet/${driverCode}` : ""
 
@@ -4210,6 +4217,76 @@ export default function DriverDashboardByCode() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ── SLN-PUSH-TRIGGER-FIX-01: Enable Notifications button ─────────────────────── */}
+          {/* Visible only when Notification.permission === 'default' (not yet decided). */}
+          {/* iOS Safari requires requestPermission() to be called from a user gesture.   */}
+          {/* This button IS that user gesture — tapping it triggers the system popup.    */}
+          {pushPermission === 'default' && (
+            <div
+              style={{
+                margin: '16px 16px 0',
+                padding: '14px 16px',
+                borderRadius: 14,
+                background: '#0d0d0d',
+                border: `1px solid ${GOLD}55`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                <span style={{ fontSize: 22 }}>&#x1F514;</span>
+                <div>
+                  <div style={{ color: '#fafaf9', fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>
+                    {lang === 'es' ? 'Activar notificaciones' : lang === 'ht' ? 'Aktive notifikasyon' : 'Enable Notifications'}
+                  </div>
+                  <div style={{ color: '#a8a29e', fontSize: 11, lineHeight: 1.3 }}>
+                    {lang === 'es'
+                      ? 'Recibe ofertas aunque la app esté cerrada'
+                      : lang === 'ht'
+                      ? 'Resevwa ofe mêm si app la fermé'
+                      : 'Get offers even when the app is closed'}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const permission = await Notification.requestPermission()
+                    setPushPermission(permission)
+                    console.log('[SLN-PUSH-TRIGGER-FIX-01] permission result:', permission)
+                    if (permission === 'granted') {
+                      // Hide legacy top banner
+                      const banner = document.getElementById('sln-push-permission-banner')
+                      if (banner) banner.style.display = 'none'
+                      // Complete subscribe flow via existing canonical handler
+                      const fn = (window as unknown as Record<string, unknown>)
+                        .__slnRequestPushPermission as (() => void) | undefined
+                      if (fn) fn()
+                    }
+                  } catch (err) {
+                    console.warn('[SLN-PUSH-TRIGGER-FIX-01] requestPermission error:', err)
+                  }
+                }}
+                style={{
+                  flexShrink: 0,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#000',
+                  padding: '8px 16px',
+                  borderRadius: 10,
+                  background: GOLD,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {lang === 'es' ? 'Activar' : lang === 'ht' ? 'Aktive' : 'Enable'}
+              </button>
             </div>
           )}
 
