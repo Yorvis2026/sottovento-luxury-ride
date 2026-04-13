@@ -196,6 +196,35 @@ export async function POST(req: Request) {
           AND availability_status != 'offline'
       `;
 
+      // ── BM-SLN-REVENUE-PERSISTENCE-01: Revenue snapshot on fallback acceptance ──────
+      // Section 5: Create immutable revenue snapshot at the moment of acceptance.
+      // Section 9: Guard — never overwrite if revenue_split_snapshot IS NOT NULL.
+      // Section 8: fallback_execution if captador != executor.
+      // Section 7: self_execution if captador == executor (edge case in fallback).
+      try {
+        const captadorId: string | null = booking.source_driver_id ?? null;
+        const executorId: string = driverId;
+        const isFallbackExecution = captadorId !== null && captadorId !== executorId;
+
+        const revenueSplitSnapshot = isFallbackExecution
+          ? { platform_percent: 20, captador_percent: 15, executor_percent: 65, mode: 'fallback_execution' }
+          : { platform_percent: 20, captador_percent: 0, executor_percent: 80, mode: 'self_execution' };
+
+        await sql`
+          UPDATE bookings
+          SET
+            captured_by_driver_id   = COALESCE(captured_by_driver_id, ${captadorId ?? executorId}::uuid),
+            execution_driver_id     = ${executorId}::uuid,
+            fallback_execution_flag = ${isFallbackExecution},
+            revenue_split_snapshot  = CASE
+              WHEN revenue_split_snapshot IS NOT NULL THEN revenue_split_snapshot
+              ELSE ${JSON.stringify(revenueSplitSnapshot)}::jsonb
+            END,
+            updated_at = NOW()
+          WHERE id = ${bookingId}::uuid
+        `;
+      } catch (_) { /* non-blocking — revenue persistence must never block acceptance */ }
+
       // Log assignment in fallback_assignment_log
       try {
         await sql`

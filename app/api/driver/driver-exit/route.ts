@@ -167,9 +167,9 @@ export async function POST(req: NextRequest) {
     // ── Bloque Maestro — Cancellation Metrics Sync: cancel_stage for driver-exit ────────────────────────────────────────────
     const cancelStage = prevStatus === 'en_route' ? 'en_route'
       : prevStatus === 'arrived' ? 'arrived'
-      : 'post_accept_pre_dispatch';
-
-    // ── Update booking ────────────────────────────────────────────
+      : 'post_accept_pre_dispatch'    // ── Update booking ───────────────────────────────────────────────
+    // BM-SLN-REVENUE-PERSISTENCE-01 Section 6: captured_by_driver_id and revenue_split_snapshot
+    // are NEVER modified by driver-exit. COALESCE ensures immutability.
     await sql`
       UPDATE bookings
       SET
@@ -187,6 +187,9 @@ export async function POST(req: NextRequest) {
         affects_driver_metrics           = TRUE,
         affects_payout                   = FALSE,
         cancelled_at                     = ${nowIso}::timestamptz,
+        -- Section 6: revenue fields are IMMUTABLE — never overwrite
+        captured_by_driver_id            = COALESCE(captured_by_driver_id, captured_by_driver_id),
+        revenue_split_snapshot           = COALESCE(revenue_split_snapshot, revenue_split_snapshot),
         updated_at                       = NOW()
       WHERE id = ${booking_id}::uuid
     `;  // ── Update driver availability ────────────────────────────

@@ -83,6 +83,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Apply hard cancel: terminal state
+    // BM-SLN-REVENUE-PERSISTENCE-01 Section 6: captured_by_driver_id and revenue_split_snapshot
+    // are intentionally NOT modified here — they are immutable once set.
     await sql`
       UPDATE bookings
       SET
