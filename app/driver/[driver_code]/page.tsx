@@ -848,6 +848,8 @@ export default function DriverDashboardByCode() {
   const fallbackCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [fallbackOfferSubmitting, setFallbackOfferSubmitting] = useState(false)
   const prevFallbackOfferIdRef = useRef<string | null>(null)
+  // BM-ALERTS-PERSISTENCE-SLN-01: persistent top banner for fallback/pool offers
+  const [showFallbackBanner, setShowFallbackBanner] = useState(false)
   // ── Upcoming ride detail expand ───────────────────────────────────────────────
   const [expandedRideId, setExpandedRideId] = useState<string | null>(null)
   // ── Completed ride detail expand ─────────────────────────────────
@@ -1211,6 +1213,8 @@ export default function DriverDashboardByCode() {
         const secsLeft = Math.max(0, Math.round((new Date(fo.expires_at).getTime() - Date.now()) / 1000))
         setFallbackOfferCountdown(secsLeft)
         setShowFallbackOfferModal(true)
+        // BM-ALERTS-PERSISTENCE-SLN-01: activate persistent fallback banner
+        setShowFallbackBanner(true)
         // Start countdown timer
         if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
         fallbackCountdownRef.current = setInterval(() => {
@@ -1219,6 +1223,8 @@ export default function DriverDashboardByCode() {
               clearInterval(fallbackCountdownRef.current!)
               setShowFallbackOfferModal(false)
               setFallbackOfferData(null)
+              // BM-ALERTS-PERSISTENCE-SLN-01: clear banner on expiry
+              setShowFallbackBanner(false)
               return 0
             }
             return prev - 1
@@ -1233,6 +1239,8 @@ export default function DriverDashboardByCode() {
       if (!d.fallback_offer && prevFallbackOfferIdRef.current !== null) {
         setShowFallbackOfferModal(false)
         setFallbackOfferData(null)
+        // BM-ALERTS-PERSISTENCE-SLN-01: clear fallback banner when offer disappears
+        setShowFallbackBanner(false)
         if (fallbackCountdownRef.current) clearInterval(fallbackCountdownRef.current)
       }
       prevFallbackOfferIdRef.current = newFallbackOfferId
@@ -3491,35 +3499,81 @@ export default function DriverDashboardByCode() {
     <div className="min-h-screen bg-black text-white pb-8"
       style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
 
-      {/* ── ALERT LAYER: Persistent top banner ────────────────────────────────────── */}
+      {/* ── ALERT LAYER: Persistent top banner ─────────────────────────────────────────────── */}
+      {/* BM-ALERTS-PERSISTENCE-SLN-01: Banner differentiates GOLDEN (captador) vs PURPLE (pool) */}
       {/* Visible until driver accepts or declines the offer */}
-      {showOfferBanner && (
+      {showOfferBanner && (() => {
+        const isSourceOffer = summary.active_offer?.is_source_offer ?? true
+        const bannerBg = isSourceOffer ? GOLD : "#7c3aed"
+        const bannerShadow = isSourceOffer ? `0 6px 32px ${GOLD}99` : "0 6px 32px #7c3aed99"
+        const bannerTextColor = isSourceOffer ? "#000" : "#fff"
+        const bannerSubColor = isSourceOffer ? "#000000aa" : "#e9d5ff"
+        const bannerLabel = isSourceOffer
+          ? (lang === "es" ? "⭐ OFERTA CAPTADOR" : "⭐ SOURCE OFFER")
+          : (lang === "es" ? "🟣 OFERTA DE RED" : "🟣 NETWORK OFFER")
+        const bannerSub = offerAlertCount > 1
+          ? (lang === "es" ? `${offerAlertCount} solicitudes — toca para ver` : `${offerAlertCount} requests — tap to view`)
+          : (lang === "es" ? "Toca para ver la oferta" : "Tap to view offer")
+        return (
+          <div
+            className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between px-4"
+            style={{
+              backgroundColor: bannerBg,
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
+              paddingBottom: "10px",
+              boxShadow: bannerShadow,
+              animation: "bannerPulse 1s ease-in-out infinite",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{isSourceOffer ? "⭐" : "🟣"}</span>
+              <div>
+                <div className="font-black text-sm tracking-widest uppercase" style={{ color: bannerTextColor }}>
+                  {bannerLabel}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: bannerSubColor }}>
+                  {bannerSub}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowOfferAlertModal(true)}
+              className="text-xs font-black rounded-lg px-4 py-2 active:scale-95 transition-all uppercase tracking-wide"
+              style={{ backgroundColor: isSourceOffer ? "#000" : "#fff", color: isSourceOffer ? GOLD : "#7c3aed" }}
+            >
+              {lang === "es" ? "VER" : lang === "ht" ? "WÈ" : "VIEW"}
+            </button>
+          </div>
+        )
+      })()}
+
+      {/* ── ALERT LAYER: Persistent top banner for FALLBACK/POOL offers ────────────── */}
+      {/* BM-ALERTS-PERSISTENCE-SLN-01: shown when fallback modal is dismissed but offer still active */}
+      {showFallbackBanner && !showFallbackOfferModal && fallbackOfferData && (
         <div
           className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between px-4"
           style={{
-            backgroundColor: "#dc2626",
+            backgroundColor: "#7c3aed",
             paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
             paddingBottom: "10px",
-            boxShadow: "0 6px 32px #dc262699",
+            boxShadow: "0 6px 32px #7c3aed99",
             animation: "bannerPulse 1s ease-in-out infinite",
           }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-white text-xl">🔔</span>
+            <span className="text-xl">🟣</span>
             <div>
-              <div className="text-white font-black text-sm tracking-widest uppercase">
-                {offerAlertCount > 1
-                  ? (lang === "es" ? `NUEVA SOLICITUD (${offerAlertCount})` : lang === "ht" ? `NOUVO SÈVIS (${offerAlertCount})` : `NEW RIDE REQUEST (${offerAlertCount})`)
-                  : (lang === "es" ? "NUEVA SOLICITUD" : lang === "ht" ? "NOUVO SÈVIS" : "NEW RIDE REQUEST")}
+              <div className="font-black text-sm tracking-widest uppercase text-white">
+                {lang === "es" ? "🟣 OFERTA DE RED" : "🟣 NETWORK OFFER"}
               </div>
-              <div className="text-red-200 text-xs mt-0.5">
-                {lang === "es" ? "Toca para ver la oferta" : lang === "ht" ? "Klike pou wè òf la" : "Tap to view offer"}
+              <div className="text-xs mt-0.5 text-purple-200">
+                {lang === "es" ? `${fallbackOfferCountdown}s restantes — toca para ver` : `${fallbackOfferCountdown}s remaining — tap to view`}
               </div>
             </div>
           </div>
           <button
-            onClick={() => setShowOfferAlertModal(true)}
-            className="text-black text-xs font-black bg-white rounded-lg px-4 py-2 active:scale-95 transition-all uppercase tracking-wide"
+            onClick={() => setShowFallbackOfferModal(true)}
+            className="text-xs font-black rounded-lg px-4 py-2 active:scale-95 transition-all uppercase tracking-wide bg-white text-purple-700"
           >
             {lang === "es" ? "VER" : lang === "ht" ? "WÈ" : "VIEW"}
           </button>
