@@ -4,7 +4,7 @@
 // Anti-duplicate: tracks shown offer_ids in memory
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'sln-driver-sw-v1'
+const CACHE_NAME = 'sln-driver-sw-v2-icons'
 const shownOfferIds = new Set()
 
 // ── Install ──────────────────────────────────────────────────────────────────
