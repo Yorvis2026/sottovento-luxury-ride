@@ -1349,44 +1349,131 @@ export default function DriverDashboardByCode() {
     loadData()
     pollRef.current = setInterval(loadData, POLL_INTERVAL)
 
-    // ── BM-PWA-PUSH-SLN-02: Register Service Worker + Push Subscription ──────────────────
-    // Registers /driver-sw.js and subscribes to Web Push using VAPID public key.
+    // ── BM-PUSH-SUBSCRIBE-RUNTIME-FIX-SLN-04: Canonical Push Subscription Flow ─────────────
+    // Fixes 3 iOS Safari issues from BM-PWA-PUSH-SLN-02:
+    //   1. requestPermission() must be triggered by a user gesture on iOS — deferred to button
+    //   2. applicationServerKey must be Uint8Array (base64url decoded), not raw string
+    //   3. getSubscription() must be called before subscribe() to avoid duplicates
     // Non-blocking — never interrupts polling or render.
-    if ('serviceWorker' in navigator && 'PushManager' in window) {
-      navigator.serviceWorker.register('/driver-sw.js', { scope: '/driver/' })
-        .then(async (reg) => {
-          // Listen for push messages that arrive while the page is open
-          navigator.serviceWorker.addEventListener('message', (event) => {
-            if (event.data?.type === 'SLN_PUSH_OFFER_CLICK') {
-              loadData() // refresh immediately on notification tap
-            }
-          })
-          // Request push permission and subscribe
-          const permission = await Notification.requestPermission()
-          if (permission !== 'granted') return
-          const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-          if (!vapidKey) return
+
+    // Helper: convert VAPID base64url string → Uint8Array (required by iOS Safari)
+    const urlBase64ToUint8Array = (base64String: string): Uint8Array => {
+      const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+      const rawData = window.atob(base64)
+      return Uint8Array.from([...rawData].map((char: string) => char.charCodeAt(0)))
+    }
+
+    // Helper: persist subscription to DB
+    const persistSubscription = async (sub: PushSubscription) => {
+      try {
+        const me = await fetch(`/api/driver/me?driver_code=${driverCode}`).then(r => r.json()).catch(() => null)
+        if (!me?.id) { console.log('[SLN-PUSH] persistSubscription: driver_id not found'); return }
+        const res = await fetch('/api/driver/push-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driver_id: me.id, subscription: sub.toJSON() }),
+        })
+        const data = await res.json().catch(() => ({}))
+        console.log('[SLN-PUSH] POST push-subscribe:', res.ok ? 'SUCCESS' : 'FAILED', data)
+      } catch (err) {
+        console.error('[SLN-PUSH] persistSubscription error:', err)
+      }
+    }
+
+    // Expose push subscribe handler for user-gesture button (iOS Safari requirement)
+    ;(window as unknown as Record<string, unknown>).__slnRequestPushPermission = async () => {
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!vapidKey) return
+      try {
+        const reg = await navigator.serviceWorker.ready
+        const permission = await Notification.requestPermission()
+        console.log('[SLN-PUSH] requestPermission result:', permission)
+        if (permission !== 'granted') return
+        const existingSub = await reg.pushManager.getSubscription()
+        if (existingSub) { await persistSubscription(existingSub); return }
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        })
+        console.log('[SLN-PUSH] subscribe SUCCESS:', sub.endpoint.slice(0, 60) + '...')
+        await persistSubscription(sub)
+        // Hide banner after successful subscription
+        const banner = document.getElementById('sln-push-permission-banner')
+        if (banner) banner.style.display = 'none'
+      } catch (err) {
+        console.error('[SLN-PUSH] __slnRequestPushPermission error:', err)
+      }
+    }
+
+    // Main push setup — runs on mount
+    const setupPush = async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.log('[SLN-PUSH] SW or PushManager not supported')
+        return
+      }
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!vapidKey) { console.log('[SLN-PUSH] VAPID public key missing'); return }
+
+      try {
+        // Step 1: Register SW
+        const reg = await navigator.serviceWorker.register('/driver-sw.js', { scope: '/driver/' })
+        console.log('[SLN-PUSH] SW registered:', reg.active?.state ?? 'installing')
+
+        // Step 2: Listen for SW messages (offer click → reload)
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'SLN_PUSH_OFFER_CLICK') loadData()
+        })
+
+        // Step 3: Wait for SW to be active
+        await navigator.serviceWorker.ready
+        console.log('[SLN-PUSH] SW ready confirmed')
+
+        // Step 4: Check existing subscription FIRST
+        const existingSub = await reg.pushManager.getSubscription()
+        console.log('[SLN-PUSH] existing subscription:', existingSub ? 'YES' : 'NO')
+        if (existingSub) {
+          await persistSubscription(existingSub)
+          return
+        }
+
+        // Step 5: Check notification permission
+        const currentPermission = Notification.permission
+        console.log('[SLN-PUSH] Notification.permission:', currentPermission)
+
+        if (currentPermission === 'denied') {
+          console.log('[SLN-PUSH] Notifications denied — cannot subscribe')
+          return
+        }
+
+        if (currentPermission === 'default') {
+          // iOS Safari: permission MUST be requested from a user gesture tap.
+          // Show the permission banner so the driver can tap to enable.
+          console.log('[SLN-PUSH] Permission default — showing permission banner for user gesture')
+          const banner = document.getElementById('sln-push-permission-banner')
+          if (banner) banner.style.display = 'flex'
+          return
+        }
+
+        // Step 6: Permission already granted — subscribe immediately
+        if (currentPermission === 'granted') {
           try {
             const sub = await reg.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: vapidKey,
+              applicationServerKey: urlBase64ToUint8Array(vapidKey),
             })
-            // Register subscription with backend (requires driver_id from summary)
-            // We retry on next poll if summary not yet loaded
-            const tryRegister = async () => {
-              const me = await fetch(`/api/driver/me?driver_code=${driverCode}`).then(r => r.json()).catch(() => null)
-              if (!me?.id) return
-              await fetch('/api/driver/push-subscribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ driver_id: me.id, subscription: sub.toJSON() }),
-              }).catch(() => {})
-            }
-            tryRegister().catch(() => {})
-          } catch { /* push subscription failed — non-blocking */ }
-        })
-        .catch(() => { /* SW registration failed — non-blocking */ })
+            console.log('[SLN-PUSH] subscribe SUCCESS:', sub.endpoint.slice(0, 60) + '...')
+            await persistSubscription(sub)
+          } catch (subErr) {
+            console.error('[SLN-PUSH] subscribe FAILED:', subErr)
+          }
+        }
+      } catch (err) {
+        console.error('[SLN-PUSH] setupPush error:', err)
+      }
     }
+
+    setupPush().catch(() => {})
 
     // ── Availability Engine: panel open → available ───────────────────────────────────────
     // When the driver opens the panel, set availability_status = 'available'
@@ -3619,6 +3706,52 @@ export default function DriverDashboardByCode() {
           </button>
         </div>
       )}
+
+      {/* ── BM-PUSH-SUBSCRIBE-RUNTIME-FIX-SLN-04: Push Permission Banner ─────────────── */}
+      {/* Hidden by default — shown by setupPush() when Notification.permission === 'default' */}
+      {/* iOS Safari requires requestPermission() to be called from a user gesture (tap) */}
+      <div
+        id="sln-push-permission-banner"
+        style={{ display: 'none', position: 'fixed', top: 0, left: 0, right: 0, zIndex: 250,
+          backgroundColor: '#1c1917', borderBottom: '1px solid #44403c',
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)', paddingBottom: '10px',
+          paddingLeft: '16px', paddingRight: '16px',
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+          <span style={{ fontSize: '20px' }}>🔔</span>
+          <div>
+            <div style={{ color: '#fafaf9', fontSize: '13px', fontWeight: 700, lineHeight: 1.3 }}>
+              {lang === 'es' ? 'Activar notificaciones push' : 'Enable push notifications'}
+            </div>
+            <div style={{ color: '#a8a29e', fontSize: '11px', lineHeight: 1.3 }}>
+              {lang === 'es' ? 'Recibe ofertas aunque la app esté cerrada' : 'Get offers even when the app is closed'}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+          <button
+            onClick={() => {
+              const banner = document.getElementById('sln-push-permission-banner')
+              if (banner) banner.style.display = 'none'
+            }}
+            style={{ fontSize: '11px', color: '#78716c', padding: '6px 10px', borderRadius: '8px',
+              background: 'transparent', border: '1px solid #44403c', cursor: 'pointer' }}
+          >
+            {lang === 'es' ? 'Ahora no' : 'Not now'}
+          </button>
+          <button
+            onClick={() => {
+              const fn = (window as unknown as Record<string, unknown>).__slnRequestPushPermission as (() => void) | undefined
+              if (fn) fn()
+            }}
+            style={{ fontSize: '11px', fontWeight: 700, color: '#000', padding: '6px 12px',
+              borderRadius: '8px', background: '#C8A96A', border: 'none', cursor: 'pointer' }}
+          >
+            {lang === 'es' ? 'Activar' : 'Enable'}
+          </button>
+        </div>
+      </div>
 
       {/* ── ALERT LAYER: Foreground modal (auto-opens on new offer) ─────────────────── */}
       {showOfferAlertModal && summary.active_offer && (
