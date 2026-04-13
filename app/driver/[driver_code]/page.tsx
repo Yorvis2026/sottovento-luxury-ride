@@ -1532,6 +1532,42 @@ export default function DriverDashboardByCode() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [loadData, driverCode])
+  // ── BM-SLN-PUSH-RUNTIME-ACTIVATION-01: Auto push permission in standalone PWA ──────────────────────
+  // On iOS, Notification.requestPermission() is allowed inside a standalone PWA
+  // (Add to Home Screen). This useEffect fires once on mount and automatically
+  // triggers the system push permission popup when the driver opens the app
+  // from the Home Screen icon.
+  // Guard: only runs in standalone mode — never fires in regular browser tab.
+  useEffect(() => {
+    const isStandalone =
+      (typeof window !== 'undefined' &&
+        (window.navigator as unknown as Record<string, unknown>).standalone === true) ||
+      (typeof window !== 'undefined' &&
+        window.matchMedia('(display-mode: standalone)').matches)
+    if (!isStandalone) return
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission !== 'default') return
+    // Small delay (1.5s) to let SW register and page fully mount before requesting
+    const timer = setTimeout(() => {
+      Notification.requestPermission()
+        .then(permission => {
+          console.log('[SLN-PUSH-ACTIVATION] Push permission result:', permission)
+          if (permission === 'granted') {
+            // Hide manual banner — no longer needed
+            const banner = document.getElementById('sln-push-permission-banner')
+            if (banner) banner.style.display = 'none'
+            // Trigger full subscribe flow via existing handler
+            const fn = (window as unknown as Record<string, unknown>)
+              .__slnRequestPushPermission as (() => void) | undefined
+            if (fn) fn()
+          }
+        })
+        .catch(err => {
+          console.warn('[SLN-PUSH-ACTIVATION] requestPermission error:', err)
+        })
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   // ── Heartbeat: trigger server-side cron every 30s while panel is visible ─
   // BUG E FIX: Reduced from 60s to 30s to match the cron expire-driver-offers cadence.
   // This ensures that when an offer expires server-side, the UI reflects it within 30s
