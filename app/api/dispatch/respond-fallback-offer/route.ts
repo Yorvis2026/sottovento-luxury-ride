@@ -5,6 +5,7 @@ import {
   logEligibility,
   type DriverEligibilityInput,
 } from '@/lib/dispatch/is-driver-eligible';
+import { sendPushToDriver } from '@/lib/push/send-push';
 const sql = neon(process.env.DATABASE_URL_UNPOOLED as string);
 
 // POST /api/dispatch/respond-fallback-offer
@@ -265,6 +266,21 @@ export async function POST(req: Request) {
         case: offer.fallback_case_level,
         dispatch_status: 'reassigned',
       });
+
+      // BM-PWA-PUSH-SLN-02: Send push to the accepting driver (pool/fallback offer)
+      try {
+        await sendPushToDriver(driverId, {
+          offer_id:    offer_id,
+          offer_type:  'pool',
+          offer_round: offer.offer_round ?? 1,
+          driver_code: driver_code,
+          booking_id:  bookingId,
+          pickup_text: (booking.pickup_location ?? 'Pickup').slice(0, 60),
+          price:       booking.total_price ?? 0,
+          expires_at:  offer.expires_at ?? new Date(Date.now() + 180000).toISOString(),
+          deep_link:   `/driver/${driver_code}`,
+        })
+      } catch { /* non-blocking */ }
 
       return NextResponse.json({
         ok: true,

@@ -5,6 +5,7 @@ import { lockCommission } from "@/lib/dispatch/commission-engine";
 import { db } from "@/lib/dispatch/db";
 import { neon } from "@neondatabase/serverless";
 import type { RespondOfferRequest, RespondOfferResponse } from "@/lib/dispatch/types";
+import { sendPushToDriver } from "@/lib/push/send-push";
 
 // ============================================================
 // POST /api/dispatch/respond-offer
@@ -289,6 +290,25 @@ export async function POST(req: NextRequest) {
           WHERE id = ${booking.id}::uuid
         `;
       } catch { /* non-blocking — revenue persistence must never block acceptance */ }
+
+      // BM-PWA-PUSH-SLN-02: Send push notification to the accepting driver
+      // (confirms acceptance on other devices / background tabs)
+      // Non-blocking — never interrupts the dispatch flow
+      try {
+        const driverRows = await sql`SELECT driver_code FROM drivers WHERE id = ${body.driver_id}::uuid LIMIT 1`
+        const driverCode = driverRows[0]?.driver_code ?? ''
+        await sendPushToDriver(body.driver_id, {
+          offer_id:    offer.id ?? booking.id,
+          offer_type:  offer.is_source_offer ? 'source' : 'pool',
+          offer_round: offer.offer_round ?? 1,
+          driver_code: driverCode,
+          booking_id:  booking.id,
+          pickup_text: (booking.pickup_location ?? 'Pickup').slice(0, 60),
+          price:       booking.total_price ?? 0,
+          expires_at:  offer.expires_at ?? new Date(Date.now() + 600000).toISOString(),
+          deep_link:   `/driver/${driverCode}`,
+        })
+      } catch { /* non-blocking */ }
 
       const response: RespondOfferResponse = {
         booking_id: booking.id,

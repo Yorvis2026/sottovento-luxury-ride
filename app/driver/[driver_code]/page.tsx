@@ -1348,6 +1348,46 @@ export default function DriverDashboardByCode() {
   useEffect(() => {
     loadData()
     pollRef.current = setInterval(loadData, POLL_INTERVAL)
+
+    // ── BM-PWA-PUSH-SLN-02: Register Service Worker + Push Subscription ──────────────────
+    // Registers /driver-sw.js and subscribes to Web Push using VAPID public key.
+    // Non-blocking — never interrupts polling or render.
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.register('/driver-sw.js', { scope: '/driver/' })
+        .then(async (reg) => {
+          // Listen for push messages that arrive while the page is open
+          navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data?.type === 'SLN_PUSH_OFFER_CLICK') {
+              loadData() // refresh immediately on notification tap
+            }
+          })
+          // Request push permission and subscribe
+          const permission = await Notification.requestPermission()
+          if (permission !== 'granted') return
+          const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+          if (!vapidKey) return
+          try {
+            const sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: vapidKey,
+            })
+            // Register subscription with backend (requires driver_id from summary)
+            // We retry on next poll if summary not yet loaded
+            const tryRegister = async () => {
+              const me = await fetch(`/api/driver/me?driver_code=${driverCode}`).then(r => r.json()).catch(() => null)
+              if (!me?.id) return
+              await fetch('/api/driver/push-subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ driver_id: me.id, subscription: sub.toJSON() }),
+              }).catch(() => {})
+            }
+            tryRegister().catch(() => {})
+          } catch { /* push subscription failed — non-blocking */ }
+        })
+        .catch(() => { /* SW registration failed — non-blocking */ })
+    }
+
     // ── Availability Engine: panel open → available ───────────────────────────────────────
     // When the driver opens the panel, set availability_status = 'available'
     // so they are eligible to receive dispatch offers.
