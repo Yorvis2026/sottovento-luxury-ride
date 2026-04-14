@@ -1,4 +1,3 @@
-export const dynamic = "force-dynamic"
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 
@@ -56,6 +55,32 @@ const AUDIT_EVENT: Record<string, string> = {
   no_show:   "no_show",
 };
 
+// ── Haversine distance (meters) ─────────────────────────────
+// Returns the great-circle distance between two GPS coordinates.
+function haversineMeters(
+  lat1: number, lng1: number,
+  lat2: number, lng2: number
+): number {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── Venue type radius map ───────────────────────────────────
+// Pickup types that require an extended radius (300 m).
+const EXTENDED_RADIUS_TYPES = new Set([
+  "airport", "large_venue", "hotel_complex", "cruise_port", "convention_center"
+]);
+
+function getArrivalRadiusMeters(pickupType: string | null): number {
+  return EXTENDED_RADIUS_TYPES.has(pickupType ?? "") ? 300 : 150;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -68,11 +93,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Load booking ─────────────────────────────────────────
+    // ── Load booking (extended: includes pickup coordinates and venue type) ─
     const bookingRows = await sql`
       SELECT id::text, status, assigned_driver_id::text, source_driver_id::text,
              total_price, pickup_address, dropoff_address,
-             pickup_at, vehicle_type, client_id::text
+             pickup_at, vehicle_type, client_id::text,
+             pickup_lat, pickup_lng, pickup_type
       FROM bookings
       WHERE id = ${booking_id}::uuid
       LIMIT 1
@@ -107,6 +133,148 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
     const tsColumn = STATUS_TIMESTAMP_COLUMN[new_status];
+    const override_type = body.override_type ?? null;
+    const gps_lat = body.gps_lat != null ? Number(body.gps_lat) : null;
+    const gps_lng = body.gps_lng != null ? Number(body.gps_lng) : null;
+
+    // ── Arrival Geo-Validation ───────────────────────────────
+    // SLN-ARRIVAL-GEO-VALIDATION-01
+    // Enforced only on the en_route → arrived transition.
+    // Requires gps_lat + gps_lng in the request body.
+    // Pickup coordinates must exist in the booking record.
+    // Override: override_type = 'gps_bypass' skips the distance check
+    // but writes an explicit audit log entry.
+    if (new_status === "arrived") {
+      // Ensure telemetry columns exist (idempotent migration)
+      try {
+        await sql`
+          ALTER TABLE bookings
+            ADD COLUMN IF NOT EXISTS attempted_arrived_lat            DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS attempted_arrived_lng            DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS attempted_arrived_distance_meters DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS arrived_validation_passed        BOOLEAN,
+            ADD COLUMN IF NOT EXISTS arrived_override_type            VARCHAR(50)
+        `;
+      } catch { /* columns may already exist */ }
+
+      const pickupLat = booking.pickup_lat != null ? Number(booking.pickup_lat) : null;
+      const pickupLng = booking.pickup_lng != null ? Number(booking.pickup_lng) : null;
+      const hasDriverGps   = gps_lat != null && gps_lng != null && !isNaN(gps_lat) && !isNaN(gps_lng);
+      const hasPickupCoords = pickupLat != null && pickupLng != null && !isNaN(pickupLat) && !isNaN(pickupLng);
+
+      let distanceMeters: number | null = null;
+      let validationPassed = true; // default: pass if we can't compute (graceful degradation)
+
+      if (hasDriverGps && hasPickupCoords) {
+        distanceMeters = haversineMeters(gps_lat!, gps_lng!, pickupLat!, pickupLng!);
+        const allowedRadius = getArrivalRadiusMeters(booking.pickup_type ?? null);
+
+        if (distanceMeters > allowedRadius) {
+          // Driver is outside the allowed radius
+          if (override_type === "gps_bypass") {
+            // Override accepted — log and continue
+            validationPassed = true;
+            try {
+              await sql`
+                INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
+                VALUES (
+                  'booking',
+                  ${booking_id}::uuid,
+                  'arrived_geo_bypass',
+                  'driver',
+                  ${driver_id}::uuid,
+                  ${JSON.stringify({
+                    override_type: "gps_bypass",
+                    driver_lat: gps_lat,
+                    driver_lng: gps_lng,
+                    pickup_lat: pickupLat,
+                    pickup_lng: pickupLng,
+                    distance_meters: Math.round(distanceMeters),
+                    allowed_radius_meters: allowedRadius,
+                    pickup_type: booking.pickup_type ?? null,
+                    timestamp: now,
+                  })}::jsonb
+                )
+              `;
+            } catch { /* audit log failure is non-blocking */ }
+          } else {
+            // Reject the transition
+            validationPassed = false;
+
+            // Persist telemetry even on rejection
+            try {
+              await sql`
+                UPDATE bookings
+                SET attempted_arrived_lat             = ${gps_lat},
+                    attempted_arrived_lng             = ${gps_lng},
+                    attempted_arrived_distance_meters = ${Math.round(distanceMeters)},
+                    arrived_validation_passed         = FALSE,
+                    arrived_override_type             = ${override_type},
+                    updated_at                        = NOW()
+                WHERE id = ${booking_id}::uuid
+              `;
+            } catch { /* telemetry failure is non-blocking */ }
+
+            // Audit log for rejected attempt
+            try {
+              await sql`
+                INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
+                VALUES (
+                  'booking',
+                  ${booking_id}::uuid,
+                  'arrived_geo_rejected',
+                  'driver',
+                  ${driver_id}::uuid,
+                  ${JSON.stringify({
+                    driver_lat: gps_lat,
+                    driver_lng: gps_lng,
+                    pickup_lat: pickupLat,
+                    pickup_lng: pickupLng,
+                    distance_meters: Math.round(distanceMeters),
+                    allowed_radius_meters: allowedRadius,
+                    pickup_type: booking.pickup_type ?? null,
+                    timestamp: now,
+                  })}::jsonb
+                )
+              `;
+            } catch { /* audit log failure is non-blocking */ }
+
+            return NextResponse.json(
+              {
+                error: "Arrival rejected: driver is outside pickup radius",
+                code: "GEO_VALIDATION_FAILED",
+                distance_meters: Math.round(distanceMeters),
+                allowed_radius_meters: allowedRadius,
+                pickup_type: booking.pickup_type ?? null,
+                hint: "Move closer to the pickup location, or use override_type: 'gps_bypass' if authorized.",
+              },
+              { status: 422 }
+            );
+          }
+        } else {
+          validationPassed = true;
+        }
+      }
+      // If GPS data is missing (driver or pickup), validation passes silently (graceful degradation).
+      // This preserves backward compatibility with clients that don't send GPS.
+
+      // Persist telemetry for all arrived transitions (pass or bypass)
+      if (hasDriverGps) {
+        try {
+          await sql`
+            UPDATE bookings
+            SET attempted_arrived_lat             = ${gps_lat},
+                attempted_arrived_lng             = ${gps_lng},
+                attempted_arrived_distance_meters = ${distanceMeters != null ? Math.round(distanceMeters) : null},
+                arrived_validation_passed         = ${validationPassed},
+                arrived_override_type             = ${override_type},
+                updated_at                        = NOW()
+            WHERE id = ${booking_id}::uuid
+          `;
+        } catch { /* telemetry failure is non-blocking */ }
+      }
+    }
+    // ── End Arrival Geo-Validation ───────────────────────────
 
     // ── Update booking status + timestamp ────────────────────
     // We use ADD COLUMN IF NOT EXISTS to safely add missing columns
@@ -260,9 +428,6 @@ export async function POST(req: NextRequest) {
 
     // ── Timeline log ─────────────────────────────────────────
     const auditEvent = AUDIT_EVENT[new_status] ?? new_status;
-    const override_type = body.override_type ?? null; // 'early_start', 'gps_bypass', etc.
-    const gps_lat = body.gps_lat ?? null;
-    const gps_lng = body.gps_lng ?? null;
     try {
       await sql`
         INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
