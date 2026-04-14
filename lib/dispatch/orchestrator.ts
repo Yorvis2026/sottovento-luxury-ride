@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { sendPushToDriver } from '@/lib/push/send-push'
+import { neon } from '@neondatabase/serverless'
 
 // Authoritative offer window policy (minutes) per round
 const OFFER_WINDOW_MINUTES: Record<number, number> = {
@@ -26,19 +27,20 @@ const DEFAULT_OFFER_WINDOW_MINUTES = 5
 export interface CreateOfferParams {
   booking_id:       string
   driver_id:        string
-  driver_code:      string
+  driver_code?:     string   // optional — looked up from DB if not provided
   offer_round:      number
-  offer_type:       'source' | 'pool'
+  offer_type:       'source' | 'pool' | 'admin_assign' | 'rescue_critical' | 'rescue_high_risk'
   is_source_offer?: boolean
   is_fallback_offer?: boolean
   is_rescue_offer?: boolean
-  pickup_text:      string
-  price:            number
+  rescue_priority_level?: string
+  pickup_text?:     string   // optional — defaults to 'New Ride Offer'
+  price?:           number   // optional — defaults to 0
   // Optional overrides
   window_minutes?:  number   // override TTL (e.g. smart-reassign rescue = 3 min)
   // Neon sql tagged-template function — passed in so orchestrator stays stateless
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  sql:              any
+  sql?:             any      // optional — orchestrator creates its own connection if not provided
 }
 
 export interface CreateOfferResult {
@@ -53,17 +55,30 @@ export async function createDispatchOfferAndNotify(
   const {
     booking_id,
     driver_id,
-    driver_code,
     offer_round,
     offer_type,
     is_source_offer  = false,
     is_fallback_offer = false,
     is_rescue_offer  = false,
-    pickup_text,
-    price,
     window_minutes,
-    sql,
   } = params
+
+  // Use provided sql connection or create own
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sql: any = params.sql ?? neon(process.env.DATABASE_URL_UNPOOLED!)
+
+  // Resolve optional fields from DB if not provided
+  let driver_code = params.driver_code ?? ''
+  let pickup_text = params.pickup_text ?? 'New Ride Offer'
+  const price     = params.price ?? 0
+
+  // If driver_code not provided, look it up
+  if (!driver_code) {
+    try {
+      const rows = await sql`SELECT driver_code FROM drivers WHERE id = ${driver_id}::uuid LIMIT 1`
+      driver_code = rows[0]?.driver_code ?? ''
+    } catch { /* non-blocking */ }
+  }
 
   // ── 1. Calculate authoritative TTL ───────────────────────────────────────
   const ttlMinutes = window_minutes ?? OFFER_WINDOW_MINUTES[offer_round] ?? DEFAULT_OFFER_WINDOW_MINUTES
