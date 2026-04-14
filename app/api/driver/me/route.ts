@@ -748,7 +748,14 @@ export async function GET(req: NextRequest) {
           b.luggage,
           b.notes,
           COALESCE(NULLIF(TRIM(c.full_name), ''), b.client_email) AS client_name,
-          c.phone AS client_phone
+          c.phone AS client_phone,
+          -- [SLN-ETA-FEASIBILITY-01] ETA telemetry fields
+          b.eta_check_at,
+          b.eta_minutes_to_pickup,
+          b.minutes_until_pickup_at_check,
+          b.eta_risk_detected,
+          b.eta_risk_level,
+          b.eta_distance_km
         FROM bookings b
         LEFT JOIN clients c ON c.id = b.client_id
         WHERE b.assigned_driver_id = ${driver.id}
@@ -790,6 +797,13 @@ export async function GET(req: NextRequest) {
           notes: r.notes ?? null,
           client_name: r.client_name ?? null,
           client_phone: r.client_phone ?? null,
+          // [SLN-ETA-FEASIBILITY-01] ETA risk fields
+          eta_check_at: r.eta_check_at ?? null,
+          eta_minutes_to_pickup: r.eta_minutes_to_pickup != null ? Number(r.eta_minutes_to_pickup) : null,
+          minutes_until_pickup_at_check: r.minutes_until_pickup_at_check != null ? Number(r.minutes_until_pickup_at_check) : null,
+          eta_risk_detected: r.eta_risk_detected ?? false,
+          eta_risk_level: r.eta_risk_level ?? null,
+          eta_distance_km: r.eta_distance_km != null ? Number(r.eta_distance_km) : null,
         };
       });
     } catch { /* non-blocking */ }
