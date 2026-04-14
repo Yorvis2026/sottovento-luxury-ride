@@ -501,6 +501,13 @@ interface UpcomingRide {
   notes?: string | null
   client_name?: string | null
   client_phone?: string | null
+  // [SLN-ETA-FEASIBILITY-01] ETA risk fields
+  eta_check_at?: string | null
+  eta_minutes_to_pickup?: number | null
+  minutes_until_pickup_at_check?: number | null
+  eta_risk_detected?: boolean
+  eta_risk_level?: string | null
+  eta_distance_km?: number | null
 }
 
 interface CompletedRide {
@@ -1676,6 +1683,38 @@ export default function DriverDashboardByCode() {
       }
     }
   }, [])
+
+  // ── [SLN-ETA-FEASIBILITY-01] GPS Heartbeat: persist location every 30s ─────
+  // Sends driver's current GPS to /api/driver/location so the ride-monitor
+  // cron can evaluate ETA feasibility for upcoming rides.
+  // Only fires when GPS is available and driver_code is known.
+  const gpsHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    if (!driverCode) return
+    const sendHeartbeat = async () => {
+      if (!gpsCoords) return
+      try {
+        await fetch('/api/driver/location', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            driver_code: driverCode,
+            lat: gpsCoords.lat,
+            lng: gpsCoords.lng,
+          }),
+        })
+      } catch { /* heartbeat failure is non-blocking */ }
+    }
+    // Send immediately on mount, then every 30 seconds
+    sendHeartbeat()
+    gpsHeartbeatRef.current = setInterval(sendHeartbeat, 30000)
+    return () => {
+      if (gpsHeartbeatRef.current !== null) {
+        clearInterval(gpsHeartbeatRef.current)
+        gpsHeartbeatRef.current = null
+      }
+    }
+  }, [driverCode, gpsCoords])
 
   // ── Availability Engine: manual toggle ──────────────────────────────────────────
   // Driver can manually toggle between available and offline.
@@ -4494,14 +4533,55 @@ export default function DriverDashboardByCode() {
                 const isNearWindow = minutesUntil !== null && minutesUntil <= 120 // 2h operational window
                 const isExpanded = expandedRideId === ride.booking_id
 
+                // [SLN-ETA-FEASIBILITY-01] ETA risk banner config
+                const etaRiskLevel = ride.eta_risk_level ?? null
+                const etaRiskColors: Record<string, { bg: string; text: string; border: string }> = {
+                  low:      { bg: 'rgba(234,179,8,0.10)',   text: '#eab308', border: '#eab30840' },
+                  medium:   { bg: 'rgba(249,115,22,0.10)',  text: '#f97316', border: '#f9731640' },
+                  high:     { bg: 'rgba(239,68,68,0.12)',   text: '#ef4444', border: '#ef444450' },
+                  critical: { bg: 'rgba(239,68,68,0.20)',   text: '#ff3333', border: '#ff333370' },
+                }
+                const etaRiskColor = etaRiskLevel ? etaRiskColors[etaRiskLevel] : null
+                const etaRiskLabel: Record<string, { es: string; en: string }> = {
+                  low:      { es: 'Tiempo ajustado para llegar al pickup', en: 'Tight window to reach pickup' },
+                  medium:   { es: 'Riesgo de llegar tarde al pickup', en: 'At risk of late pickup arrival' },
+                  high:     { es: 'Probable retraso en el pickup', en: 'Likely late to pickup' },
+                  critical: { es: 'Retraso crítico — actuar ahora', en: 'Critical delay — act now' },
+                }
+                const borderColor = etaRiskColor?.border ?? (isNearWindow ? GOLD + '60' : '#27272a')
+
                 return (
                   <div key={ride.booking_id}
                     className="rounded-xl border bg-zinc-900 overflow-hidden"
-                    style={{ borderColor: isNearWindow ? GOLD + "60" : "#27272a" }}>
-                    {isNearWindow && (
+                    style={{ borderColor }}>
+                    {/* [SLN-ETA-FEASIBILITY-01] ETA Risk Banner */}
+                    {etaRiskLevel && etaRiskColor && (
+                      <div className="px-4 py-2 text-xs font-semibold flex items-center gap-2"
+                        style={{ backgroundColor: etaRiskColor.bg, color: etaRiskColor.text }}>
+                        <span className="animate-pulse">{etaRiskLevel === 'critical' ? '🚨' : '⚠️'}</span>
+                        <span>
+                          {lang === 'es'
+                            ? etaRiskLabel[etaRiskLevel]?.es
+                            : etaRiskLabel[etaRiskLevel]?.en}
+                          {ride.eta_minutes_to_pickup != null && (
+                            <span className="ml-1 opacity-75">
+                              ({lang === 'es' ? 'ETA' : 'ETA'}: {Math.round(ride.eta_minutes_to_pickup)} min)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {isNearWindow && !etaRiskLevel && (
                       <div className="px-4 py-2 text-xs font-semibold flex items-center gap-2"
                         style={{ backgroundColor: GOLD + "15", color: GOLD }}>
                         <span className="animate-pulse">●</span>
+                        {lang === "es" ? `Activación en ${minutesUntil} min` : `Activates in ${minutesUntil} min`}
+                      </div>
+                    )}
+                    {isNearWindow && etaRiskLevel && (
+                      <div className="px-4 py-1.5 text-xs flex items-center gap-2"
+                        style={{ backgroundColor: GOLD + "08", color: GOLD + 'cc' }}>
+                        <span>●</span>
                         {lang === "es" ? `Activación en ${minutesUntil} min` : `Activates in ${minutesUntil} min`}
                       </div>
                     )}
