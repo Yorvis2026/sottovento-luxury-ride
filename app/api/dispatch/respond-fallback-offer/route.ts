@@ -542,6 +542,28 @@ async function dispatchNextDriver(
       expires_in_minutes: OFFER_WINDOW_MINUTES,
     });
 
+    // [SLN-PUSH-DELIVERY-FIX-01] BUG C FIX:
+    // dispatchNextDriver was creating the dispatch_offer row and updating the booking
+    // but NEVER calling sendPushToDriver — the next driver got an offer in the DB
+    // but received zero push notification. Fix: fire push non-blocking after offer creation.
+    try {
+      const pushBookingRows = await sql`
+        SELECT pickup_location, total_price FROM bookings WHERE id = ${bookingId}::uuid LIMIT 1
+      `;
+      const pushBooking = pushBookingRows[0] ?? {};
+      await sendPushToDriver(nextDriver.id, {
+        offer_id:    `${bookingId}-r${nextRound}`,
+        offer_type:  'pool',
+        offer_round: nextRound,
+        driver_code: nextDriver.driver_code,
+        booking_id:  bookingId,
+        pickup_text: ((pushBooking.pickup_location as string) ?? 'New Ride Offer').slice(0, 60),
+        price:       (pushBooking.total_price as number) ?? 0,
+        expires_at:  expiresAt,
+        deep_link:   `/driver/${nextDriver.driver_code}`,
+      });
+    } catch { /* non-blocking — push failure must never interrupt dispatch */ }
+
     console.log(
       `[bm10-fallback] ✓ next_offer_created — booking ${bookingId}` +
       ` — Driver ${nextDriver.driver_code} — Round ${nextRound}`
