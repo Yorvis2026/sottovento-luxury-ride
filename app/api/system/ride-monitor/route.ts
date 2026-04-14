@@ -17,7 +17,8 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 //   1. Checks all upcoming rides and calculates activation window
 //   2. Sets ride_window_state = 'active' when within 90 min
 //   3. Sends pre-alert emails/SMS at 2h mark
-//   4. Returns summary of processed rides
+//   4. Sends push notification at T-90 (90 min before pickup)
+//   5. Returns summary of processed rides
 //
 // Called by: Vercel Cron (every 60s) or manual trigger
 // ============================================================
@@ -33,7 +34,9 @@ export async function GET(req: NextRequest) {
         ALTER TABLE bookings
           ADD COLUMN IF NOT EXISTS ride_window_state VARCHAR(20) DEFAULT 'upcoming',
           ADD COLUMN IF NOT EXISTS pre_alert_2h_sent BOOLEAN DEFAULT FALSE,
-          ADD COLUMN IF NOT EXISTS pre_alert_eta_sent BOOLEAN DEFAULT FALSE
+          ADD COLUMN IF NOT EXISTS pre_alert_eta_sent BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS pre_alert_90_sent BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS pre_alert_90_sent_at TIMESTAMPTZ
       `;
     } catch { /* columns may already exist */ }
 
@@ -47,9 +50,11 @@ export async function GET(req: NextRequest) {
         b.assigned_driver_id,
         b.ride_window_state,
         b.pre_alert_2h_sent,
+        b.pre_alert_90_sent,
         d.email AS driver_email,
         d.full_name AS driver_name,
-        d.phone AS driver_phone
+        d.phone AS driver_phone,
+        d.driver_code AS driver_code
       FROM bookings b
       LEFT JOIN drivers d ON d.id = b.assigned_driver_id
       WHERE b.status IN ('accepted', 'assigned')
@@ -63,6 +68,7 @@ export async function GET(req: NextRequest) {
       processed: 0,
       activated: 0,
       alerts_sent: 0,
+      push_90_sent: 0,
       rides: [] as Record<string, unknown>[],
     };
 
@@ -129,6 +135,63 @@ export async function GET(req: NextRequest) {
         } catch { /* email failure is non-blocking */ }
       }
 
+      // ── T-90: Send push notification 90 min before pickup ───
+      // Window: between 85 and 95 minutes before pickup to avoid
+      // missing the window if cron fires slightly early or late.
+      const should90Push =
+        minutesUntilPickup <= 95 &&
+        minutesUntilPickup > 85 &&
+        !ride.pre_alert_90_sent &&
+        ride.driver_code;
+
+      if (should90Push) {
+        try {
+          // Fetch driver push subscriptions
+          const subs = await sql`
+            SELECT endpoint, p256dh, auth
+            FROM driver_push_subscriptions
+            WHERE driver_code = ${ride.driver_code}
+              AND endpoint IS NOT NULL
+              AND p256dh IS NOT NULL
+              AND auth IS NOT NULL
+          `;
+
+          if (subs.length > 0) {
+            // Import sendPushToDriver dynamically to avoid circular deps
+            const { sendPushToDriver } = await import("@/lib/push/send-push");
+
+            const pushPayload = {
+              title: "Upcoming service reminder",
+              body: `Pickup in 90 minutes. Please prepare for your next ride.`,
+              sound: "default",
+              badge: 1,
+              tag: `t90-${ride.id}`,
+              renotify: true,
+              data: {
+                url: `/driver/${ride.driver_code}`,
+                booking_id: ride.id,
+                type: "pre_trip_reminder",
+              },
+            };
+
+            // sendPushToDriver expects driver_code and payload
+            await sendPushToDriver(ride.driver_code, pushPayload);
+
+            // Record telemetry — mark as sent to prevent duplicates
+            await sql`
+              UPDATE bookings
+              SET pre_alert_90_sent = TRUE,
+                  pre_alert_90_sent_at = NOW()
+              WHERE id = ${ride.id}
+            `;
+            results.push_90_sent++;
+          }
+        } catch (pushErr) {
+          // Push failure is non-blocking — log but continue
+          console.error(`[ride-monitor] T-90 push failed for booking ${ride.id}:`, pushErr);
+        }
+      }
+
       results.rides.push({
         id: ride.id,
         pickup_at: ride.pickup_at,
@@ -136,6 +199,7 @@ export async function GET(req: NextRequest) {
         window_state: shouldBeActive ? "active" : "upcoming",
         activated: shouldBeActive && currentWindowState !== "active",
         alert_sent: should2hAlert && !ride.pre_alert_2h_sent,
+        push_90_sent: should90Push ?? false,
       });
     }
 
