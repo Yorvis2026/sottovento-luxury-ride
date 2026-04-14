@@ -18,10 +18,54 @@ const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 //   2. Sets ride_window_state = 'active' when within 90 min
 //   3. Sends pre-alert emails/SMS at 2h mark
 //   4. Sends push notification at T-90 (90 min before pickup)
-//   5. Returns summary of processed rides
+//   5. [SLN-ETA-FEASIBILITY-01] Evaluates ETA risk for each ride
+//      with a known driver location — detects if driver cannot
+//      realistically arrive on time.
+//   6. Returns summary of processed rides
 //
 // Called by: Vercel Cron (every 60s) or manual trigger
 // ============================================================
+
+// ── ETA Feasibility Constants ────────────────────────────────
+// Safety buffer: if ETA + buffer > minutes_until_pickup → risk
+const ETA_SAFETY_BUFFER_MINUTES = 10;
+
+// Average urban driving speed used for Haversine-based ETA
+// (no external routing API needed — zero cost, production-safe)
+const AVG_SPEED_KMH = 35;
+
+// Only evaluate ETA for rides within this window (hours before pickup)
+const ETA_EVALUATION_WINDOW_HOURS = 6;
+
+// ── Haversine distance (km) ──────────────────────────────────
+function haversineKm(
+  lat1: number, lng1: number,
+  lat2: number, lng2: number
+): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── ETA risk classification ──────────────────────────────────
+function classifyEtaRisk(
+  etaMinutes: number,
+  minutesUntilPickup: number,
+  buffer: number
+): "none" | "low" | "medium" | "high" | "critical" {
+  const slack = minutesUntilPickup - etaMinutes;
+  if (slack >= buffer) return "none";
+  if (slack >= 0)      return "low";
+  if (slack >= -15)    return "medium";
+  if (slack >= -30)    return "high";
+  return "critical";
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,6 +84,31 @@ export async function GET(req: NextRequest) {
       `;
     } catch { /* columns may already exist */ }
 
+    // ── [SLN-ETA-FEASIBILITY-01] Ensure ETA telemetry columns exist ──
+    try {
+      await sql`
+        ALTER TABLE bookings
+          ADD COLUMN IF NOT EXISTS eta_check_at                    TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS eta_minutes_to_pickup           DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS minutes_until_pickup_at_check   DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS eta_risk_detected               BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS eta_risk_level                  VARCHAR(20),
+          ADD COLUMN IF NOT EXISTS eta_driver_lat                  DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS eta_driver_lng                  DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS eta_distance_km                 DOUBLE PRECISION
+      `;
+    } catch { /* columns may already exist */ }
+
+    // ── Ensure driver location columns exist ────────────────
+    try {
+      await sql`
+        ALTER TABLE drivers
+          ADD COLUMN IF NOT EXISTS last_known_lat    DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS last_known_lng    DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS last_location_at  TIMESTAMPTZ
+      `;
+    } catch { /* columns may already exist */ }
+
     // ── Get all upcoming rides (assigned/accepted, not yet active) ──
     const upcomingRides = await sql`
       SELECT
@@ -47,6 +116,8 @@ export async function GET(req: NextRequest) {
         b.status,
         b.pickup_at,
         b.pickup_address,
+        b.pickup_lat,
+        b.pickup_lng,
         b.assigned_driver_id,
         b.ride_window_state,
         b.pre_alert_2h_sent,
@@ -54,7 +125,10 @@ export async function GET(req: NextRequest) {
         d.email AS driver_email,
         d.full_name AS driver_name,
         d.phone AS driver_phone,
-        d.driver_code AS driver_code
+        d.driver_code AS driver_code,
+        d.last_known_lat AS driver_lat,
+        d.last_known_lng AS driver_lng,
+        d.last_location_at AS driver_location_at
       FROM bookings b
       LEFT JOIN drivers d ON d.id = b.assigned_driver_id
       WHERE b.status IN ('accepted', 'assigned')
@@ -69,6 +143,8 @@ export async function GET(req: NextRequest) {
       activated: 0,
       alerts_sent: 0,
       push_90_sent: 0,
+      eta_evaluated: 0,
+      eta_risks_detected: 0,
       rides: [] as Record<string, unknown>[],
     };
 
@@ -100,7 +176,6 @@ export async function GET(req: NextRequest) {
       const should2hAlert = hoursUntilPickup <= 2 && hoursUntilPickup > 1.5;
       if (should2hAlert && !ride.pre_alert_2h_sent && ride.driver_email) {
         try {
-          // Send email via Resend
           const emailRes = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: {
@@ -136,8 +211,6 @@ export async function GET(req: NextRequest) {
       }
 
       // ── T-90: Send push notification 90 min before pickup ───
-      // Window: between 85 and 95 minutes before pickup to avoid
-      // missing the window if cron fires slightly early or late.
       const should90Push =
         minutesUntilPickup <= 95 &&
         minutesUntilPickup > 85 &&
@@ -146,7 +219,6 @@ export async function GET(req: NextRequest) {
 
       if (should90Push) {
         try {
-          // Fetch driver push subscriptions
           const subs = await sql`
             SELECT endpoint, p256dh, auth
             FROM driver_push_subscriptions
@@ -157,7 +229,6 @@ export async function GET(req: NextRequest) {
           `;
 
           if (subs.length > 0) {
-            // Import sendPushToDriver dynamically to avoid circular deps
             const { sendPushToDriver } = await import("@/lib/push/send-push");
 
             const pushPayload = {
@@ -174,10 +245,8 @@ export async function GET(req: NextRequest) {
               },
             };
 
-            // sendPushToDriver expects driver_code and payload
             await sendPushToDriver(ride.driver_code, pushPayload);
 
-            // Record telemetry — mark as sent to prevent duplicates
             await sql`
               UPDATE bookings
               SET pre_alert_90_sent = TRUE,
@@ -187,8 +256,131 @@ export async function GET(req: NextRequest) {
             results.push_90_sent++;
           }
         } catch (pushErr) {
-          // Push failure is non-blocking — log but continue
           console.error(`[ride-monitor] T-90 push failed for booking ${ride.id}:`, pushErr);
+        }
+      }
+
+      // ── [SLN-ETA-FEASIBILITY-01] ETA Risk Evaluation ────────
+      // Evaluates whether the driver can realistically arrive on time.
+      // Uses Haversine + average speed (no external API, zero cost).
+      // Graceful degradation: skips if GPS data unavailable.
+      let etaRiskLevel: string | null = null;
+      let etaMinutes: number | null = null;
+      let etaDistanceKm: number | null = null;
+      let etaEvaluated = false;
+
+      const withinEtaWindow = hoursUntilPickup <= ETA_EVALUATION_WINDOW_HOURS;
+      const hasPickupCoords =
+        ride.pickup_lat != null &&
+        ride.pickup_lng != null &&
+        !isNaN(Number(ride.pickup_lat)) &&
+        !isNaN(Number(ride.pickup_lng));
+      const hasDriverLocation =
+        ride.driver_lat != null &&
+        ride.driver_lng != null &&
+        !isNaN(Number(ride.driver_lat)) &&
+        !isNaN(Number(ride.driver_lng));
+
+      // Only use driver location if it's fresh (within last 2 hours)
+      const locationFresh = ride.driver_location_at != null &&
+        (now.getTime() - new Date(ride.driver_location_at).getTime()) < 2 * 60 * 60 * 1000;
+
+      if (withinEtaWindow && hasPickupCoords && hasDriverLocation && locationFresh) {
+        try {
+          const driverLat = Number(ride.driver_lat);
+          const driverLng = Number(ride.driver_lng);
+          const pickupLat = Number(ride.pickup_lat);
+          const pickupLng = Number(ride.pickup_lng);
+
+          // Haversine distance + 20% road factor for non-straight roads
+          etaDistanceKm = haversineKm(driverLat, driverLng, pickupLat, pickupLng);
+          const roadFactor = 1.2;
+          etaMinutes = (etaDistanceKm * roadFactor / AVG_SPEED_KMH) * 60;
+
+          const riskLevel = classifyEtaRisk(
+            etaMinutes,
+            minutesUntilPickup,
+            ETA_SAFETY_BUFFER_MINUTES
+          );
+          etaRiskLevel = riskLevel === "none" ? null : riskLevel;
+          etaEvaluated = true;
+          results.eta_evaluated++;
+
+          const riskDetected = etaRiskLevel !== null;
+          if (riskDetected) results.eta_risks_detected++;
+
+          // Persist telemetry
+          await sql`
+            UPDATE bookings
+            SET eta_check_at                  = NOW(),
+                eta_minutes_to_pickup         = ${Math.round(etaMinutes * 10) / 10},
+                minutes_until_pickup_at_check = ${Math.round(minutesUntilPickup * 10) / 10},
+                eta_risk_detected             = ${riskDetected},
+                eta_risk_level                = ${etaRiskLevel},
+                eta_driver_lat                = ${driverLat},
+                eta_driver_lng                = ${driverLng},
+                eta_distance_km               = ${Math.round(etaDistanceKm * 100) / 100},
+                updated_at                    = NOW()
+            WHERE id = ${ride.id}
+          `;
+
+          // ── Push alert for high/critical ETA risk ──────────
+          // Deduplication: only fire once per risk level per 2h window.
+          if ((riskLevel === "high" || riskLevel === "critical") && ride.driver_code) {
+            try {
+              const existingAlert = await sql`
+                SELECT id FROM audit_logs
+                WHERE entity_type = 'booking'
+                  AND entity_id = ${ride.id}::uuid
+                  AND action = ${'eta_risk_push_' + riskLevel}
+                  AND created_at > NOW() - INTERVAL '2 hours'
+                LIMIT 1
+              `;
+
+              if (existingAlert.length === 0) {
+                const { sendPushToDriver } = await import("@/lib/push/send-push");
+                const riskEmoji = riskLevel === "critical" ? "🚨" : "⚠️";
+                const minutesLate = Math.round(etaMinutes - minutesUntilPickup);
+
+                await sendPushToDriver(ride.driver_code, {
+                  title: `${riskEmoji} ETA Alert — Pickup at risk`,
+                  body: `You may arrive ~${minutesLate} min late. Pickup in ${Math.round(minutesUntilPickup)} min.`,
+                  sound: "default",
+                  badge: 1,
+                  tag: `eta-risk-${ride.id}`,
+                  renotify: true,
+                  data: {
+                    url: `/driver/${ride.driver_code}`,
+                    booking_id: ride.id,
+                    type: "eta_risk_alert",
+                    risk_level: riskLevel,
+                  },
+                });
+
+                await sql`
+                  INSERT INTO audit_logs (entity_type, entity_id, action, actor_type, actor_id, new_data)
+                  VALUES (
+                    'booking',
+                    ${ride.id}::uuid,
+                    ${'eta_risk_push_' + riskLevel},
+                    'system',
+                    ${ride.assigned_driver_id}::uuid,
+                    ${JSON.stringify({
+                      risk_level: riskLevel,
+                      eta_minutes: Math.round(etaMinutes),
+                      minutes_until_pickup: Math.round(minutesUntilPickup),
+                      distance_km: Math.round(etaDistanceKm * 100) / 100,
+                      driver_lat: driverLat,
+                      driver_lng: driverLng,
+                      timestamp: now.toISOString(),
+                    })}::jsonb
+                  )
+                `;
+              }
+            } catch { /* push failure is non-blocking */ }
+          }
+        } catch (etaErr) {
+          console.error(`[ride-monitor] ETA evaluation failed for booking ${ride.id}:`, etaErr);
         }
       }
 
@@ -200,6 +392,10 @@ export async function GET(req: NextRequest) {
         activated: shouldBeActive && currentWindowState !== "active",
         alert_sent: should2hAlert && !ride.pre_alert_2h_sent,
         push_90_sent: should90Push ?? false,
+        eta_evaluated: etaEvaluated,
+        eta_minutes: etaMinutes !== null ? Math.round(etaMinutes * 10) / 10 : null,
+        eta_distance_km: etaDistanceKm !== null ? Math.round(etaDistanceKm * 100) / 100 : null,
+        eta_risk_level: etaRiskLevel,
       });
     }
 
