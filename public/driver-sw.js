@@ -1,37 +1,49 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SLN Driver Service Worker — BM-PWA-PUSH-SLN-02
 //                           + SLN-PUSH-ACK-01
+//                           + SLN-PUSH-DIAG-01 (diagnostic logging)
 // Handles: install, activate, push, notificationclick
 // Anti-duplicate: tracks shown offer_ids in memory
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'sln-driver-sw-v3-push-delivery'  // SLN-PUSH-DELIVERY-ACTIVATION-01
+const CACHE_NAME = 'sln-driver-sw-v4-push-diag'  // SLN-PUSH-DIAG-01: bump version to force SW update
 const shownOfferIds = new Set()
+const DIAG_TAG = '[SLN-PUSH-DIAG-01]'
 
 // ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
+  console.log(`${DIAG_TAG} SW install — cache: ${CACHE_NAME}`)
   self.skipWaiting()
 })
 
 // ── Activate ─────────────────────────────────────────────────────────────────
 self.addEventListener('activate', (event) => {
+  console.log(`${DIAG_TAG} SW activate — claiming clients`)
   event.waitUntil(clients.claim())
 })
 
 // ── Push ─────────────────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
-  if (!event.data) return
+  console.log(`${DIAG_TAG} push event received — has data: ${!!event.data}`)
+
+  if (!event.data) {
+    console.warn(`${DIAG_TAG} push event has no data — skipping`)
+    return
+  }
 
   let payload
   try {
     payload = event.data.json()
-  } catch {
+    console.log(`${DIAG_TAG} push payload parsed — push_type: ${payload.push_type || 'n/a'} offer_id: ${payload.offer_id || 'n/a'} title: ${payload.title || 'n/a'}`)
+  } catch (err) {
+    console.warn(`${DIAG_TAG} push payload JSON parse failed — using text fallback`, err)
     payload = { title: 'Nueva oferta', body: event.data.text(), offer_type: 'source' }
   }
 
   const {
     offer_id,
     offer_type = 'source',   // 'source' | 'pool'
+    push_type,
     title,
     body,
     driver_code,
@@ -39,8 +51,17 @@ self.addEventListener('push', (event) => {
     deep_link,
   } = payload
 
-  // Anti-duplicate: skip if we already showed this offer_id
-  if (offer_id && shownOfferIds.has(offer_id)) return
+  // ── [SLN-PUSH-DIAG-01] Diagnostic push path — skip anti-duplicate guard ──
+  const isDiagnostic = push_type === 'system' || payload.data?.diag === true
+  if (isDiagnostic) {
+    console.log(`${DIAG_TAG} Diagnostic push detected — skipping anti-duplicate guard`)
+  }
+
+  // Anti-duplicate: skip if we already showed this offer_id (not for diagnostic)
+  if (!isDiagnostic && offer_id && shownOfferIds.has(offer_id)) {
+    console.log(`${DIAG_TAG} Duplicate offer_id "${offer_id}" — skipping showNotification`)
+    return
+  }
   if (offer_id) shownOfferIds.add(offer_id)
 
   const isSource = offer_type === 'source'
@@ -75,20 +96,34 @@ self.addEventListener('push', (event) => {
     ],
   }
 
+  console.log(`${DIAG_TAG} Calling showNotification — title: "${notifTitle}" tag: "${notifOptions.tag}"`)
+
   event.waitUntil(
     self.registration.showNotification(notifTitle, notifOptions)
+      .then(() => {
+        console.log(`${DIAG_TAG} showNotification() completed successfully`)
+      })
+      .catch((err) => {
+        console.error(`${DIAG_TAG} showNotification() FAILED:`, err)
+      })
   )
 })
 
 // ── Notification Click ────────────────────────────────────────────────────────
 self.addEventListener('notificationclick', (event) => {
+  console.log(`${DIAG_TAG} notificationclick — action: "${event.action}" tag: "${event.notification.tag}"`)
   event.notification.close()
 
-  if (event.action === 'dismiss') return
+  if (event.action === 'dismiss') {
+    console.log(`${DIAG_TAG} notificationclick: user dismissed`)
+    return
+  }
 
   const notifData = event.notification.data || {}
   const { deep_link, driver_code, booking_id, offer_id, push_type, notification_tag } = notifData
   const targetUrl = deep_link || '/driver'
+
+  console.log(`${DIAG_TAG} notificationclick: navigating to "${targetUrl}"`)
 
   // ── [SLN-PUSH-ACK-01] Send acknowledgment telemetry ──────────────────────
   // Fire-and-forget: acknowledgment failure must never block app focus/open.
@@ -116,6 +151,8 @@ self.addEventListener('notificationclick', (event) => {
       .then((res) => {
         if (!res.ok) {
           console.warn('[SLN-PUSH-ACK-01] ack failed:', res.status)
+        } else {
+          console.log(`${DIAG_TAG} push-ack sent successfully`)
         }
       })
       .catch((err) => {
@@ -128,12 +165,14 @@ self.addEventListener('notificationclick', (event) => {
           // If the app is already open, focus it and navigate
           for (const client of windowClients) {
             if (client.url.includes('/driver') && 'focus' in client) {
+              console.log(`${DIAG_TAG} notificationclick: focusing existing window`)
               client.focus()
               client.postMessage({ type: 'SLN_PUSH_OFFER_CLICK', deep_link: targetUrl })
               return
             }
           }
           // Otherwise open a new window
+          console.log(`${DIAG_TAG} notificationclick: opening new window`)
           if (clients.openWindow) {
             return clients.openWindow(targetUrl)
           }
