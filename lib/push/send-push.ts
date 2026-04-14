@@ -62,7 +62,10 @@ export async function sendPushToDriver(driverId: string, payload: PushPayload): 
       tag:      payload.booking_id, // deduplicates — replaces previous offer notif for same booking
       renotify: true,               // forces sound/vibration even if tag matches
       vibrate:  [200, 100, 200],    // Android vibration pattern
-      icon:     '/icon-192x192.png',
+      // [BM-PUSH-FIX-01] Align icon path with manifest (driver-manifest.json) and SW
+      // Previously '/icon-192x192.png' — file does not exist at that path, causing
+      // silent icon failure on some iOS versions.
+      icon:     '/icons/sottovento-driver-192.png',
       data: {
         url:        payload.deep_link,
         booking_id: payload.booking_id,
