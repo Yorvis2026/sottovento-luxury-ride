@@ -5,7 +5,7 @@ import { lockCommission } from "@/lib/dispatch/commission-engine";
 import { postBookingLedger } from "@/lib/dispatch/ledger";
 import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
 import { evaluateRefundDecision } from "@/lib/refund/evaluateRefundDecision";
-import { sendPushToDriver } from "@/lib/push/send-push";
+import { createDispatchOfferAndNotify } from "@/lib/dispatch/orchestrator";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 // ============================================================
@@ -426,41 +426,19 @@ export async function PATCH(
               WHERE id = ${id}::uuid
             `;
           } else {
-            // ── Standard SLN offer flow ──────────────────────────────────────────
-            // Step 1: Close any existing pending offers for this booking
-            await sql`
-              UPDATE dispatch_offers
-              SET response = 'superseded', responded_at = NOW()
-              WHERE booking_id = ${id}::uuid
-                AND response = 'pending'
-            `;
-            // Step 2: Create new dispatch_offer (30-minute window)
-            await sql`
-              INSERT INTO dispatch_offers (
-                booking_id, driver_id, offer_round,
-                is_source_offer, response, sent_at, expires_at
-              ) VALUES (
-                ${id}::uuid,
-                ${assigned_driver_id}::uuid,
-                1,
-                false,
-                'pending',
-                NOW(),
-                NOW() + interval '30 minutes'
-              )
-            `;
-            // Step 3: Update booking to offer_pending — DO NOT set assigned_driver_id yet
-            // assigned_driver_id is set only when driver accepts via respond-offer
-            await sql`
-              UPDATE bookings
-              SET
-                dispatch_status = 'offer_pending',
-                status = 'pending_dispatch',
-                assigned_driver_id = NULL,
-                offer_expires_at = NOW() + interval '30 minutes',
-                updated_at = NOW()
-              WHERE id = ${id}::uuid
-            `;
+            // ── Standard SLN offer flow via Orchestrator ─────────────────────────
+            // createDispatchOfferAndNotify handles:
+            //   1. Supersede existing pending offers
+            //   2. INSERT with idempotency guard (WHERE NOT EXISTS on pending)
+            //   3. UPDATE booking to offer_pending state
+            //   4. sendPushToDriver (only if new row was inserted)
+            await createDispatchOfferAndNotify({
+              booking_id:  id,
+              driver_id:   assigned_driver_id,
+              offer_round: 1,
+              offer_type:  'admin_assign',
+              is_source_offer: false,
+            });
           }
         } catch (e: any) {
           // Fallback if dispatch_status column doesn't exist
@@ -511,23 +489,8 @@ export async function PATCH(
             }).catch(() => null);
           }
 
-          // SLN-PUSH-DELIVERY-ACTIVATION-01: Send Web Push to driver on offer creation
-          // Fires immediately when admin assigns driver — triggers iOS lockscreen alert
-          // Non-blocking — never interrupts booking update
-          if (driverRow) {
-            const offerExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
-            sendPushToDriver(assigned_driver_id, {
-              offer_id:    id,
-              offer_type:  'pool',
-              offer_round: 1,
-              driver_code: driverRow.driver_code ?? '',
-              booking_id:  id,
-              pickup_text: (driverRow.pickup_address ?? 'New Ride Offer').slice(0, 60),
-              price:       Number(driverRow.total_price ?? 0),
-              expires_at:  offerExpiresAt,
-              deep_link:   `/driver/${driverRow.driver_code ?? ''}`,
-            }).catch(() => null)
-          }
+          // Push notification is now handled by createDispatchOfferAndNotify() above.
+          // No additional push call needed here.
         } catch {
           // Email failure should never block the assignment
         }
