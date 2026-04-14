@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
     const bookingRows = await sql`
       SELECT id::text, status, assigned_driver_id::text, source_driver_id::text,
              total_price, pickup_address, dropoff_address,
-             pickup_at, vehicle_type, client_id::text, ref_code
+             pickup_at, vehicle_type, client_id::text
       FROM bookings
       WHERE id = ${booking_id}::uuid
       LIMIT 1
