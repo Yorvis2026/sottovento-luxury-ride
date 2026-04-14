@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SLN Driver Service Worker — BM-PWA-PUSH-SLN-02
+//                           + SLN-PUSH-ACK-01
 // Handles: install, activate, push, notificationclick
 // Anti-duplicate: tracks shown offer_ids in memory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +63,10 @@ self.addEventListener('push', (event) => {
       offer_id,
       offer_type,
       booking_id,
+      driver_code,
+      // [SLN-PUSH-ACK-01] Persist push_type so acknowledgment can be typed correctly
+      push_type: payload.data?.type || payload.push_type || 'dispatch_offer',
+      notification_tag: payload.tag || offer_id || null,
       url: payload.data?.url || (driver_code ? `/driver/${driver_code}` : '/driver'),
     },
     actions: [
@@ -81,23 +86,75 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'dismiss') return
 
-  const { deep_link } = event.notification.data || {}
+  const notifData = event.notification.data || {}
+  const { deep_link, driver_code, booking_id, offer_id, push_type, notification_tag } = notifData
   const targetUrl = deep_link || '/driver'
 
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // If the app is already open, focus it and navigate
-      for (const client of windowClients) {
-        if (client.url.includes('/driver') && 'focus' in client) {
-          client.focus()
-          client.postMessage({ type: 'SLN_PUSH_OFFER_CLICK', deep_link: targetUrl })
-          return
+  // ── [SLN-PUSH-ACK-01] Send acknowledgment telemetry ──────────────────────
+  // Fire-and-forget: acknowledgment failure must never block app focus/open.
+  // Uses fetch() from the service worker context (available in all modern browsers).
+  const ackPayload = {
+    driver_code:      driver_code   || null,
+    push_type:        push_type     || 'unknown',
+    booking_id:       booking_id    || null,
+    offer_id:         offer_id      || null,
+    notification_tag: notification_tag || event.notification.tag || null,
+    acknowledged_at:  new Date().toISOString(),
+    source:           'notificationclick',
+  }
+
+  // Only send ack if we have a driver_code to associate it with
+  if (ackPayload.driver_code) {
+    event.waitUntil(
+      fetch('/api/driver/push-ack', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(ackPayload),
+        // keepalive ensures the request completes even if the SW is about to terminate
+        keepalive: true,
+      })
+      .then((res) => {
+        if (!res.ok) {
+          console.warn('[SLN-PUSH-ACK-01] ack failed:', res.status)
         }
-      }
-      // Otherwise open a new window
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl)
-      }
-    })
-  )
+      })
+      .catch((err) => {
+        // Non-blocking: log but never throw
+        console.warn('[SLN-PUSH-ACK-01] ack fetch error:', err)
+      })
+      .then(() => {
+        // After ack (or ack failure), proceed with focus/open
+        return clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+          // If the app is already open, focus it and navigate
+          for (const client of windowClients) {
+            if (client.url.includes('/driver') && 'focus' in client) {
+              client.focus()
+              client.postMessage({ type: 'SLN_PUSH_OFFER_CLICK', deep_link: targetUrl })
+              return
+            }
+          }
+          // Otherwise open a new window
+          if (clients.openWindow) {
+            return clients.openWindow(targetUrl)
+          }
+        })
+      })
+    )
+  } else {
+    // No driver_code: skip ack, just focus/open as before
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+        for (const client of windowClients) {
+          if (client.url.includes('/driver') && 'focus' in client) {
+            client.focus()
+            client.postMessage({ type: 'SLN_PUSH_OFFER_CLICK', deep_link: targetUrl })
+            return
+          }
+        }
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl)
+        }
+      })
+    )
+  }
 })
