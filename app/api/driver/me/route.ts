@@ -764,7 +764,11 @@ export async function GET(req: NextRequest) {
           -- Secondary guard: exclude by dispatch_status if present (covers partial-write scenarios)
           -- PIPELINE SANITIZATION: also exclude system_cleanup_legacy rides.
           AND (b.dispatch_status IS NULL OR b.dispatch_status NOT IN ('completed', 'cancelled', 'archived', 'no_show', 'system_cleanup_legacy'))
-          AND b.status IN ('offer_pending', 'accepted', 'assigned')
+          -- [BM-STATUS-FIX-01] Include assigned_not_started — canonical post-acceptance status (BM23-FIX-A).
+          -- respond-offer.ts writes status='assigned_not_started' on acceptance.
+          -- Previously this status was missing from the IN list, causing accepted rides
+          -- to disappear from the Driver Upcoming tab immediately after acceptance.
+          AND b.status IN ('offer_pending', 'accepted', 'assigned', 'assigned_not_started')
           -- UPCOMING: only rides with pickup_at BEYOND the 120-min operational window
           -- Rides within 120min are handled by assigned_ride (operational controls)
           AND b.pickup_at > NOW() + INTERVAL '120 minutes'
