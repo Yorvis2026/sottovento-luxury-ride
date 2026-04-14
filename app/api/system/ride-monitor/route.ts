@@ -131,7 +131,8 @@ export async function GET(req: NextRequest) {
         d.last_location_at AS driver_location_at
       FROM bookings b
       LEFT JOIN drivers d ON d.id = b.assigned_driver_id
-      WHERE b.status IN ('accepted', 'assigned')
+      -- [BM-STATUS-FIX-01] Include assigned_not_started (canonical post-acceptance status from BM23-FIX-A)
+      WHERE b.status IN ('accepted', 'assigned', 'assigned_not_started')
         AND b.pickup_at IS NOT NULL
         AND b.pickup_at > NOW() - INTERVAL '30 minutes'
         AND b.pickup_at < NOW() + INTERVAL '48 hours'
@@ -219,10 +220,11 @@ export async function GET(req: NextRequest) {
 
       if (should90Push) {
         try {
+          // [BM-PUSH-FIX-01] Query by driver_id (UUID) — driver_push_subscriptions uses driver_id as key
           const subs = await sql`
             SELECT endpoint, p256dh, auth
             FROM driver_push_subscriptions
-            WHERE driver_code = ${ride.driver_code}
+            WHERE driver_id = ${ride.assigned_driver_id}::uuid
               AND endpoint IS NOT NULL
               AND p256dh IS NOT NULL
               AND auth IS NOT NULL
@@ -245,7 +247,10 @@ export async function GET(req: NextRequest) {
               },
             };
 
-            await sendPushToDriver(ride.driver_code, pushPayload);
+            // [BM-PUSH-FIX-01] Use assigned_driver_id (UUID) — sendPushToDriver queries
+            // driver_push_subscriptions.driver_id which is a UUID, not driver_code.
+            // Passing driver_code caused 0 rows returned → silent push failure.
+            await sendPushToDriver(ride.assigned_driver_id, pushPayload);
 
             await sql`
               UPDATE bookings
@@ -342,7 +347,8 @@ export async function GET(req: NextRequest) {
                 const riskEmoji = riskLevel === "critical" ? "🚨" : "⚠️";
                 const minutesLate = Math.round(etaMinutes - minutesUntilPickup);
 
-                await sendPushToDriver(ride.driver_code, {
+                // [BM-PUSH-FIX-01] Use assigned_driver_id (UUID) — same fix as T-90 push
+                await sendPushToDriver(ride.assigned_driver_id, {
                   title: `${riskEmoji} ETA Alert — Pickup at risk`,
                   body: `You may arrive ~${minutesLate} min late. Pickup in ${Math.round(minutesUntilPickup)} min.`,
                   sound: "default",
