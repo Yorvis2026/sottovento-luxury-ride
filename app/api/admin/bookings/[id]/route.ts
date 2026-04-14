@@ -5,6 +5,7 @@ import { lockCommission } from "@/lib/dispatch/commission-engine";
 import { postBookingLedger } from "@/lib/dispatch/ledger";
 import { checkVehicleEligibility, deriveServiceLocationType, requiresEligibilityGate } from "@/lib/vehicles/gate";
 import { evaluateRefundDecision } from "@/lib/refund/evaluateRefundDecision";
+import { sendPushToDriver } from "@/lib/push/send-push";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 // ============================================================
@@ -508,6 +509,24 @@ export async function PATCH(
               totalPrice: Number(driverRow.total_price ?? 0),
               clientName: driverRow.client_name ?? null,
             }).catch(() => null);
+          }
+
+          // SLN-PUSH-DELIVERY-ACTIVATION-01: Send Web Push to driver on offer creation
+          // Fires immediately when admin assigns driver — triggers iOS lockscreen alert
+          // Non-blocking — never interrupts booking update
+          if (driverRow) {
+            const offerExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+            sendPushToDriver(assigned_driver_id, {
+              offer_id:    id,
+              offer_type:  'pool',
+              offer_round: 1,
+              driver_code: driverRow.driver_code ?? '',
+              booking_id:  id,
+              pickup_text: (driverRow.pickup_address ?? 'New Ride Offer').slice(0, 60),
+              price:       Number(driverRow.total_price ?? 0),
+              expires_at:  offerExpiresAt,
+              deep_link:   `/driver/${driverRow.driver_code ?? ''}`,
+            }).catch(() => null)
           }
         } catch {
           // Email failure should never block the assignment

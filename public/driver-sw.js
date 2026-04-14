@@ -4,7 +4,7 @@
 // Anti-duplicate: tracks shown offer_ids in memory
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'sln-driver-sw-v2-icons'
+const CACHE_NAME = 'sln-driver-sw-v3-push-delivery'  // SLN-PUSH-DELIVERY-ACTIVATION-01
 const shownOfferIds = new Set()
 
 // ── Install ──────────────────────────────────────────────────────────────────
@@ -47,19 +47,22 @@ self.addEventListener('push', (event) => {
   const notifTitle = title || (isSource ? '⭐ OFERTA CAPTADOR' : '🟣 OFERTA DE RED')
   const notifBody  = body  || (isSource ? 'Nueva solicitud prioritaria — toca para ver' : 'Nueva oferta de la red — toca para ver')
 
+  // SLN-PUSH-DELIVERY-ACTIVATION-01: Use payload sound/badge if present
   const notifOptions = {
     body: notifBody,
     icon:  '/icons/sottovento-driver-192.png',
     badge: '/icons/sottovento-driver-192.png',
-    tag: offer_id || `sln-offer-${Date.now()}`,   // prevents duplicate OS notifications
-    renotify: false,
-    requireInteraction: true,                       // keeps notification visible until tapped
-    vibrate: [300, 100, 300, 100, 300],
+    tag:   payload.tag || offer_id || `sln-offer-${Date.now()}`,
+    renotify: true,              // SLN-PUSH-DELIVERY-ACTIVATION-01: always re-alert even if same tag
+    requireInteraction: true,    // keeps notification visible until tapped
+    vibrate: payload.vibrate || [300, 100, 300, 100, 300],
+    silent: false,               // ensure sound is never suppressed
     data: {
       deep_link: deep_link || (driver_code ? `/driver/${driver_code}` : '/driver'),
       offer_id,
       offer_type,
       booking_id,
+      url: payload.data?.url || (driver_code ? `/driver/${driver_code}` : '/driver'),
     },
     actions: [
       { action: 'view', title: isSource ? '⭐ Ver oferta' : '🟣 Ver oferta' },

@@ -54,8 +54,21 @@ export async function sendPushToDriver(driverId: string, payload: PushPayload): 
 
     const pushPayload = JSON.stringify({
       ...payload,
-      title: notifTitle,
-      body:  notifBody,
+      title:    notifTitle,
+      body:     notifBody,
+      // SLN-PUSH-DELIVERY-ACTIVATION-01: APNs-compatible fields for iOS lockscreen alert
+      sound:    'default',          // iOS: plays default notification sound
+      badge:    1,                  // iOS: shows badge count on app icon
+      tag:      payload.booking_id, // deduplicates — replaces previous offer notif for same booking
+      renotify: true,               // forces sound/vibration even if tag matches
+      vibrate:  [200, 100, 200],    // Android vibration pattern
+      icon:     '/icon-192x192.png',
+      data: {
+        url:        payload.deep_link,
+        booking_id: payload.booking_id,
+        offer_type: payload.offer_type,
+        price:      payload.price,
+      },
     })
 
     await Promise.allSettled(

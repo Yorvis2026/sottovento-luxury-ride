@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
+import { sendPushToDriver } from "@/lib/push/send-push";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -271,6 +272,22 @@ export async function POST(req: NextRequest) {
           },
           db: sql,
         });
+      } catch { /* non-blocking */ }
+
+      // SLN-PUSH-DELIVERY-ACTIVATION-01: Send Web Push on smart rescue reassignment
+      try {
+        const rescueExpiresAt = new Date(Date.now() + 3 * 60 * 1000).toISOString()
+        await sendPushToDriver(topCandidate.id, {
+          offer_id:    booking_id,
+          offer_type:  'pool',
+          offer_round: 1,
+          driver_code: topCandidate.driver_code ?? '',
+          booking_id:  booking_id,
+          pickup_text: ((booking.pickup_address ?? booking.pickup_location ?? 'Rescue Ride') as string).slice(0, 60),
+          price:       Number((booking as any).total_price ?? 0),
+          expires_at:  rescueExpiresAt,
+          deep_link:   `/driver/${topCandidate.driver_code ?? ''}`,
+        })
       } catch { /* non-blocking */ }
 
       return NextResponse.json({

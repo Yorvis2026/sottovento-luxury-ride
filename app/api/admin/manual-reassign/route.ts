@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
+import { sendPushToDriver } from "@/lib/push/send-push";
 
 // ============================================================
 // POST /api/admin/manual-reassign
@@ -489,6 +490,27 @@ export async function POST(req: NextRequest) {
           NOW()
         )
       `;
+    } catch { /* non-blocking */ }
+
+    // SLN-PUSH-DELIVERY-ACTIVATION-01: Send Web Push on manual reassignment
+    // Non-blocking — never interrupts dispatch flow
+    try {
+      const offerExpiresAt = new Date(Date.now() + offerWindowMinutes * 60 * 1000).toISOString()
+      // Fetch booking pickup info for the push payload
+      const [bRow] = await sql`
+        SELECT pickup_address, pickup_location, total_price FROM bookings WHERE id = ${booking_id}::uuid LIMIT 1
+      `
+      await sendPushToDriver(targetDriverId!, {
+        offer_id:    newOfferId ?? booking_id,
+        offer_type:  'pool',
+        offer_round: nextRound,
+        driver_code: targetDriverCode ?? '',
+        booking_id:  booking_id,
+        pickup_text: ((bRow?.pickup_address ?? bRow?.pickup_location ?? 'New Ride Offer') as string).slice(0, 60),
+        price:       Number(bRow?.total_price ?? 0),
+        expires_at:  offerExpiresAt,
+        deep_link:   `/driver/${targetDriverCode ?? ''}`,
+      })
     } catch { /* non-blocking */ }
 
     return NextResponse.json({
