@@ -97,8 +97,7 @@ export async function POST(req: NextRequest) {
     const bookingRows = await sql`
       SELECT id::text, status, assigned_driver_id::text, source_driver_id::text,
              total_price, pickup_address, dropoff_address,
-             pickup_at, vehicle_type, client_id::text,
-             pickup_lat, pickup_lng, pickup_type
+             pickup_at, vehicle_type, client_id::text, ref_code
       FROM bookings
       WHERE id = ${booking_id}::uuid
       LIMIT 1
@@ -145,10 +144,13 @@ export async function POST(req: NextRequest) {
     // Override: override_type = 'gps_bypass' skips the distance check
     // but writes an explicit audit log entry.
     if (new_status === "arrived") {
-      // Ensure telemetry columns exist (idempotent migration)
+      // Ensure telemetry + coordinate columns exist (idempotent migration)
       try {
         await sql`
           ALTER TABLE bookings
+            ADD COLUMN IF NOT EXISTS pickup_lat                        DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS pickup_lng                        DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS pickup_type                       VARCHAR(50),
             ADD COLUMN IF NOT EXISTS attempted_arrived_lat            DOUBLE PRECISION,
             ADD COLUMN IF NOT EXISTS attempted_arrived_lng            DOUBLE PRECISION,
             ADD COLUMN IF NOT EXISTS attempted_arrived_distance_meters DOUBLE PRECISION,
@@ -157,8 +159,23 @@ export async function POST(req: NextRequest) {
         `;
       } catch { /* columns may already exist */ }
 
-      const pickupLat = booking.pickup_lat != null ? Number(booking.pickup_lat) : null;
-      const pickupLng = booking.pickup_lng != null ? Number(booking.pickup_lng) : null;
+      // Re-read pickup coordinates now that columns are guaranteed to exist
+      let pickupLat: number | null = null;
+      let pickupLng: number | null = null;
+      let pickupType: string | null = null;
+      try {
+        const coordRows = await sql`
+          SELECT pickup_lat, pickup_lng, pickup_type
+          FROM bookings
+          WHERE id = ${booking_id}::uuid
+          LIMIT 1
+        `;
+        if (coordRows.length > 0) {
+          pickupLat  = coordRows[0].pickup_lat  != null ? Number(coordRows[0].pickup_lat)  : null;
+          pickupLng  = coordRows[0].pickup_lng  != null ? Number(coordRows[0].pickup_lng)  : null;
+          pickupType = coordRows[0].pickup_type ?? null;
+        }
+      } catch { /* coordinate read failure — graceful degradation */ }
       const hasDriverGps   = gps_lat != null && gps_lng != null && !isNaN(gps_lat) && !isNaN(gps_lng);
       const hasPickupCoords = pickupLat != null && pickupLng != null && !isNaN(pickupLat) && !isNaN(pickupLng);
 
@@ -167,7 +184,7 @@ export async function POST(req: NextRequest) {
 
       if (hasDriverGps && hasPickupCoords) {
         distanceMeters = haversineMeters(gps_lat!, gps_lng!, pickupLat!, pickupLng!);
-        const allowedRadius = getArrivalRadiusMeters(booking.pickup_type ?? null);
+        const allowedRadius = getArrivalRadiusMeters(pickupType);
 
         if (distanceMeters > allowedRadius) {
           // Driver is outside the allowed radius
@@ -191,7 +208,7 @@ export async function POST(req: NextRequest) {
                     pickup_lng: pickupLng,
                     distance_meters: Math.round(distanceMeters),
                     allowed_radius_meters: allowedRadius,
-                    pickup_type: booking.pickup_type ?? null,
+                    pickup_type: pickupType,
                     timestamp: now,
                   })}::jsonb
                 )
@@ -232,7 +249,7 @@ export async function POST(req: NextRequest) {
                     pickup_lng: pickupLng,
                     distance_meters: Math.round(distanceMeters),
                     allowed_radius_meters: allowedRadius,
-                    pickup_type: booking.pickup_type ?? null,
+                    pickup_type: pickupType,
                     timestamp: now,
                   })}::jsonb
                 )
@@ -245,7 +262,7 @@ export async function POST(req: NextRequest) {
                 code: "GEO_VALIDATION_FAILED",
                 distance_meters: Math.round(distanceMeters),
                 allowed_radius_meters: allowedRadius,
-                pickup_type: booking.pickup_type ?? null,
+                pickup_type: pickupType,
                 hint: "Move closer to the pickup location, or use override_type: 'gps_bypass' if authorized.",
               },
               { status: 422 }
