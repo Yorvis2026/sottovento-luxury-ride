@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
-import { sendPushToDriver } from "@/lib/push/send-push";
+import { createDispatchOfferAndNotify } from "@/lib/dispatch/orchestrator";
 
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
@@ -212,25 +212,29 @@ export async function POST(req: NextRequest) {
         WHERE id = ${booking_id}::uuid
       `;
 
-      // Create rescue offer in dispatch_offers
+      // Create rescue offer via Orchestrator (idempotent, push-aware)
+      // createDispatchOfferAndNotify handles:
+      //   1. Supersede existing pending offers
+      //   2. INSERT with WHERE NOT EXISTS guard (no duplicates on concurrent rescues)
+      //   3. expires_at via TTL_MINUTES_BY_ROUND (rescue = 3 min)
+      //   4. sendPushToDriver only if new row was inserted
       try {
-        await sql`
-          INSERT INTO dispatch_offers (
-            booking_id, driver_id, offer_round, is_rescue_offer,
-            rescue_priority_level, rescue_deadline_at,
-            sent_at, expires_at, created_at
-          ) VALUES (
-            ${booking_id}::uuid,
-            ${topCandidate.id}::uuid,
-            COALESCE((SELECT MAX(offer_round) FROM dispatch_offers WHERE booking_id = ${booking_id}::uuid), 0) + 1,
-            TRUE,
-            ${booking.sla_protection_level ?? 'STANDARD'},
-            ${new Date(Date.now() + 3 * 60000).toISOString()}::timestamptz,
-            NOW(),
-            ${new Date(Date.now() + 3 * 60000).toISOString()}::timestamptz,
-            NOW()
-          )
-        `;
+        const nextRound = await sql`
+          SELECT COALESCE(MAX(offer_round), 0) + 1 AS next_round
+          FROM dispatch_offers
+          WHERE booking_id = ${booking_id}::uuid
+        `.then(rows => Number(rows[0]?.next_round ?? 1));
+
+        await createDispatchOfferAndNotify({
+          booking_id,
+          driver_id:       topCandidate.id,
+          offer_round:     nextRound,
+          offer_type:      isCritical ? 'rescue_critical' : 'rescue_high_risk',
+          is_source_offer: false,
+          is_rescue_offer: true,
+          rescue_priority_level: booking.sla_protection_level ?? 'STANDARD',
+          pickup_text:     ((booking.pickup_address ?? booking.pickup_location ?? 'Rescue Ride') as string).slice(0, 60),
+        });
       } catch { /* non-blocking */ }
 
       // Log rescue assignment
@@ -274,21 +278,8 @@ export async function POST(req: NextRequest) {
         });
       } catch { /* non-blocking */ }
 
-      // SLN-PUSH-DELIVERY-ACTIVATION-01: Send Web Push on smart rescue reassignment
-      try {
-        const rescueExpiresAt = new Date(Date.now() + 3 * 60 * 1000).toISOString()
-        await sendPushToDriver(topCandidate.id, {
-          offer_id:    booking_id,
-          offer_type:  'pool',
-          offer_round: 1,
-          driver_code: topCandidate.driver_code ?? '',
-          booking_id:  booking_id,
-          pickup_text: ((booking.pickup_address ?? booking.pickup_location ?? 'Rescue Ride') as string).slice(0, 60),
-          price:       Number((booking as any).total_price ?? 0),
-          expires_at:  rescueExpiresAt,
-          deep_link:   `/driver/${topCandidate.driver_code ?? ''}`,
-        })
-      } catch { /* non-blocking */ }
+      // Push notification handled by createDispatchOfferAndNotify() above.
+      // No additional push call needed here.
 
       return NextResponse.json({
         success: true,
