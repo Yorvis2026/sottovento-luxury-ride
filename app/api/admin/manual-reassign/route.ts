@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
-import { sendPushToDriver } from "@/lib/push/send-push";
+import { createDispatchOfferAndNotify } from "@/lib/dispatch/orchestrator";
 
 // ============================================================
 // POST /api/admin/manual-reassign
@@ -374,36 +374,23 @@ export async function POST(req: NextRequest) {
     const nextRound = currentRound + 1;
     const offerWindowMinutes = 20;
 
-    // ── Cancel any existing pending offers ────────────────────
-    await sql`
-      UPDATE dispatch_offers
-      SET response = 'superseded', responded_at = NOW()
-      WHERE booking_id = ${booking_id}::uuid
-        AND response = 'pending'
-    `;
-
-    // ── Create new dispatch_offer ─────────────────────────────
-    const newOfferRows = await sql`
-      INSERT INTO dispatch_offers (
-        booking_id, driver_id,
-        response, offer_round, round_number,
-        is_source_offer, is_fallback_offer,
-        sent_at, expires_at, created_at
-      ) VALUES (
-        ${booking_id}::uuid,
-        ${targetDriverId}::uuid,
-        'pending',
-        ${nextRound},
-        ${nextRound},
-        false,
-        false,
-        NOW(),
-        NOW() + (${offerWindowMinutes} || ' minutes')::interval,
-        NOW()
-      )
-      RETURNING id::text
-    `;
-    const newOfferId = newOfferRows[0]?.id ?? null;
+    // ── SLN-ARCHITECTURE-REFINE-01: Orchestrator handles supersede + insert + push ──
+    const offerResult = await createDispatchOfferAndNotify({
+      booking_id,
+      driver_id:        targetDriverId!,
+      driver_code:      targetDriverCode ?? '',
+      offer_round:      nextRound,
+      offer_type:       'pool',
+      is_source_offer:  false,
+      is_fallback_offer: false,
+      pickup_text:      (booking.pickup_address ?? booking.pickup_location ?? 'New Ride Offer') as string,
+      price:            Number(booking.total_price ?? 0),
+      // manual-reassign uses 20-minute window (admin override)
+      window_minutes:   offerWindowMinutes,
+      sql,
+    });
+    const newOfferId = offerResult.offer_id;
+    const offerExpiresAt = offerResult.expires_at;
 
     // ── Update booking state ──────────────────────────────────
     // BUG A FIX: Set assigned_driver_id to the target driver (not NULL).
@@ -420,7 +407,7 @@ export async function POST(req: NextRequest) {
         dispatch_round           = ${nextRound},
         assigned_driver_id       = ${targetDriverId}::uuid,
         manual_dispatch_required = FALSE,
-        offer_expires_at         = NOW() + (${offerWindowMinutes} || ' minutes')::interval,
+        offer_expires_at         = ${offerExpiresAt}::timestamptz,
         updated_at               = NOW()
       WHERE id = ${booking_id}::uuid
         AND status NOT IN (
@@ -492,26 +479,7 @@ export async function POST(req: NextRequest) {
       `;
     } catch { /* non-blocking */ }
 
-    // SLN-PUSH-DELIVERY-ACTIVATION-01: Send Web Push on manual reassignment
-    // Non-blocking — never interrupts dispatch flow
-    try {
-      const offerExpiresAt = new Date(Date.now() + offerWindowMinutes * 60 * 1000).toISOString()
-      // Fetch booking pickup info for the push payload
-      const [bRow] = await sql`
-        SELECT pickup_address, pickup_location, total_price FROM bookings WHERE id = ${booking_id}::uuid LIMIT 1
-      `
-      await sendPushToDriver(targetDriverId!, {
-        offer_id:    newOfferId ?? booking_id,
-        offer_type:  'pool',
-        offer_round: nextRound,
-        driver_code: targetDriverCode ?? '',
-        booking_id:  booking_id,
-        pickup_text: ((bRow?.pickup_address ?? bRow?.pickup_location ?? 'New Ride Offer') as string).slice(0, 60),
-        price:       Number(bRow?.total_price ?? 0),
-        expires_at:  offerExpiresAt,
-        deep_link:   `/driver/${targetDriverCode ?? ''}`,
-      })
-    } catch { /* non-blocking */ }
+    // Push is now handled by createDispatchOfferAndNotify() — SLN-ARCHITECTURE-REFINE-01
 
     return NextResponse.json({
       success: true,
