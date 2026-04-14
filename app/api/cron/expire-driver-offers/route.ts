@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { createDispatchOfferAndNotify } from "@/lib/dispatch/orchestrator";
 
 // ============================================================
 // GET /api/cron/expire-driver-offers
@@ -515,14 +516,26 @@ export async function GET(request: Request) {
           continue;
         }
 
-        // ── STEP 7: Create new dispatch_offer ──────────────
+        // ── STEP 7: Create new dispatch_offer via Orchestrator ──────────────
+        // Replaces: local createDispatchOffer() with no idempotency guard and no push
+        // Orchestrator handles:
+        //   1. Supersede existing pending offers for this booking
+        //   2. WHERE NOT EXISTS guard (idempotent — safe if cron runs twice)
+        //   3. expires_at via TTL policy (matches OFFER_WINDOW above)
+        //   4. sendPushToDriver only if new row was inserted (no duplicate push)
         const windowMinutes = OFFER_WINDOW[nextRound] ?? DEFAULT_OFFER_WINDOW;
-        const newOfferId = await createDispatchOffer(
-          offer.booking_id,
-          nextDriver.id,
-          nextRound,
-          windowMinutes
-        );
+        const orchestratorResult = await createDispatchOfferAndNotify({
+          booking_id:      offer.booking_id,
+          driver_id:       nextDriver.id,
+          driver_code:     nextDriver.driver_code,
+          offer_round:     nextRound,
+          offer_type:      nextRound === 1 ? 'source' : 'pool',
+          is_source_offer: nextRound === 1,
+          pickup_text:     'New Ride Offer',
+          price:           0,
+          sql,
+        });
+        const newOfferId = orchestratorResult?.offer_id ?? null;
 
         if (!newOfferId) {
           await sql`
