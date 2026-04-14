@@ -18,6 +18,7 @@ export async function PATCH(
       driver_tier,
       is_eligible_for_premium_dispatch,
       is_eligible_for_airport_priority,
+      is_eligible,
     } = body;
 
     // BM5: Update legal_affiliation_type (Admin Only)
@@ -66,6 +67,16 @@ export async function PATCH(
         WHERE id = ${id}
       `;
       return NextResponse.json({ success: true, updated: "is_eligible_for_airport_priority", value: is_eligible_for_airport_priority });
+    }
+
+    // SLN-DRIVER-CLEANUP-01: Update is_eligible (dispatch pool eligibility)
+    if (is_eligible !== undefined) {
+      await sql`
+        UPDATE drivers
+        SET is_eligible = ${is_eligible}, updated_at = NOW()
+        WHERE id = ${id}
+      `;
+      return NextResponse.json({ success: true, updated: "is_eligible", value: is_eligible });
     }
 
     // Legacy: Update driver_status
