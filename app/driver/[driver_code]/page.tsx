@@ -1381,12 +1381,17 @@ export default function DriverDashboardByCode() {
     // Helper: persist subscription to DB
     const persistSubscription = async (sub: PushSubscription) => {
       try {
-        const me = await fetch(`/api/driver/me?driver_code=${driverCode}`).then(r => r.json()).catch(() => null)
-        if (!me?.id) { console.log('[SLN-PUSH] persistSubscription: driver_id not found'); return }
+        // [SLN-PUSH-DELIVERY-FIX-01]
+        // BUG A FIX: was ?driver_code= (wrong param) → must be ?code=
+        // BUG B FIX: was me.id (top-level, always undefined) → must be me.driver.id
+        // Both bugs caused 0 subscriptions to be registered → 0 pushes delivered globally
+        const me = await fetch(`/api/driver/me?code=${driverCode}`).then(r => r.json()).catch(() => null)
+        const driverUUID = me?.driver?.id ?? me?.id ?? null
+        if (!driverUUID) { console.log('[SLN-PUSH] persistSubscription: driver_id not found in me.driver.id'); return }
         const res = await fetch('/api/driver/push-subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ driver_id: me.id, subscription: sub.toJSON() }),
+          body: JSON.stringify({ driver_id: driverUUID, subscription: sub.toJSON() }),
         })
         const data = await res.json().catch(() => ({}))
         console.log('[SLN-PUSH] POST push-subscribe:', res.ok ? 'SUCCESS' : 'FAILED', data)
