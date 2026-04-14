@@ -12,6 +12,7 @@ import {
 import { calcPreviewImpactAuto } from "@/lib/drs/calcPreviewImpact";
 import { checkDriverAvailabilityForBooking } from "@/lib/dispatch/conflict-engine";
 import { dispatchToNetwork } from "@/lib/dispatch/dispatch-to-network";
+import { createDispatchOfferAndNotify } from "@/lib/dispatch/orchestrator";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!);
 
 /**
@@ -824,22 +825,24 @@ export async function GET(req: NextRequest) {
             WHERE id = ${candidate.id}::uuid
               AND assigned_driver_id IS NULL
           `;
-          // Create dispatch_offer record
-          sql`
-            INSERT INTO dispatch_offers (
-              booking_id, driver_id, offer_round,
-              is_source_offer, response, sent_at, expires_at
-            ) VALUES (
-              ${candidate.id}::uuid,
-              ${resolvedDriver.id}::uuid,
-              1,
-              ${engineResult.source_driver_override},
-              'pending',
-              NOW(),
-              NOW() + interval '24 hours'
-            )
-            ON CONFLICT DO NOTHING
-          `.catch(() => {});
+          // Create dispatch_offer via Orchestrator (idempotent, push-aware)
+          // Replaces: manual INSERT with 24h TTL + no push + no supersede
+          // Orchestrator handles:
+          //   1. Supersede existing pending offers for this booking
+          //   2. WHERE NOT EXISTS guard (no duplicate pending offers)
+          //   3. expires_at via TTL policy (Round 1 = 10 min)
+          //   4. sendPushToDriver only if new row was inserted
+          createDispatchOfferAndNotify({
+            booking_id:      candidate.id,
+            driver_id:       resolvedDriver.id,
+            driver_code:     resolvedDriver.driver_code ?? '',
+            offer_round:     1,
+            offer_type:      engineResult.source_driver_override ? 'source' : 'pool',
+            is_source_offer: engineResult.source_driver_override,
+            pickup_text:     ((candidate.pickup_address ?? candidate.pickup_location ?? 'New Ride') as string).slice(0, 60),
+            price:           Number((candidate as any).total_price ?? 0),
+            sql,
+          }).catch(() => {});
 
           // Move from readyForDispatch to assigned in this response
           const idx = readyForDispatch.indexOf(candidate);
