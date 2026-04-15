@@ -1436,8 +1436,17 @@ export default function DriverDashboardByCode() {
 
       try {
         // Step 1: Register SW
-        const reg = await navigator.serviceWorker.register('/driver-sw.js', { scope: '/driver/' })
-        console.log('[SLN-PUSH] SW registered:', reg.active?.state ?? 'installing')
+        // [SLN-SW-SCOPE-FIX-01]: Removed explicit scope: '/driver/' — the browser
+        // derives the scope from the SW file path (/driver-sw.js → scope: /).
+        // Passing scope: '/driver/' for a SW at / requires a Service-Worker-Allowed
+        // header on the server. Without it, Safari on iOS silently rejects the
+        // registration, causing navigator.serviceWorker.ready to never resolve
+        // and pushManager.subscribe() to never execute → 0 push subscriptions.
+        // The next.config.mjs now also adds Service-Worker-Allowed: / to /driver-sw.js
+        // as a defense-in-depth measure, but removing the explicit scope here
+        // ensures the registration succeeds even on cached Vercel responses.
+        const reg = await navigator.serviceWorker.register('/driver-sw.js')
+        console.log('[SLN-SW-SCOPE-FIX-01] SW registered — scope:', reg.scope, '| state:', reg.active?.state ?? 'installing/waiting')
 
         // Step 2: Listen for SW messages (offer click → reload)
         navigator.serviceWorker.addEventListener('message', (event) => {
@@ -1488,11 +1497,15 @@ export default function DriverDashboardByCode() {
           }
         }
       } catch (err) {
-        console.error('[SLN-PUSH] setupPush error:', err)
+        // [SLN-SW-SCOPE-FIX-01] Enhanced error logging: captures scope rejection errors
+        // which previously failed silently (setupPush().catch(() => {}))
+        console.error('[SLN-SW-SCOPE-FIX-01] setupPush error:', err instanceof Error ? err.message : String(err), err)
       }
     }
 
-    setupPush().catch(() => {})
+    setupPush().catch((err) => {
+      console.error('[SLN-SW-SCOPE-FIX-01] setupPush unhandled rejection:', err instanceof Error ? err.message : String(err))
+    })
 
     // ── Availability Engine: panel open → available ───────────────────────────────────────
     // When the driver opens the panel, set availability_status = 'available'
