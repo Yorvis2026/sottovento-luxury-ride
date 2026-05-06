@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// createDispatchOfferAndNotify() — SLN-ARCHITECTURE-REFINE-01
+// createDispatchOfferAndNotify() — SLN-ARCHITECTURE-REFINE-01 + BM-SLN-APNS-ORCHESTRATOR
 //
 // Central orchestrator for all dispatch offer creation.
 // Guarantees:
@@ -9,11 +9,13 @@
 //      for the same (booking_id, driver_id) when response='pending' already exists
 //   4. Authoritative TTL — expires_at calculated here, not in each endpoint
 //   5. Push decoupled from DB — push fires only if a new row was inserted
+//   6. [BM-SLN-APNS-ORCHESTRATOR] sendApnsToDriver fires alongside sendPushToDriver
+//      for native iOS push (Capacitor app). Uses driver_code as identifier.
 //
 // DOES NOT modify: service worker, subscription flow, DB schema, UI components.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { sendPushToDriver } from '@/lib/push/send-push'
+import { sendPushToDriver, sendApnsToDriver } from '@/lib/push/send-push'
 import { neon } from '@neondatabase/serverless'
 
 // Authoritative offer window policy (minutes) per round
@@ -79,6 +81,8 @@ export async function createDispatchOfferAndNotify(
       driver_code = rows[0]?.driver_code ?? ''
     } catch { /* non-blocking */ }
   }
+
+  console.log(`[orchestrator] createDispatchOfferAndNotify — booking: ${booking_id} driver: ${driver_code} (${driver_id}) round: ${offer_round} type: ${offer_type}`)
 
   // ── 1. Calculate authoritative TTL ───────────────────────────────────────
   const ttlMinutes = window_minutes ?? OFFER_WINDOW_MINUTES[offer_round] ?? DEFAULT_OFFER_WINDOW_MINUTES
@@ -158,10 +162,11 @@ export async function createDispatchOfferAndNotify(
     return { offer_id: null, expires_at: expiresAtISO, was_created: false }
   }
 
-  // ── 5. Fire push notification (only if new offer was created) ────────────
+  // ── 5. Fire push notifications (only if new offer was created) ────────────
   // Non-blocking — never interrupts dispatch flow.
   // Push uses booking_id as tag → iOS replaces previous lockscreen alert.
-  sendPushToDriver(driver_id, {
+
+  const pushPayload = {
     offer_id:    newOfferId,
     offer_type,
     offer_round,
@@ -171,7 +176,22 @@ export async function createDispatchOfferAndNotify(
     price,
     expires_at:  expiresAtISO,
     deep_link:   `/driver/${driver_code}`,
-  }).catch(() => null)
+  }
+
+  // 5a. Web Push (VAPID) — for PWA / browser subscriptions
+  sendPushToDriver(driver_id, pushPayload).catch(() => null)
+
+  // 5b. Native APNs — for iOS Capacitor app
+  // [BM-SLN-APNS-ORCHESTRATOR] sendApnsToDriver uses driver_code (not driver_id UUID)
+  // because driver_apns_tokens table is keyed by driver_code.
+  if (driver_code) {
+    console.log(`[orchestrator] Firing APNs for driver_code=${driver_code} offer_id=${newOfferId} round=${offer_round}`)
+    sendApnsToDriver(driver_code, pushPayload).catch((err) => {
+      console.error('[orchestrator] sendApnsToDriver threw:', err)
+    })
+  } else {
+    console.warn('[orchestrator] driver_code is empty — skipping APNs (driver_id:', driver_id, ')')
+  }
 
   return { offer_id: newOfferId, expires_at: expiresAtISO, was_created: true }
 }
