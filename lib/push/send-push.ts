@@ -1,11 +1,13 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// sendPushToDriver() + sendApnsToDriver() — BM-SLN-APNS-TOKEN-NATIVE-REGISTER-FIX
+// sendPushToDriver() + sendApnsToDriver() — BM-SLN-APNS-HTTP2-FIX
 // Sends Web Push (VAPID) AND native APNs to a driver.
 // Safe: never throws — logs errors silently so dispatch is never blocked.
+// APNs uses http2 module (Node.js native) because Apple requires HTTP/2
+// and fetch() does not support HTTP/2 outbound in Vercel serverless.
 // ─────────────────────────────────────────────────────────────────────────────
 import webpush from 'web-push'
 import { neon } from '@neondatabase/serverless'
 import { createSign } from 'crypto'
+import * as http2 from 'http2'
 
 // VAPID keys — set in Vercel env vars
 const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
@@ -105,6 +107,7 @@ export async function sendPushToDriver(driverId: string, payload: PushPayload): 
 // ─────────────────────────────────────────────────────────────────────────────
 // Native APNs — for iOS native app (Capacitor)
 // Uses HTTP/2 JWT authentication with the .p8 key
+// Uses Node.js http2 module (NOT fetch) because Apple requires HTTP/2
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Generate APNs JWT token using ES256 */
@@ -117,6 +120,60 @@ function generateApnsJwt(): string {
   sign.update(signingInput)
   const signature = sign.sign({ key: APNS_PRIVATE_KEY, dsaEncoding: 'ieee-p1363' }).toString('base64url')
   return `${signingInput}.${signature}`
+}
+
+/** Send a single APNs push via HTTP/2 using Node.js http2 module */
+function sendApnsHttp2(
+  host: string,
+  deviceToken: string,
+  bundleId: string,
+  jwt: string,
+  apnsPayload: string
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const client = http2.connect(`https://${host}`)
+
+    client.on('error', (err) => {
+      client.destroy()
+      reject(err)
+    })
+
+    const path = `/3/device/${deviceToken}`
+    const req = client.request({
+      ':method': 'POST',
+      ':path': path,
+      ':scheme': 'https',
+      ':authority': host,
+      'authorization': `bearer ${jwt}`,
+      'apns-topic': bundleId,
+      'apns-push-type': 'alert',
+      'apns-priority': '10',
+      'apns-expiration': String(Math.floor(Date.now() / 1000) + 3600),
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(apnsPayload).toString(),
+    })
+
+    let statusCode = 0
+    req.on('response', (headers) => {
+      statusCode = headers[':status'] as number
+    })
+
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+
+    req.on('end', () => {
+      client.close()
+      resolve({ status: statusCode, body })
+    })
+
+    req.on('error', (err) => {
+      client.destroy()
+      reject(err)
+    })
+
+    req.write(apnsPayload)
+    req.end()
+  })
 }
 
 export async function sendApnsToDriver(driverCode: string, payload: PushPayload): Promise<void> {
@@ -186,41 +243,30 @@ export async function sendApnsToDriver(driverCode: string, payload: PushPayload)
           expires_at: payload.expires_at,
         })
 
-        const url = `https://${apnsHost}/3/device/${deviceToken}`
-
         try {
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-              'authorization': `bearer ${jwt}`,
-              'apns-topic': bundleId,
-              'apns-push-type': 'alert',
-              'apns-priority': '10',
-              'apns-expiration': String(Math.floor(Date.now() / 1000) + 3600),
-              'content-type': 'application/json',
-            },
-            body: apnsPayload,
-          })
+          const { status, body: responseBody } = await sendApnsHttp2(
+            apnsHost,
+            deviceToken,
+            bundleId,
+            jwt,
+            apnsPayload
+          )
 
-          const apnsId = res.headers.get('apns-id') || 'n/a'
-
-          if (res.ok) {
-            console.log(`[sendApnsToDriver] ✅ APNs delivered — device: ${deviceToken.slice(0, 16)}… apns-id: ${apnsId}`)
+          if (status === 200) {
+            console.log(`[sendApnsToDriver] ✅ APNs delivered — device: ${deviceToken.slice(0, 16)}… status: 200`)
           } else {
-            let errorBody = ''
-            try { errorBody = await res.text() } catch {}
-            console.error(`[sendApnsToDriver] ❌ APNs error — status: ${res.status} device: ${deviceToken.slice(0, 16)}… body: ${errorBody}`)
+            console.error(`[sendApnsToDriver] ❌ APNs error — status: ${status} device: ${deviceToken.slice(0, 16)}… body: ${responseBody}`)
 
             // Remove invalid tokens from DB
-            if (res.status === 410 || errorBody.includes('BadDeviceToken') || errorBody.includes('Unregistered')) {
+            if (status === 410 || responseBody.includes('BadDeviceToken') || responseBody.includes('Unregistered')) {
               console.warn(`[sendApnsToDriver] Removing invalid token for driver ${driverCode}`)
               try {
                 await sql`DELETE FROM driver_apns_tokens WHERE apns_token = ${deviceToken}`
               } catch {}
             }
           }
-        } catch (fetchErr) {
-          console.error(`[sendApnsToDriver] Fetch error for device ${deviceToken.slice(0, 16)}:`, fetchErr)
+        } catch (http2Err) {
+          console.error(`[sendApnsToDriver] HTTP/2 error for device ${deviceToken.slice(0, 16)}:`, http2Err)
         }
       })
     )
