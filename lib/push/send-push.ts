@@ -135,11 +135,11 @@ export async function sendApnsToDriver(driverCode: string, payload: PushPayload)
 
     // Get all APNs tokens for this driver
     const tokens = await sql`
-      SELECT apns_token, bundle_id, device_id
+      SELECT apns_token, bundle_id
       FROM driver_apns_tokens
       WHERE driver_code = ${driverCode}
       ORDER BY updated_at DESC
-    ` as { apns_token: string; bundle_id: string | null; device_id: string | null }[]
+    ` as { apns_token: string; bundle_id: string | null }[]
 
     if (!tokens.length) {
       console.log('[sendApnsToDriver] No APNs tokens for driver', driverCode)
