@@ -33,19 +33,17 @@ export async function POST(req: NextRequest) {
 
     // Upsert: insert or update on conflict (driver_code, apns_token)
     await sql`
-      INSERT INTO driver_apns_tokens (driver_code, apns_token, bundle_id, device_id, environment, updated_at)
+      INSERT INTO driver_apns_tokens (driver_code, apns_token, bundle_id, environment, updated_at)
       VALUES (
         ${driver_code},
         ${apns_token},
         ${bundle_id || "com.sottoventoluxuryride.driver"},
-        ${device_id || null},
         ${environment || "production"},
         NOW()
       )
       ON CONFLICT (driver_code, apns_token)
       DO UPDATE SET
         bundle_id = EXCLUDED.bundle_id,
-        device_id = EXCLUDED.device_id,
         environment = EXCLUDED.environment,
         updated_at = NOW()
     `;
