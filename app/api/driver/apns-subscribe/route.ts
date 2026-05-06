@@ -1,24 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
-
 /**
  * POST /api/driver/apns-subscribe
  * BM-SLN-APNS-TOKEN-NATIVE-REGISTER-FIX
+ * BM-SLN-APNS-FIELD-ALIAS-FIX
  *
  * Saves the native APNs device token for a driver.
  * Called from the iOS Capacitor shell after PushNotifications.register() fires.
+ *
+ * Accepts multiple field name aliases for the token to support both
+ * the iOS shell payload ({ driver_code, token, push_token, platform })
+ * and the canonical payload ({ driver_code, apns_token }).
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { driver_code, apns_token, bundle_id, device_id, environment } = body;
+
+    // BM-SLN-APNS-FIELD-ALIAS-FIX:
+    // The iOS Capacitor shell sends { driver_code, token, push_token, platform }
+    // while the canonical field name is apns_token.
+    // Accept all aliases so both the shell and direct API callers work.
+    const driver_code = body.driver_code;
+    const apns_token  = body.apns_token || body.token || body.push_token || null;
+    const bundle_id   = body.bundle_id   || null;
+    const device_id   = body.device_id   || null;
+    const environment = body.environment || body.platform || "production";
 
     console.log("[apns-subscribe] Received registration:", {
       driver_code,
       apns_token: apns_token ? `${String(apns_token).substring(0, 16)}...` : "MISSING",
-      bundle_id,
-      device_id,
       environment,
+      bundle_id,
     });
 
     if (!driver_code || !apns_token) {
@@ -37,19 +49,18 @@ export async function POST(req: NextRequest) {
       VALUES (
         ${driver_code},
         ${apns_token},
-        ${bundle_id || "com.sottoventoluxuryride.driver"},
-        ${environment || "production"},
+        ${bundle_id},
+        ${environment},
         NOW()
       )
       ON CONFLICT (driver_code, apns_token)
       DO UPDATE SET
-        bundle_id = EXCLUDED.bundle_id,
+        bundle_id   = EXCLUDED.bundle_id,
         environment = EXCLUDED.environment,
-        updated_at = NOW()
+        updated_at  = NOW()
     `;
 
     console.log(`[apns-subscribe] ✅ Token saved for driver ${driver_code}`);
-
     return NextResponse.json({
       ok: true,
       subscribed: true,
@@ -60,7 +71,6 @@ export async function POST(req: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[apns-subscribe] Error:", msg);
 
-    // If table doesn't exist yet, return a helpful error
     if (msg.includes("driver_apns_tokens") && msg.includes("does not exist")) {
       return NextResponse.json(
         {
