@@ -4,6 +4,7 @@ import Stripe from "stripe"
 import { neon } from "@neondatabase/serverless"
 import { lockCommission } from "@/lib/dispatch/commission-engine"
 import { resolveLeadOrigin, lockLeadOrigin } from "@/lib/dispatch/lead-origin"
+import { sendApnsToDriver } from "@/lib/push/send-push"
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_placeholder")
 const sql = neon(process.env.DATABASE_URL_UNPOOLED!)
@@ -555,6 +556,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
             dispatch_status: 'offer_pending',
           })
           console.log('[webhook] auto-assign SUCCESS: driver', capturingDriver.full_name, '(', capturingDriver.id, ') assigned to booking', finalBookingId)
+
+          // [BM-SLN-APNS-WEBHOOK-FIX] Fire native APNs to driver iPhone (non-blocking)
+          // sendApnsToDriver reads tokens from driver_apns_tokens keyed by driver_code.
+          // This is the Opción A minimal fix — does not replace the orchestrator flow.
+          if (capturingDriver.driver_code) {
+            const apnsPayload = {
+              offer_id:    'auto-assign',
+              offer_type:  'source' as const,
+              offer_round: 1,
+              driver_code: capturingDriver.driver_code,
+              booking_id:  finalBookingId!,
+              pickup_text: (resolvedPickupLocation || pickupLocation || 'New Ride').slice(0, 60),
+              price:       fare ?? 0,
+              expires_at:  new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+              deep_link:   `/driver/${capturingDriver.driver_code}`,
+            }
+            console.log('[webhook] [BM-SLN-APNS-WEBHOOK-FIX] Firing APNs for driver_code:', capturingDriver.driver_code)
+            sendApnsToDriver(capturingDriver.driver_code, apnsPayload).catch((err) => {
+              console.error('[webhook] sendApnsToDriver threw:', err)
+            })
+          } else {
+            console.warn('[webhook] [BM-SLN-APNS-WEBHOOK-FIX] driver_code empty — skipping APNs for driver_id:', capturingDriver.id)
+          }
         }
       }
     } catch (autoAssignErr: any) {
