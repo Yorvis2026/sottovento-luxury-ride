@@ -110,6 +110,14 @@ export async function sendPushToDriver(driverId: string, payload: PushPayload): 
 // Uses Node.js http2 module (NOT fetch) because Apple requires HTTP/2
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Map dispatch offer_type to driver-app push type (Capacitor data.type) */
+function mapOfferTypeToPushType(offerType: string): string {
+  if (offerType === 'source') return 'new_ride'
+  if (offerType === 'pool') return 'pool_offer'
+  if (offerType === 'fallback') return 'dispatch_escalation'
+  return 'dispatch_escalation'
+}
+
 /** Generate APNs JWT token using ES256 */
 function generateApnsJwt(): string {
   const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: APNS_KEY_ID })).toString('base64url')
@@ -222,7 +230,7 @@ export async function sendApnsToDriver(driverCode: string, payload: PushPayload)
         const deviceToken = row.apns_token
         const bundleId = row.bundle_id || APNS_BUNDLE_ID
 
-        const apnsPayload = JSON.stringify({
+        const apnsPayloadObj = {
           aps: {
             alert: {
               title: alertTitle,
@@ -230,18 +238,26 @@ export async function sendApnsToDriver(driverCode: string, payload: PushPayload)
             },
             sound: 'default',
             badge: 1,
-            'content-available': 1,
-            'mutable-content': 1,
             category: 'RIDE_OFFER',
           },
-          // Custom data for deep link
+          driver_code: driverCode,
+          type: mapOfferTypeToPushType(payload.offer_type),
           offer_id: payload.offer_id,
           offer_type: payload.offer_type,
           booking_id: payload.booking_id,
           deep_link: payload.deep_link,
           price: payload.price,
           expires_at: payload.expires_at,
-        })
+        }
+        const apnsPayload = JSON.stringify(apnsPayloadObj)
+
+        console.log('[sendApnsToDriver] APNs outbound', JSON.stringify({
+          driver_code: driverCode,
+          APNS_ENV,
+          APNS_BUNDLE_ID,
+          apns_topic: bundleId,
+          apnsPayload: apnsPayloadObj,
+        }))
 
         try {
           const { status, body: responseBody } = await sendApnsHttp2(
