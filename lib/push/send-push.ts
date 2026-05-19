@@ -236,7 +236,7 @@ export async function sendApnsToDriver(driverCode: string, payload: PushPayload)
               title: alertTitle,
               body: alertBody,
             },
-            sound: 'default',
+            sound: 'sln_dispatch.caf',
             badge: 1,
             category: 'RIDE_OFFER',
           },
